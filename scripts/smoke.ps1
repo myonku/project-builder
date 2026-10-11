@@ -38,6 +38,16 @@ function Assert-Equal {
     }
 }
 
+# Assert-True 断言一个布尔条件（用于无法直接比较取值的检查）。
+function Assert-True {
+    param([bool]$Condition, [string]$Label)
+    if ($Condition) {
+        Write-Host ("  [PASS] {0}" -f $Label) -ForegroundColor Green
+    } else {
+        Write-Host ("  [FAIL] {0}" -f $Label) -ForegroundColor Red
+        $script:Failures++
+    }
+}
 # Invoke-Api 返回状态码与解析后的响应体，不因非 2xx 抛异常。
 function Invoke-Api {
     param(
@@ -80,6 +90,68 @@ function Invoke-Api {
     }
 }
 
+# Invoke-ApiUpload 上传一个附件（multipart/form-data）。
+#
+# 单独一个函数而不是给 Invoke-Api 加参数：JSON 与 multipart 的
+# ContentType/Body 处理完全不同，混在一起会让两者都难以阅读。
+function Invoke-ApiUpload {
+    param(
+        [string]$Path,
+        [string]$FileName,
+        [byte[]]$Content,
+        [string]$ContentType = 'application/octet-stream'
+    )
+
+    $temp = Join-Path ([IO.Path]::GetTempPath()) $FileName
+    [IO.File]::WriteAllBytes($temp, $Content)
+    try {
+        $params = @{
+            Method      = 'POST'
+            Uri         = "$BaseUrl$Path"
+            WebSession  = $session
+            Form        = @{ file = Get-Item $temp }
+            ErrorAction = 'Stop'
+        }
+        try {
+            $response = Invoke-WebRequest @params
+            return [pscustomobject]@{
+                Status = [int]$response.StatusCode
+                Body   = if ($response.Content) { $response.Content | ConvertFrom-Json } else { $null }
+            }
+        } catch {
+            $status = $_.Exception.Response.StatusCode.value__
+            $content = $null
+            if ($_.ErrorDetails.Message) {
+                try { $content = $_.ErrorDetails.Message | ConvertFrom-Json } catch { }
+            }
+            return [pscustomobject]@{ Status = $status; Body = $content }
+        }
+    } finally {
+        Remove-Item $temp -Force -ErrorAction SilentlyContinue
+    }
+}
+
+# Invoke-ApiDownload 下载附件并返回原始字节。
+function Invoke-ApiDownload {
+    param([string]$Path)
+
+    try {
+        $response = Invoke-WebRequest -Method GET -Uri "$BaseUrl$Path" -WebSession $session -ErrorAction Stop
+        return [pscustomobject]@{
+            Status      = [int]$response.StatusCode
+            Content     = $response.Content
+            RawBytes    = $response.RawContentStream.ToArray()
+            Disposition = $response.Headers['Content-Disposition']
+        }
+    } catch {
+        return [pscustomobject]@{
+            Status      = $_.Exception.Response.StatusCode.value__
+            Content     = $null
+            RawBytes    = $null
+            Disposition = $null
+        }
+    }
+}
 Write-Host "冒烟检查目标：$BaseUrl" -ForegroundColor Yellow
 
 # ---------------------------------------------------------------------------
@@ -864,6 +936,74 @@ $exOwnerManage = Invoke-Api -Method POST -Path "/api/v1/groups/$groupId/members"
 Assert-Equal $exOwnerManage.Status 404 '转移后原所有者失去组管理权'
 
 $session = $primarySession
+
+# ---------------------------------------------------------------------------
+Write-Step "附件"
+# ---------------------------------------------------------------------------
+
+$attachmentProject = Invoke-Api -Method POST -Path '/api/v1/projects' -Body @{
+    name       = "附件冒烟项目 $Username"
+    group_id   = $groupId
+    start_date = '2026-10-01'
+    end_date   = '2026-10-31'
+}
+Assert-Equal $attachmentProject.Status 201 '创建附件用的项目'
+$attachmentProjectId = $attachmentProject.Body.data.id
+
+$attachmentContent = [Text.Encoding]::UTF8.GetBytes('冒烟附件内容 attachment-smoke-body')
+$uploaded = Invoke-ApiUpload -Path "/api/v1/projects/$attachmentProjectId/attachments" `
+    -FileName '烟雾 测试.txt' -Content $attachmentContent -ContentType 'text/plain'
+Assert-Equal $uploaded.Status 201 '上传附件应 201'
+$attachmentId = $uploaded.Body.data.id
+Assert-Equal $uploaded.Body.data.original_name '烟雾 测试.txt' '保留原始文件名'
+Assert-Equal $uploaded.Body.data.extension '.txt' '扩展名正确'
+Assert-Equal $uploaded.Body.data.size_bytes $attachmentContent.Length 'size_bytes 与内容一致'
+
+$downloaded = Invoke-ApiDownload -Path "/api/v1/attachments/$attachmentId/download"
+Assert-Equal $downloaded.Status 200 '下载附件应 200'
+Assert-True (($downloaded.Disposition -join ' ') -like "*filename*=UTF-8''*") '中文文件名用 filename* 表达'
+
+$attachmentList = Invoke-Api -Method POST -Path "/api/v1/projects/$attachmentProjectId/attachments/query" -Body @{
+    page = 1; page_size = 20
+}
+Assert-Equal $attachmentList.Body.pagination.total 1 '附件列表含 1 条'
+
+# 未逻辑删除的附件不能直接彻底删除。
+$prematurePurge = Invoke-Api -Method POST -Path "/api/v1/attachments/$attachmentId/purge" -Body @{}
+Assert-Equal $prematurePurge.Status 409 '未逻辑删除时彻底删除应 409'
+
+$softDeleted = Invoke-Api -Method DELETE -Path "/api/v1/attachments/$attachmentId" -Body $null
+Assert-Equal $softDeleted.Status 200 '逻辑删除应 200'
+Assert-True ($null -ne $softDeleted.Body.data.deleted_at) '响应含 deleted_at'
+
+$defaultList = Invoke-Api -Method POST -Path "/api/v1/projects/$attachmentProjectId/attachments/query" -Body @{
+    page = 1; page_size = 20
+}
+Assert-Equal $defaultList.Body.pagination.total 0 '默认列表不含已删除附件'
+
+$deletedList = Invoke-Api -Method POST -Path "/api/v1/projects/$attachmentProjectId/attachments/query" -Body @{
+    page = 1; page_size = 20; deleted_only = $true
+}
+Assert-Equal $deletedList.Body.pagination.total 1 'deleted_only 含 1 条'
+
+# 上传者本人可以彻底删除自己的附件。
+$purged = Invoke-Api -Method POST -Path "/api/v1/attachments/$attachmentId/purge" -Body @{}
+Assert-Equal $purged.Status 204 '彻底删除应 204'
+
+$afterPurge = Invoke-Api -Method GET -Path "/api/v1/attachments/$attachmentId/download"
+Assert-Equal $afterPurge.Status 404 '彻底删除后不可下载'
+
+# 项目在本系统里是**归档**而不是删除，因此这里归档而不是清理。
+# 归档后附件随之为只读——与"归档项目对其下任务只读"是同一条规则。
+$attachmentProjectDetail = Invoke-Api -Method GET -Path "/api/v1/projects/$attachmentProjectId"
+$archived = Invoke-Api -Method POST -Path "/api/v1/projects/$attachmentProjectId/archive" -Body @{
+    expected_updated_at = $attachmentProjectDetail.Body.data.updated_at
+}
+Assert-Equal $archived.Status 200 '归档附件用的项目'
+
+$archivedUpload = Invoke-ApiUpload -Path "/api/v1/projects/$attachmentProjectId/attachments" `
+    -FileName 'archived.txt' -Content $attachmentContent -ContentType 'text/plain'
+Assert-Equal $archivedUpload.Status 403 '归档项目不可再上传附件'
 
 # ---------------------------------------------------------------------------
 Write-Step "结果"

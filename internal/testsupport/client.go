@@ -145,6 +145,17 @@ func Str(object map[string]any, key string) string {
 	return value
 }
 
+// Int 取出数值字段。JSON 数字统一解析为 float64，因此这里做一次收窄。
+//
+// 附件的大小、条数等断言都依赖它，写在各用例里会重复且容易忘记类型转换。
+func Int(object map[string]any, key string) int {
+	value, ok := object[key].(float64)
+	if !ok {
+		return 0
+	}
+	return int(value)
+}
+
 // Client 是绑定到某个路由与身份的 HTTP 客户端。
 type Client struct {
 	t       *testing.T
@@ -196,6 +207,37 @@ func (c *Client) Call(method, path string, body any, headers map[string]string) 
 	c.router.ServeHTTP(recorder, request)
 
 	return Response{Status: recorder.Code, Body: recorder.Body.Bytes(), Recorder: recorder}
+}
+
+// CallRaw 发送**原始请求体**并指定 Content-Type。
+//
+// 与 Call 的区别：Call 只能发 JSON。附件上传是 multipart、下载是任意字节流，
+// 两者都无法用 JSON 表达，因此单开一个入口。
+func (c *Client) CallRaw(method, path string, body []byte, contentType string) Response {
+	c.t.Helper()
+
+	request := httptest.NewRequest(method, path, bytes.NewReader(body))
+	if contentType != "" {
+		request.Header.Set("Content-Type", contentType)
+	}
+	for name, value := range c.cookies {
+		request.AddCookie(&http.Cookie{Name: name, Value: value})
+	}
+
+	recorder := httptest.NewRecorder()
+	c.router.ServeHTTP(recorder, request)
+
+	return Response{Status: recorder.Code, Body: recorder.Body.Bytes(), Recorder: recorder}
+}
+
+// PostRaw 是 CallRaw(POST) 的便捷形式（multipart 上传用）。
+func (c *Client) PostRaw(path string, body []byte, contentType string) Response {
+	return c.CallRaw("POST", path, body, contentType)
+}
+
+// GetRaw 是 CallRaw(GET) 的便捷形式（下载用；响应体是文件字节，不是 JSON）。
+func (c *Client) GetRaw(path string) Response {
+	return c.CallRaw("GET", path, nil, "")
 }
 
 // Post 是 Call(POST) 的便捷形式。
@@ -301,6 +343,15 @@ func (h *Harness) AddGroupMember(t *testing.T, owner Authenticated, groupID, use
 	t.Helper()
 
 	response := owner.Client.Post(URL("/groups/"+groupID+"/members"),
+		map[string]any{"user_id": userID})
+	response.RequireStatus(t, 201)
+}
+
+// AddProjectMember 由持有者把目标用户加入项目。
+func (h *Harness) AddProjectMember(t *testing.T, owner Authenticated, projectID, userID string) {
+	t.Helper()
+
+	response := owner.Client.Post(URL("/projects/"+projectID+"/members"),
 		map[string]any{"user_id": userID})
 	response.RequireStatus(t, 201)
 }

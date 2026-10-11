@@ -47,9 +47,12 @@ from_name = "项目计划管理系统（测试）"
 use_tls = false
 
 [storage]
+# 扩展名白名单：空数组表示不限制（集成测试上传各种扩展名，因此保持放开）。
+allowed_extensions = []
 backend = "local"
 local_root = "./var/test-uploads"
 max_file_size = 10485760
+max_files_per_user = 1000
 
 [security]
 session_secret = "project-builder-test-session-secret-value"

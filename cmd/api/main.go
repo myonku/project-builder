@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/myonku/project-builder/internal/app/attachments"
 	"github.com/myonku/project-builder/internal/app/auth"
 	"github.com/myonku/project-builder/internal/app/groups"
 	"github.com/myonku/project-builder/internal/app/planviews"
@@ -28,6 +29,7 @@ import (
 	"github.com/myonku/project-builder/internal/platform"
 	"github.com/myonku/project-builder/internal/platform/clock"
 	"github.com/myonku/project-builder/internal/platform/idgen"
+	"github.com/myonku/project-builder/internal/platform/storage"
 )
 
 func main() {
@@ -156,6 +158,24 @@ func run() error {
 		Logger:   logger,
 	})
 
+	// 附件：对象存储适配器由装配点构造（业务模块不依赖具体存储实现）。
+	// 存储层只按 key 读写字节，attachments 模块负责 key 生成、元数据与权限。
+	attachmentStore, err := storage.NewLocal(cfg.Storage.LocalRoot)
+	if err != nil {
+		return err
+	}
+	attachmentsService := attachments.NewService(attachments.Options{
+		Store:   attachments.NewRepository(postgres.Pool),
+		Storage: attachmentStore,
+		// 装配点把项目/任务的权限判定适配为附件模块所需的投影。
+		Projects: attachmentsProjectAccess{service: projectsService},
+		Tasks:    attachmentsTaskAccess{service: tasksService},
+		IDs:      ids,
+		Clock:    clk,
+		Logger:   logger,
+		Config:   cfg.Storage,
+	})
+
 	// 计划视图是只读聚合模块：它不依赖 projects/tasks 模块，而是直接读同一批表，
 	// 并调用 domain 的同一个权限函数做逐对象判定（见 planviews 包注释）。
 	planViewsService := planviews.NewService(planviews.Options{
@@ -192,6 +212,7 @@ func run() error {
 			projects.NewHandler(projectsService, authHandler, logger),
 			tasks.NewHandler(tasksService, authHandler, logger),
 			planviews.NewHandler(planViewsService, authHandler, logger),
+			attachments.NewHandler(attachmentsService, authHandler),
 		},
 	})
 
@@ -258,6 +279,42 @@ func (a projectsAccessor) Access(
 		Visibility: record.Visibility,
 		ArchivedAt: record.ArchivedAt,
 	}, permission, nil
+}
+
+// attachmentsProjectAccess 把 projects 模块的项目记录适配为 attachments 所需的投影。
+type attachmentsProjectAccess struct {
+	service *projects.Service
+}
+
+// Access 实现 attachments.ProjectAccess。
+func (a attachmentsProjectAccess) Access(
+	ctx context.Context, projectID, actorID string,
+) (attachments.ProjectInfo, domain.Permission, error) {
+	record, permission, err := a.service.Access(ctx, projectID, actorID)
+	if err != nil {
+		return attachments.ProjectInfo{}, domain.PermNone, err
+	}
+	return attachments.ProjectInfo{
+		ID: record.ID,
+		// 归档项目只读，因此其附件也是只读的（与"归档项目下任务只读"同一条规则）。
+		ReadOnly: record.ToDomain().IsReadOnly(),
+	}, permission, nil
+}
+
+// attachmentsTaskAccess 把 tasks 模块的任务记录适配为 attachments 所需的投影。
+type attachmentsTaskAccess struct {
+	service *tasks.Service
+}
+
+// Access 实现 attachments.TaskAccess。
+func (a attachmentsTaskAccess) Access(
+	ctx context.Context, taskID, actorID string,
+) (attachments.TaskInfo, domain.Permission, error) {
+	record, permission, err := a.service.AccessForAttachment(ctx, taskID, actorID)
+	if err != nil {
+		return attachments.TaskInfo{}, domain.PermNone, err
+	}
+	return attachments.TaskInfo{ID: record.ID, ProjectID: record.ProjectID}, permission, nil
 }
 
 // newLogger 构造结构化日志器。//

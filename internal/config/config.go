@@ -100,6 +100,25 @@ type StorageConfig struct {
 	LocalRoot       string `toml:"local_root"`
 	MaxFileSize     int64  `toml:"max_file_size"`
 	MaxFilesPerUser int    `toml:"max_files_per_user"`
+	// AllowedExtensions 是允许上传的扩展名白名单（含点号，如 ".pdf"）。
+	//
+	// 空数组或只含 "*" 表示**不限制**（需求文档 §9："扩展名白名单适当宽松"）。
+	// 该配置全局生效，按扩展名匹配而不是 MIME——扩展名由用户提供的文件名决定，
+	// 但**只用于白名单判断**，绝不参与存储路径的构造（见 stored_key 规则）。
+	AllowedExtensions []string `toml:"allowed_extensions"`
+}
+
+// ExtensionsUnrestricted 报告扩展名白名单是否等同于"不限制"。
+func (c StorageConfig) ExtensionsUnrestricted() bool {
+	if len(c.AllowedExtensions) == 0 {
+		return true
+	}
+	for _, item := range c.AllowedExtensions {
+		if strings.TrimSpace(item) == "*" {
+			return true
+		}
+	}
+	return false
 }
 
 // SecurityConfig 描述会话、密码策略与引导管理员。
@@ -337,6 +356,29 @@ func int32Setter(dst func(c *Config) *int32) func(*Config, string) error {
 }
 
 // int64Setter 用于 int64 数值字段。
+// stringSliceSetter 绑定逗号分隔的字符串列表（空值表示空列表）。
+//
+// 配置里用数组、环境变量里用逗号分隔，两者的语义都是"列表"；
+// 空字符串是**有意覆盖**（清空列表 = 不限制），与 stringSetter 的既有约定一致。
+func stringSliceSetter(dst func(c *Config) *[]string) func(*Config, string) error {
+	return func(c *Config, raw string) error {
+		trimmed := strings.TrimSpace(raw)
+		if trimmed == "" {
+			*dst(c) = nil
+			return nil
+		}
+		parts := strings.Split(trimmed, ",")
+		values := make([]string, 0, len(parts))
+		for _, part := range parts {
+			if item := strings.TrimSpace(part); item != "" {
+				values = append(values, item)
+			}
+		}
+		*dst(c) = values
+		return nil
+	}
+}
+
 func int64Setter(dst func(c *Config) *int64) func(*Config, string) error {
 	return func(c *Config, raw string) error {
 		v, err := strconv.ParseInt(strings.TrimSpace(raw), 10, 64)
@@ -392,6 +434,8 @@ func envBindings() []envBinding {
 		{"STORAGE_BACKEND", stringSetter(func(c *Config) *string { return &c.Storage.Backend })},
 		{"STORAGE_LOCAL_ROOT", stringSetter(func(c *Config) *string { return &c.Storage.LocalRoot })},
 		{"STORAGE_MAX_FILE_SIZE", int64Setter(func(c *Config) *int64 { return &c.Storage.MaxFileSize })},
+		{"STORAGE_MAX_FILES_PER_USER", intSetter(func(c *Config) *int { return &c.Storage.MaxFilesPerUser })},
+		{"STORAGE_ALLOWED_EXTENSIONS", stringSliceSetter(func(c *Config) *[]string { return &c.Storage.AllowedExtensions })},
 
 		{"SECURITY_SESSION_SECRET", stringSetter(func(c *Config) *string { return &c.Security.SessionSecret })},
 		{"SECURITY_SESSION_TTL_SECONDS", intSetter(func(c *Config) *int { return &c.Security.SessionTTLSeconds })},
@@ -623,6 +667,18 @@ func (c Config) validate() error {
 
 	if c.Storage.MaxFileSize <= 0 {
 		add("storage.max_file_size 必须为正数，实际为 %d", c.Storage.MaxFileSize)
+	}
+	if c.Storage.MaxFilesPerUser <= 0 {
+		add("storage.max_files_per_user 必须为正数，实际为 %d", c.Storage.MaxFilesPerUser)
+	}
+	for _, item := range c.Storage.AllowedExtensions {
+		trimmed := strings.TrimSpace(item)
+		if trimmed == "*" {
+			continue
+		}
+		if !strings.HasPrefix(trimmed, ".") || len(trimmed) < 2 {
+			add("storage.allowed_extensions 的每一项都必须以点号开头（如 .pdf），实际为 %q", item)
+		}
 	}
 	switch strings.ToLower(strings.TrimSpace(c.Storage.Backend)) {
 	case "local":

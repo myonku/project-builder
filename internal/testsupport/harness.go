@@ -25,6 +25,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 
+	"github.com/myonku/project-builder/internal/app/attachments"
 	"github.com/myonku/project-builder/internal/app/auth"
 	"github.com/myonku/project-builder/internal/app/groups"
 	"github.com/myonku/project-builder/internal/app/planviews"
@@ -37,6 +38,7 @@ import (
 	"github.com/myonku/project-builder/internal/platform"
 	"github.com/myonku/project-builder/internal/platform/clock"
 	"github.com/myonku/project-builder/internal/platform/idgen"
+	"github.com/myonku/project-builder/internal/platform/storage"
 )
 
 // 默认连接参数与 docker/compose.test.yml 保持一致。
@@ -338,7 +340,17 @@ func TestConfig() config.Config {
 			Enabled: true, Host: "127.0.0.1", Port: 16379, DB: 15,
 			Password: defaultRedisPass, DialTimeoutSeconds: 3,
 		},
-		Storage: config.StorageConfig{Backend: "local", LocalRoot: "./var/test-uploads", MaxFileSize: 10485760},
+		Storage: config.StorageConfig{
+			Backend: "local",
+			// 附件写入包级临时目录：测试不应污染仓库工作区，
+			// 也不能让上一次运行的残留影响本次断言。
+			LocalRoot:       testUploadRoot(),
+			MaxFileSize:     testMaxFileSize,
+			MaxFilesPerUser: testMaxFilesPerUser,
+			// 默认不限制扩展名（与配置项语义一致：空数组 = 不限制）。
+			// 需要验证白名单的用例自己构造带白名单的服务实例。
+			AllowedExtensions: nil,
+		},
 		Security: config.SecurityConfig{
 			SessionSecret:     "integration-test-session-secret-value",
 			SessionTTLSeconds: 3600,
@@ -380,6 +392,10 @@ type Harness struct {
 	Projects  *projects.Service
 	Tasks     *tasks.Service
 	PlanViews *planviews.Service
+	// Attachments 是附件服务，供需要直接断言存储状态的用例使用。
+	Attachments *attachments.Service
+	// Storage 是附件对象存储（测试用它验证"彻底删除后字节是否真的没了"）。
+	Storage storage.Store
 
 	// AuthHandler 同时是 ActorLoader，供调试与断言使用。
 	AuthHandler *auth.Handler
@@ -456,6 +472,21 @@ func NewHarness(t *testing.T) *Harness {
 		Logger:    logger,
 	})
 
+	attachmentStore, err := storage.NewLocal(cfg.Storage.LocalRoot)
+	if err != nil {
+		t.Fatalf("构造附件存储失败: %v", err)
+	}
+	attachmentsService := attachments.NewService(attachments.Options{
+		Store:    attachments.NewRepository(pool),
+		Storage:  attachmentStore,
+		Projects: AttachmentProjectAccess{Service: projectsService},
+		Tasks:    AttachmentTaskAccess{Service: tasksService},
+		IDs:      ids,
+		Clock:    clk,
+		Logger:   logger,
+		Config:   cfg.Storage,
+	})
+
 	engine := httpapi.Router(httpapi.Dependencies{
 		Config: cfg,
 		Logger: logger,
@@ -472,6 +503,7 @@ func NewHarness(t *testing.T) *Harness {
 			projects.NewHandler(projectsService, authHandler, logger),
 			tasks.NewHandler(tasksService, authHandler, logger),
 			planviews.NewHandler(planViewsService, authHandler, logger),
+			attachments.NewHandler(attachmentsService, authHandler),
 		},
 	})
 
@@ -489,11 +521,36 @@ func NewHarness(t *testing.T) *Harness {
 		Projects:    projectsService,
 		Tasks:       tasksService,
 		PlanViews:   planViewsService,
+		Attachments: attachmentsService,
+		Storage:     attachmentStore,
 		AuthHandler: authHandler,
 		Router:      engine,
 		Logger:      logger,
 	}
 }
+
+// 附件相关的测试常量。
+//
+// 配额刻意取小值：验证"达到上限被拒绝"只需要两次上传，
+// 用 1000（生产默认）会让用例变得又慢又难读。
+const (
+	testMaxFileSize     int64 = 1 << 16 // 64 KiB，足以覆盖正常与超限两种情况
+	testMaxFilesPerUser       = 3
+)
+
+// testUploadRoot 返回本次测试进程使用的附件根目录。
+//
+// 用进程级临时目录而不是仓库内路径：测试不得污染工作区，
+// 也不能让上一次运行的残留影响本次断言（附件是少数会真正落盘的测试数据）。
+var testUploadRootOnce = sync.OnceValue(func() string {
+	root, err := os.MkdirTemp("", "project-builder-uploads-*")
+	if err != nil {
+		panic("创建测试附件目录失败: " + err.Error())
+	}
+	return root
+})
+
+func testUploadRoot() string { return testUploadRootOnce() }
 
 // RepoRoot 返回仓库根目录，供需要读取迁移文件的测试使用。
 func RepoRoot(t *testing.T) string {

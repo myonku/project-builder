@@ -134,7 +134,8 @@ func IsNotFound(err error) bool {
 	}
 	switch domainErr.Code {
 	case domain.CodeResourceNotFound, domain.CodeUserNotFound,
-		domain.CodeGroupNotFound, domain.CodeProjectNotFound, domain.CodeTaskNotFound:
+		domain.CodeGroupNotFound, domain.CodeProjectNotFound, domain.CodeTaskNotFound,
+		domain.CodeAttachmentNotFound:
 		return true
 	default:
 		return false

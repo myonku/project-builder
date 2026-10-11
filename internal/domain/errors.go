@@ -31,6 +31,7 @@ const (
 	CodeGroupNotFound        ErrorCode = "group_not_found"
 	CodeProjectNotFound      ErrorCode = "project_not_found"
 	CodeTaskNotFound         ErrorCode = "task_not_found"
+	CodeAttachmentNotFound   ErrorCode = "attachment_not_found"
 	CodeConflict             ErrorCode = "conflict"
 	CodeDuplicateMember      ErrorCode = "duplicate_member"
 	CodeVersionConflict      ErrorCode = "version_conflict"
@@ -146,6 +147,10 @@ var (
 	ErrDuplicateMember = New(CodeDuplicateMember, "该成员已存在")
 	// ErrVersionConflict 乐观并发校验失败。
 	ErrVersionConflict = New(CodeVersionConflict, "数据已被其他人修改，请刷新后重试")
+	// ErrFileTooLarge 上传内容超过 storage.max_file_size（413）。
+	ErrFileTooLarge = New(CodeFileTooLarge, "文件超过大小上限")
+	// ErrUnsupportedMediaType 文件扩展名不在 storage.allowed_extensions 白名单内（415）。
+	ErrUnsupportedMediaType = New(CodeUnsupportedMediaType, "不支持的文件类型")
 	// ErrInternal 未识别的服务端错误。
 	ErrInternal = New(CodeInternalError, "服务端内部错误")
 )

@@ -51,8 +51,10 @@ backend = "local"
 local_root = "./data/uploads"
 max_file_size = 10485760
 # 附件模块启用时生效（见 docs/02-数据库模型与迁移.md 5.2 预留说明）。
-# max_files_per_user = 1000
-# allowed_extensions = [".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".txt", ".csv", ".png", ".jpg", ".jpeg", ".zip"]
+max_files_per_user = 1000
+# 允许上传的扩展名白名单（**含点号**，如 ".pdf"）。
+# 空数组或 ["*"] 表示不限制。匹配忽略大小写。
+allowed_extensions = [".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".txt", ".csv", ".png", ".jpg", ".jpeg", ".zip"]
 
 [security]
 # 生产环境必须通过 SECURITY_SESSION_SECRET 注入真实随机值。
