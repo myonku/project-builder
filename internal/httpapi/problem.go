@@ -97,6 +97,7 @@ var errorStatus = map[domain.ErrorCode]int{
 	domain.CodeProjectNotFound:      http.StatusNotFound,
 	domain.CodeTaskNotFound:         http.StatusNotFound,
 	domain.CodeAttachmentNotFound:   http.StatusNotFound,
+	domain.CodeReminderNotFound:     http.StatusNotFound,
 	domain.CodeConflict:             http.StatusConflict,
 	domain.CodeDuplicateMember:      http.StatusConflict,
 	domain.CodeVersionConflict:      http.StatusConflict,
@@ -123,6 +124,7 @@ var errorMessage = map[domain.ErrorCode]string{
 	domain.CodeProjectNotFound:      "Project not found",
 	domain.CodeTaskNotFound:         "Task not found",
 	domain.CodeAttachmentNotFound:   "Attachment not found",
+	domain.CodeReminderNotFound:     "Reminder not found",
 	domain.CodeConflict:             "The request conflicts with the current state.",
 	domain.CodeDuplicateMember:      "The member already exists.",
 	domain.CodeVersionConflict:      "The resource was modified by someone else. Refresh and retry.",
@@ -268,7 +270,7 @@ func IsNotFound(err error) bool {
 	switch domainErr.Code {
 	case domain.CodeResourceNotFound, domain.CodeUserNotFound,
 		domain.CodeGroupNotFound, domain.CodeProjectNotFound, domain.CodeTaskNotFound,
-		domain.CodeAttachmentNotFound:
+		domain.CodeAttachmentNotFound, domain.CodeReminderNotFound:
 		return true
 	default:
 		return false

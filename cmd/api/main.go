@@ -21,6 +21,7 @@ import (
 	"github.com/myonku/project-builder/internal/app/groups"
 	"github.com/myonku/project-builder/internal/app/planviews"
 	"github.com/myonku/project-builder/internal/app/projects"
+	"github.com/myonku/project-builder/internal/app/reminders"
 	"github.com/myonku/project-builder/internal/app/tasks"
 	"github.com/myonku/project-builder/internal/app/users"
 	"github.com/myonku/project-builder/internal/config"
@@ -29,6 +30,7 @@ import (
 	"github.com/myonku/project-builder/internal/platform"
 	"github.com/myonku/project-builder/internal/platform/clock"
 	"github.com/myonku/project-builder/internal/platform/idgen"
+	"github.com/myonku/project-builder/internal/platform/mail"
 	"github.com/myonku/project-builder/internal/platform/storage"
 )
 
@@ -79,7 +81,7 @@ func run() error {
 	// 而不是让整个应用启动失败（历史缺陷对照：Python 版本此处在关闭 Redis 时全站 500）。
 	var redisRaw = redisClient.Client
 
-	sessionStore := auth.NewRedisSessionStore(redisRaw, redisClient.Enabled)
+	sessionStore := auth.NewRedisSessionStore(redisRaw, redisClient.Enabled, clk)
 	if !sessionStore.Available() {
 		logger.Warn("会话后端不可用：认证相关端点将返回错误，服务其余部分仍可运行")
 	}
@@ -140,6 +142,41 @@ func run() error {
 		Logger:   logger,
 	})
 
+	// 邮件发送器：未启用时注入 Disabled（它返回错误而不是假装成功，
+	// 于是"没配邮件"会如实记成 skipped 而不是 sent）。
+	var mailSender mail.Sender = mail.Disabled{}
+	if cfg.Mail.Enabled {
+		smtpSender, smtpErr := mail.NewSMTP(mail.SMTPConfig{
+			Host:              cfg.Mail.Host,
+			Port:              cfg.Mail.Port,
+			Username:          cfg.Mail.Username,
+			Password:          cfg.Mail.Password,
+			FromAddress:       cfg.Mail.FromAddress,
+			FromName:          cfg.Mail.FromName,
+			UseTLS:            cfg.Mail.UseTLS,
+			ImplicitTLS:       cfg.Mail.ImplicitTLS,
+			AuthMethod:        cfg.Mail.AuthMethod,
+			OAuth2AccessToken: cfg.Mail.OAuth2AccessToken,
+		})
+		if smtpErr != nil {
+			return smtpErr
+		}
+		mailSender = smtpSender
+		logger.Info("邮件发送已启用", slog.String("host", cfg.Mail.Host), slog.Int("port", cfg.Mail.Port))
+	} else {
+		logger.Info("邮件发送未启用；提醒仍会生成并记录为 skipped")
+	}
+
+	remindersService := reminders.NewService(reminders.Options{
+		Store:           reminders.NewRepository(postgres.Pool),
+		Sender:          mailSender,
+		IDs:             ids,
+		Clock:           clk,
+		Logger:          logger,
+		TaskURLTemplate: cfg.Mail.TaskURLTemplate,
+		BatchSize:       cfg.Scheduler.ReminderBatchSize,
+	})
+
 	projectsService := projects.NewService(projects.Options{
 		Store:     projects.NewRepository(postgres.Pool),
 		Timezones: usersService,
@@ -156,6 +193,9 @@ func run() error {
 		IDs:      ids,
 		Clock:    clk,
 		Logger:   logger,
+		// 提醒的消费者接口：任务在事务提交后只插入一行提醒，
+		// 发送交给后台派发循环（需求文档 §9：邮件发送不得阻塞用户操作）。
+		Reminders: remindersRecorder{service: remindersService, logger: logger},
 	})
 
 	// 附件：对象存储适配器由装配点构造（业务模块不依赖具体存储实现）。
@@ -213,6 +253,7 @@ func run() error {
 			tasks.NewHandler(tasksService, authHandler, logger),
 			planviews.NewHandler(planViewsService, authHandler, logger),
 			attachments.NewHandler(attachmentsService, authHandler),
+			reminders.NewHandler(remindersService, authHandler),
 		},
 	})
 
@@ -238,6 +279,18 @@ func run() error {
 		}
 		serveErr <- nil
 	}()
+
+	// 提醒派发器：按配置周期生成并发送提醒。
+	// 它与 HTTP 服务共享根 ctx，因此收到关闭信号时一起停下——
+	// 半路被杀的派发器会留下"已经发出但状态没写回"的提醒，
+	// 下一轮会重复发送（dedupe_key 只防重复**生成**，防不了重复发送）。
+	dispatcher := reminders.NewDispatcher(remindersService,
+		time.Duration(cfg.Scheduler.IntervalSeconds)*time.Second, logger)
+	if cfg.Scheduler.Enabled {
+		go dispatcher.Run(ctx)
+	} else {
+		logger.Info("提醒派发器未启用（scheduler.enabled = false）；提醒仍会由接口按需生成")
+	}
 
 	select {
 	case err := <-serveErr:
@@ -279,6 +332,37 @@ func (a projectsAccessor) Access(
 		Visibility: record.Visibility,
 		ArchivedAt: record.ArchivedAt,
 	}, permission, nil
+}
+
+// remindersRecorder 把 tasks 模块的提醒记录请求适配为 reminders 模块的调用。
+//
+// 错误只记录日志，**不让任务操作失败**：任务已经写库成功，
+// 因为一封提醒没排上队就把它回滚，是把次要功能的失败放大成主要功能的失败。
+type remindersRecorder struct {
+	service *reminders.Service
+	logger  *slog.Logger
+}
+
+// RecordAssignment 实现 tasks.ReminderRecorder：成员被加入任务后记一条提醒。
+func (r remindersRecorder) RecordAssignment(ctx context.Context, taskID, userID string) {
+	if r.service == nil {
+		return
+	}
+	if err := r.service.RecordEvent(ctx, taskID, userID, domain.ReminderKindAssigned); err != nil {
+		r.logger.Warn("记录新任务分配提醒失败",
+			slog.String("task_id", taskID), slog.String("user_id", userID), slog.Any("cause", err))
+	}
+}
+
+// RecordOwnerChange 实现 tasks.ReminderRecorder：任务持有者变更后记一条提醒。
+func (r remindersRecorder) RecordOwnerChange(ctx context.Context, taskID, userID string) {
+	if r.service == nil {
+		return
+	}
+	if err := r.service.RecordEvent(ctx, taskID, userID, domain.ReminderKindOwnerChanged); err != nil {
+		r.logger.Warn("记录持有者变更提醒失败",
+			slog.String("task_id", taskID), slog.String("user_id", userID), slog.Any("cause", err))
+	}
 }
 
 // attachmentsProjectAccess 把 projects 模块的项目记录适配为 attachments 所需的投影。

@@ -1006,6 +1006,74 @@ $archivedUpload = Invoke-ApiUpload -Path "/api/v1/projects/$attachmentProjectId/
 Assert-Equal $archivedUpload.Status 403 '归档项目不可再上传附件'
 
 # ---------------------------------------------------------------------------
+Write-Step "提醒"
+# ---------------------------------------------------------------------------
+
+# 前面的资料用例把本账号的邮件提醒关掉了（那是"字段是否真的生效"的证据），
+# 这里先把它开回来——否则提醒会因为收件人不合格而被正确地跳过，
+# 测出来的是"资格判定生效"而不是"调度器能生成提醒"。
+$myProfile = Invoke-Api -Method GET -Path "/api/v1/users/$userId"
+$restored = Invoke-Api -Method PATCH -Path "/api/v1/users/$userId" -Body @{
+    reminder_enabled    = $true
+    expected_updated_at = $myProfile.Body.data.updated_at
+}
+Assert-Equal $restored.Status 200 '重新开启本账号的邮件提醒'
+Assert-Equal $restored.Body.data.reminder_enabled $true 'reminder_enabled 已恢复'
+
+# 提醒由**后台派发循环**生成（需求文档 5.7："系统按固定周期检查待发送提醒"），
+# 因此这里造一个已延期的任务，然后轮询等待调度器处理它。
+$reminderProject = Invoke-Api -Method POST -Path '/api/v1/projects' -Body @{
+    name       = "提醒冒烟项目 $Username"
+    group_id   = $groupId
+    start_date = '2026-09-01'
+    end_date   = '2026-09-30'
+}
+Assert-Equal $reminderProject.Status 201 '创建提醒用的项目'
+$reminderProjectId = $reminderProject.Body.data.id
+
+# 到期日已过 → 属于"延期"场景。
+$overdueTask = Invoke-Api -Method POST -Path "/api/v1/projects/$reminderProjectId/tasks" -Body @{
+    name       = '已延期的冒烟任务'
+    start_date = '2026-09-01'
+    end_date   = '2026-09-10'
+}
+Assert-Equal $overdueTask.Status 201 '创建已延期的任务'
+$overdueTaskId = $overdueTask.Body.data.id
+
+# 等调度器跑一轮（smoke 启动时把 interval 调成 5 秒）。
+$reminderList = $null
+for ($attempt = 0; $attempt -lt 15; $attempt++) {
+    Start-Sleep -Seconds 2
+    $candidate = Invoke-Api -Method GET -Path '/api/v1/reminders?page=1&page_size=20'
+    if ($candidate.Status -eq 200 -and $candidate.Body.pagination.total -gt 0) {
+        $reminderList = $candidate
+        break
+    }
+}
+Assert-True ($null -ne $reminderList) '调度器已生成提醒'
+
+if ($null -ne $reminderList) {
+    $reminder = $reminderList.Body.data[0]
+    # 邮件未启用（smoke 没配 SMTP）→ 提醒被如实记为 skipped，
+    # 而不是伪装成"已发送"。这正是 Disabled 发送器返回错误而不是 nil 的意义。
+    Assert-Equal $reminder.status 'skipped' '邮件未启用时提醒记为 skipped'
+    Assert-True ($reminder.last_error -like '*邮件功能未启用*') '跳过原因可查询'
+
+    $reminderDetail = Invoke-Api -Method GET -Path "/api/v1/reminders/$($reminder.id)"
+    Assert-Equal $reminderDetail.Status 200 '提醒详情可查询'
+
+    # skipped 允许重试（例如运维刚把 SMTP 配好）；已发送的不允许。
+    $retried = Invoke-Api -Method POST -Path "/api/v1/reminders/$($reminder.id)/retry" -Body @{}
+    Assert-Equal $retried.Status 200 'skipped 的提醒可以重试'
+    Assert-Equal $retried.Body.data.status 'pending' '重试后回到待发送'
+}
+
+$badQuery = Invoke-Api -Method GET -Path '/api/v1/reminders?kinds=task_overdue'
+Assert-Equal $badQuery.Status 400 '未知查询参数应 400'
+$badSort = Invoke-Api -Method GET -Path '/api/v1/reminders?sort=dedupe_key'
+Assert-Equal $badSort.Status 400 '排序字段非法应 400'
+
+# ---------------------------------------------------------------------------
 Write-Step "结果"
 # ---------------------------------------------------------------------------
 

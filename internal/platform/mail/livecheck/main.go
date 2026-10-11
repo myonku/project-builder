@@ -46,6 +46,7 @@ func main() {
 		FromName:    envOr("MAIL_FROM_NAME", "项目计划管理系统"),
 		// 587 + STARTTLS 是官方页面给出的组合。
 		UseTLS:            envOr("MAIL_USE_TLS", "true") == "true",
+		ImplicitTLS:       os.Getenv("MAIL_IMPLICIT_TLS") == "true",
 		AuthMethod:        os.Getenv("MAIL_AUTH_METHOD"),
 		OAuth2AccessToken: os.Getenv("MAIL_OAUTH2_ACCESS_TOKEN"),
 		Timeout:           30 * time.Second,

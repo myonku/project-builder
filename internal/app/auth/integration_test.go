@@ -700,9 +700,15 @@ func TestSessionTTLMatchesConfiguration(t *testing.T) {
 		t.Fatalf("读取 TTL 失败: %v", err)
 	}
 
-	// 期望 TTL = 配置值 + (固定时钟 - 真实时间)。
-	// 固定时钟可能超前或落后于真实时间，因此这里按绝对值比较。
-	expected := harness.Config.Security.SessionTTL() + harness.Clock.Now().Sub(time.Now().UTC())
+	// 期望 TTL **恰好等于配置值**。
+	//
+	// 这里刻意不再补偿"固定时钟与真实时间的差"：会话的 ExpiresAt 由注入时钟算出，
+	// 判断过期也走同一个时钟，因此 Redis 里的 TTL 就是一个纯粹的配置量。
+	//
+	// 早期实现用 time.Until(ExpiresAt)（真实时钟）算 TTL，于是本用例不得不
+	// 把时钟差补回去；那等于把这个缺陷写进了断言——而它真正的后果是
+	// 固定时钟 + TTL 一旦被真实时间越过，所有登录都会 500。
+	expected := harness.Config.Security.SessionTTL()
 	drift := ttl - expected
 	if drift < 0 {
 		drift = -drift

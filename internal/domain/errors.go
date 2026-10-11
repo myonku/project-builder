@@ -32,6 +32,7 @@ const (
 	CodeProjectNotFound      ErrorCode = "project_not_found"
 	CodeTaskNotFound         ErrorCode = "task_not_found"
 	CodeAttachmentNotFound   ErrorCode = "attachment_not_found"
+	CodeReminderNotFound     ErrorCode = "reminder_not_found"
 	CodeConflict             ErrorCode = "conflict"
 	CodeDuplicateMember      ErrorCode = "duplicate_member"
 	CodeVersionConflict      ErrorCode = "version_conflict"

@@ -112,3 +112,15 @@ func ParseDate(raw string) (time.Time, error) {
 	}
 	return t, nil
 }
+
+// AtLocalHour 把某个业务日期与本地小时组合成一个瞬时（UTC）。
+//
+// 提醒需要"在收件人本地的上午 9 点发"，而任务日期是 DATE（无时区）。
+// 这个函数负责把两者拼起来，并处理好夏令时：
+// 若该地当天不存在指定小时（春季跳变），取该时刻之后最近的合法瞬时，
+// 而不是报错——提醒晚一小时发出去，远好过永远不发。
+func AtLocalHour(date time.Time, location *time.Location, hour int) time.Time {
+	day := DayOf(date)
+	local := time.Date(day.Year(), day.Month(), day.Day(), hour, 0, 0, 0, location)
+	return local.UTC()
+}

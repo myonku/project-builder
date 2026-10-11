@@ -9,6 +9,8 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
+	"github.com/myonku/project-builder/internal/platform/clock"
+
 	"github.com/myonku/project-builder/internal/domain"
 )
 
@@ -50,13 +52,37 @@ type RedisSessionStore struct {
 	client *redis.Client
 	// enabled 来自配置；为 false 时所有写操作返回明确错误而不是静默失败。
 	enabled bool
+	// clk 是判断"会话是否已过期"的时间来源。
+	//
+	// **必须使用注入的时钟，而不是 time.Now()**：会话的 ExpiresAt 由注入时钟算出
+	// （见 Service.Login），若这里用真实时钟判断，两个时钟一旦不一致
+	// （测试里的固定时钟，或部署中的时钟漂移），就会出现
+	// "刚创建的会话立刻被判为已过期"。
+	//
+	// 这个不一致曾让整个集成测试套件在**某个墙钟时刻之后必然失败**：
+	// 固定时钟 2026-10-11T09:30Z + 1 小时 TTL，过了 10:30Z 之后
+	// time.Until 为负，所有登录 500。测试是否通过取决于当时几点，
+	// 这比一个普通缺陷更危险——它让"全绿"变成不可信的证据。
+	clk clock.Clock
 }
 
 // NewRedisSessionStore 构造 Redis 会话存储。
 //
 // client 可以为 nil（Redis 禁用场景），此时 Available() 返回 false。
-func NewRedisSessionStore(client *redis.Client, enabled bool) *RedisSessionStore {
-	return &RedisSessionStore{client: client, enabled: enabled && client != nil}
+// clk 为 nil 时退回系统时钟。
+func NewRedisSessionStore(client *redis.Client, enabled bool, clk clock.Clock) *RedisSessionStore {
+	if clk == nil {
+		clk = clock.NewSystem()
+	}
+	return &RedisSessionStore{client: client, enabled: enabled && client != nil, clk: clk}
+}
+
+// now 返回判断会话过期所用的当前时刻。
+func (s *RedisSessionStore) now() time.Time {
+	if s.clk == nil {
+		return time.Now().UTC()
+	}
+	return s.clk.Now().UTC()
 }
 
 // Available 报告会话后端是否可用。
@@ -70,7 +96,7 @@ func (s *RedisSessionStore) Save(ctx context.Context, session Session) error {
 		return ErrSessionBackendDisabled
 	}
 
-	ttl := time.Until(session.ExpiresAt)
+	ttl := session.ExpiresAt.Sub(s.now())
 	if ttl <= 0 {
 		return domain.ErrInternal.WithCause(errors.New("会话过期时间已过，拒绝写入"))
 	}
@@ -109,7 +135,7 @@ func (s *RedisSessionStore) Get(ctx context.Context, token string) (Session, err
 		return Session{}, domain.ErrInternal.WithCause(fmt.Errorf("解析会话失败: %w", err))
 	}
 	// 双重过期判断：Redis TTL 是主保证，这里防御时钟漂移与手工写入。
-	if !session.ExpiresAt.IsZero() && time.Now().UTC().After(session.ExpiresAt) {
+	if !session.ExpiresAt.IsZero() && s.now().After(session.ExpiresAt) {
 		return Session{}, domain.ErrAuthenticationRequired
 	}
 	return session, nil

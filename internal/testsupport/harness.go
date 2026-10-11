@@ -30,6 +30,7 @@ import (
 	"github.com/myonku/project-builder/internal/app/groups"
 	"github.com/myonku/project-builder/internal/app/planviews"
 	"github.com/myonku/project-builder/internal/app/projects"
+	"github.com/myonku/project-builder/internal/app/reminders"
 	"github.com/myonku/project-builder/internal/app/tasks"
 	"github.com/myonku/project-builder/internal/app/users"
 	"github.com/myonku/project-builder/internal/config"
@@ -396,6 +397,10 @@ type Harness struct {
 	Attachments *attachments.Service
 	// Storage 是附件对象存储（测试用它验证"彻底删除后字节是否真的没了"）。
 	Storage storage.Store
+	// Reminders 是提醒服务，供需要直接调用生成/派发的用例使用。
+	Reminders *reminders.Service
+	// Mail 是假发送器，供断言"邮件内容与收件人"使用。
+	Mail *FakeSender
 
 	// AuthHandler 同时是 ActorLoader，供调试与断言使用。
 	AuthHandler *auth.Handler
@@ -426,7 +431,7 @@ func NewHarness(t *testing.T) *Harness {
 	hasher := platform.NewPasswordHasherWith(TestArgon2Params())
 
 	authUsers := auth.NewRepository(pool)
-	store := auth.NewRedisSessionStore(redisHarness.Client, true)
+	store := auth.NewRedisSessionStore(redisHarness.Client, true, clk)
 	authService := auth.NewService(auth.Options{
 		Users:    authUsers,
 		Sessions: store,
@@ -451,6 +456,17 @@ func NewHarness(t *testing.T) *Harness {
 		Accounts: authService,
 		Logger:   logger,
 	})
+	// 提醒服务：注入**假发送器**，于是全部提醒逻辑都能在没有 SMTP 的情况下验证。
+	fakeSender := &FakeSender{}
+	remindersService := reminders.NewService(reminders.Options{
+		Store:           reminders.NewRepository(pool),
+		Sender:          fakeSender,
+		IDs:             ids,
+		Clock:           clk,
+		Logger:          logger,
+		TaskURLTemplate: "https://example.test/tasks/{task_id}",
+		BatchSize:       100,
+	})
 	projectsService := projects.NewService(projects.Options{
 		Store:     projects.NewRepository(pool),
 		Timezones: usersService,
@@ -459,11 +475,12 @@ func NewHarness(t *testing.T) *Harness {
 		Logger:    logger,
 	})
 	tasksService := tasks.NewService(tasks.Options{
-		Store:    tasks.NewRepository(pool),
-		Projects: ProjectAccessAdapter{Service: projectsService},
-		IDs:      ids,
-		Clock:    clk,
-		Logger:   logger,
+		Store:     tasks.NewRepository(pool),
+		Projects:  ProjectAccessAdapter{Service: projectsService},
+		Reminders: ReminderRecorderAdapter{Service: remindersService, Logger: logger},
+		IDs:       ids,
+		Clock:     clk,
+		Logger:    logger,
 	})
 	planViewsService := planviews.NewService(planviews.Options{
 		Store:     planviews.NewRepository(pool),
@@ -504,6 +521,7 @@ func NewHarness(t *testing.T) *Harness {
 			tasks.NewHandler(tasksService, authHandler, logger),
 			planviews.NewHandler(planViewsService, authHandler, logger),
 			attachments.NewHandler(attachmentsService, authHandler),
+			reminders.NewHandler(remindersService, authHandler),
 		},
 	})
 
@@ -522,6 +540,8 @@ func NewHarness(t *testing.T) *Harness {
 		Tasks:       tasksService,
 		PlanViews:   planViewsService,
 		Attachments: attachmentsService,
+		Reminders:   remindersService,
+		Mail:        fakeSender,
 		Storage:     attachmentStore,
 		AuthHandler: authHandler,
 		Router:      engine,
