@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -23,24 +24,42 @@ import (
 //   - 字段约束不满足（必填、长度、范围） → 422 validation_error，并带 fields；
 //   - 请求体过大 → 413 file_too_large 不适用，改用 400 并说明原因。
 func BindJSON(c *gin.Context, target any) error {
-	decoder := json.NewDecoder(c.Request.Body)
+	_, err := BindJSONWithBody(c, target)
+	return err
+}
+
+// BindJSONWithBody 与 BindJSON 相同，但额外返回原始请求体。
+//
+// 需要原始报文的场景：区分"字段省略"与"字段显式为 null"
+// （例如 tasks 的 parent_id：省略=不修改，null=置为顶层任务）。
+// 该区分无法仅凭解码后的 Go 值判断，因此必须保留字节。
+func BindJSONWithBody(c *gin.Context, target any) ([]byte, error) {
+	body, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		return nil, domain.ErrInvalidRequest.WithField("body", "读取请求体失败")
+	}
+	if len(bytes.TrimSpace(body)) == 0 {
+		return nil, domain.ErrInvalidRequest.WithField("body", "请求体不能为空")
+	}
+
+	decoder := json.NewDecoder(bytes.NewReader(body))
 	// 拒绝未知字段：契约未定义的字段静默丢弃会让客户端以为设置生效了，
 	// 例如把 expected_updated_at 拼错成 expected_update_at 会静默退化为 last-write-wins。
 	decoder.DisallowUnknownFields()
 
 	if err := decoder.Decode(target); err != nil {
-		return decodeError(err)
+		return body, decodeError(err)
 	}
 
 	// 确保请求体只有一个 JSON 值，多余内容视为请求不合法。
 	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-		return domain.ErrInvalidRequest.WithField("body", "请求体必须是单个 JSON 对象")
+		return body, domain.ErrInvalidRequest.WithField("body", "请求体必须是单个 JSON 对象")
 	}
 
 	if err := validateStruct(target); err != nil {
-		return err
+		return body, err
 	}
-	return nil
+	return body, nil
 }
 
 // decodeError 把 JSON 解码错误翻译为领域错误。

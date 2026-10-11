@@ -9,12 +9,14 @@ import (
 	"github.com/myonku/project-builder/internal/domain"
 )
 
-// SessionCookieName 是会话 Cookie 的默认名称；实际值来自配置。
+// sessionCookieNameContextKey 是会话 Cookie 名在 gin 上下文中的键。
+const sessionCookieNameContextKey = "dsh.session_cookie_name"
+
+// SessionGateway 只负责"Cookie 是否存在"这一层判断。
 //
-// 本文件只负责"Cookie 是否存在"这一层判断。会话有效性由 Redis 会话存储判定
-// （服务端设计 5：Session gateway 只检查 Cookie 存在性；SessionStore 负责
-// Redis 会话有效性）。这样中间件不依赖 Redis，Redis 不可用时业务端点仍能给出
-// 明确错误而不是全部 401。
+// 会话有效性由 Redis 会话存储判定（服务端设计 5：Session gateway 只检查
+// Cookie 存在性；SessionStore 负责 Redis 会话有效性）。这样中间件不依赖 Redis，
+// Redis 不可用时业务端点仍能给出明确错误而不是全部 401。
 type SessionGateway struct {
 	cookieName string
 	// publicPrefixes 是无需会话 Cookie 的路径前缀白名单。
@@ -117,4 +119,17 @@ func ReadSessionCookie(c *gin.Context, name string) string {
 		return ""
 	}
 	return value
+}
+
+// SessionCookieName 从上下文读取本次请求使用的会话 Cookie 名。
+//
+// 名称由 Router 在装配时写入上下文，因此业务模块不需要各自持有配置对象，
+// 也不会出现"某模块写死了 Cookie 名"的漂移。
+func SessionCookieName(c *gin.Context) string {
+	if value, ok := c.Get(sessionCookieNameContextKey); ok {
+		if name, ok := value.(string); ok {
+			return name
+		}
+	}
+	return ""
 }

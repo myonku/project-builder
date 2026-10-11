@@ -354,6 +354,18 @@ func (s *Service) SessionCookieMaxAge() int {
 // SessionCookieName 返回会话 Cookie 名称。
 func (s *Service) SessionCookieName() string { return s.security.SessionCookieName }
 
+// ResolveSession 依据会话令牌解析当前用户的领域表示。
+//
+// 供其他业务模块的 ActorLoader 使用：它们只需要 domain.User，
+// 不应该知道会话存在 Redis、Cookie 叫什么名字。
+func (s *Service) ResolveSession(ctx context.Context, token string) (domain.User, error) {
+	record, err := s.CurrentUser(ctx, token)
+	if err != nil {
+		return domain.User{}, err
+	}
+	return record.ToDomain(), nil
+}
+
 // SecureCookies 返回是否要求 HTTPS-only Cookie。
 func (s *Service) SecureCookies() bool { return s.security.SecureCookies }
 

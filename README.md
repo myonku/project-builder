@@ -6,7 +6,7 @@
 
 ## 当前状态
 
-**第一阶段（地基 + Auth 垂直打通）已完成并经真实依赖验证。**
+**第一阶段（地基 + Auth）与第二阶段（Groups / Projects / Tasks）已完成并经真实依赖验证。**
 
 | 能力 | 状态 |
 | --- | --- |
@@ -16,13 +16,13 @@
 | `httpapi`：requestID、访问日志、panic 恢复、CORS、会话网关、统一信封、错误映射、健康检查 | ✅ 已实现 |
 | 初始迁移 `000001_init`（9 张表、CHECK、部分唯一索引、外键删除行为、up/down 可逆） | ✅ 已实现 |
 | Auth：注册、登录、登出、当前用户（Argon2id + Redis 会话 + HttpOnly Cookie） | ✅ 已实现 |
-| Groups / Projects / Tasks | ⬜ 第二阶段 |
-| Plan Views / Attachments / Reminders / Audit | ⬜ 第三阶段及以后 |
+| Groups / Projects / Tasks | ✅ 已实现（第二阶段） |
+| Users / Plan Views / Attachments / Reminders / Audit | ⬜ 第三阶段及以后 |
 
 真实依赖验证结果（PostgreSQL 16.15 + Redis 7）：
 
-- `go test ./...` 全部通过，含真实数据库上的迁移可逆性、约束生效性、单一 owner 不变式与 Auth 端到端用例。
-- `scripts/smoke.ps1` 对运行中的服务执行 30 项断言全部通过（健康检查、未登录 401、注册 201、重复注册 409、校验失败 422、错误凭据 401、登录 200、当前用户 200、登出 204、登出后 401）。
+- `go test ./...` **195 项通过、0 失败、0 跳过**，含真实数据库上的迁移可逆性、约束生效性、单一 owner 不变式，以及 Auth/Groups/Projects/Tasks 的端到端用例。
+- `scripts/smoke.ps1` 对运行中的服务执行 **62 项断言全部通过**（健康检查、认证全链路、三域 CRUD、分页边界、排序白名单、版本冲突、组合筛选、幂等复制、归档只读）。
 
 进度与阶段划分见 [docs/06-迁移进度与验证.md](docs/06-迁移进度与验证.md)。
 
@@ -105,13 +105,19 @@ project-builder/
 │   │   ├── clock/                  # 可注入时钟（测试固定时间）
 │   │   └── idgen/                  # UUIDv7 / UUIDv4 / 安全令牌
 │   ├── domain/                     # 纯业务规则：无 IO、无 SQL、无 HTTP
-│   ├── app/auth/                   # Auth 模块：service.go / repo.go / session.go / http.go
-│   ├── httpapi/                    # 跨模块 HTTP：router、middleware、problem、bind
+│   ├── listquery/                  # 列表分页与排序的唯一实现（SQL 层 LIMIT/OFFSET、白名单、限定 id 次级键）
+│   ├── app/                        # 业务模块：每域 repo.go + service.go + http.go(+ sort.go)
+│   │   ├── apperr/                 # PostgreSQL 错误 → 领域错误的统一翻译 + 事务抽象
+│   │   ├── auth/                   # 注册/登录/登出/当前用户（额外含 session.go）
+│   │   ├── groups/                 # 工作组、成员、加入申请
+│   │   ├── projects/               # 项目、成员、归档、派生统计
+│   │   └── tasks/                  # 任务、成员、层级、幂等复制
+│   ├── httpapi/                    # 跨模块 HTTP：router、middleware、problem、bind、session、cors、types
 │   ├── database/migrations/        # 版本化 SQL 迁移（embed 进二进制）
-│   └── testsupport/                # 集成测试装配与清理
-├── docs/                           # 设计与契约文档
+│   └── testsupport/                # 集成测试装配、清理与 HTTP 客户端辅助
+├── docs/                           # 设计与契约文档（00 需求 → 06 进度）
 ├── docker/                         # 测试依赖 compose 与测试配置
-├── scripts/smoke.ps1               # 端到端冒烟检查
+├── scripts/smoke.ps1               # 端到端冒烟检查（62 项断言）
 ├── config.toml                     # 本地开发默认配置（不含敏感值）
 ├── .env.example                    # 配置键名与占位符（不含真实值）
 └── Makefile                        # run / test / migrate / check

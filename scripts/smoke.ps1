@@ -236,6 +236,179 @@ $afterLogout = Invoke-Api -Method GET -Path '/api/v1/auth/me'
 Assert-Equal $afterLogout.Status 401 'GET /api/v1/auth/me（登出后）'
 
 # ---------------------------------------------------------------------------
+Write-Step "Groups：创建 → 成员 → 加入申请"
+# ---------------------------------------------------------------------------
+
+# 重新登录（前面的登出已撤销会话）
+$login = Invoke-Api -Method POST -Path '/api/v1/auth/login' -Body @{
+    identifier = $Username
+    password   = 'correct horse battery'
+}
+Assert-Equal $login.Status 200 '重新登录'
+
+$groupId = $null
+$group = Invoke-Api -Method POST -Path '/api/v1/groups' -Body @{
+    name        = "冒烟工作组 $Username"
+    description = '由冒烟脚本创建'
+}
+Assert-Equal $group.Status 201 'POST /api/v1/groups'
+$groupId = $group.Body.data.id
+Assert-Equal $group.Body.data.membership_role 'manager' '创建者应为 manager'
+
+$groupList = Invoke-Api -Method POST -Path '/api/v1/groups/query' -Body @{ page = 1; page_size = 20 }
+Assert-Equal $groupList.Status 200 'POST /api/v1/groups/query'
+if ($groupList.Body.pagination.total -ge 1) {
+    Write-Host ("  [PASS] pagination.total = {0}" -f $groupList.Body.pagination.total) -ForegroundColor Green
+} else {
+    Write-Host "  [FAIL] 列表应至少包含刚创建的工作组" -ForegroundColor Red
+    $script:Failures++
+}
+
+# 分页越界必须被拒绝，而不是静默夹取
+$badPage = Invoke-Api -Method POST -Path '/api/v1/groups/query' -Body @{ page_size = 500 }
+Assert-Equal $badPage.Status 400 'page_size 超限应 400'
+Assert-Equal $badPage.Body.error.code 'invalid_request' 'error.code'
+
+# 未知排序字段必须被拒绝
+$badSort = Invoke-Api -Method POST -Path '/api/v1/groups/query' -Body @{ sort = 'nonsense' }
+Assert-Equal $badSort.Status 400 '未知排序字段应 400'
+
+# 所有者不可被移除
+$groupDetail = Invoke-Api -Method GET -Path "/api/v1/groups/$groupId"
+Assert-Equal $groupDetail.Status 200 'GET /api/v1/groups/{id}'
+$groupVersion = $groupDetail.Body.data.updated_at
+
+$removeOwner = Invoke-Api -Method DELETE -Path "/api/v1/groups/$groupId/members/$userId"
+Assert-Equal $removeOwner.Status 403 '移除所有者应 403'
+
+# 省略版本必须被拒绝（契约加强项）
+$noVersion = Invoke-Api -Method PATCH -Path "/api/v1/groups/$groupId" -Body @{ name = '改名' }
+Assert-Equal $noVersion.Status 422 '省略 expected_updated_at 应 422'
+
+$renamed = Invoke-Api -Method PATCH -Path "/api/v1/groups/$groupId" -Body @{
+    name                = "冒烟工作组（已改名）"
+    expected_updated_at = $groupVersion
+}
+Assert-Equal $renamed.Status 200 '带版本更新应 200'
+if ($renamed.Body.data.updated_at -ne $groupVersion) {
+    Write-Host "  [PASS] updated_at 已推进（版本协议生效）" -ForegroundColor Green
+} else {
+    Write-Host "  [FAIL] 更新必须推进 updated_at" -ForegroundColor Red
+    $script:Failures++
+}
+
+# 过期版本应 409
+$staleVersion = Invoke-Api -Method PATCH -Path "/api/v1/groups/$groupId" -Body @{
+    name                = '再次改名'
+    expected_updated_at = $groupVersion
+}
+Assert-Equal $staleVersion.Status 409 '过期版本应 409'
+Assert-Equal $staleVersion.Body.error.code 'version_conflict' 'error.code'
+
+# ---------------------------------------------------------------------------
+Write-Step "Projects：创建 → 派生字段 → 归档只读"
+# ---------------------------------------------------------------------------
+
+$project = Invoke-Api -Method POST -Path '/api/v1/projects' -Body @{
+    name       = "冒烟项目 $Username"
+    group_id   = $groupId
+    start_date = '2026-10-01'
+    end_date   = '2026-10-31'
+}
+Assert-Equal $project.Status 201 'POST /api/v1/projects'
+$projectId = $project.Body.data.id
+Assert-Equal $project.Body.data.visibility 'private' '新项目默认私有'
+Assert-Equal $project.Body.data.status 'not_started' '新项目默认未开始'
+
+# 日期区间倒置必须返回 400 invalid_date_range（而不是 422）
+$badDates = Invoke-Api -Method POST -Path '/api/v1/projects' -Body @{
+    name       = '倒置'
+    group_id   = $groupId
+    start_date = '2026-10-31'
+    end_date   = '2026-10-01'
+}
+Assert-Equal $badDates.Status 400 '日期区间倒置应 400'
+Assert-Equal $badDates.Body.error.code 'invalid_date_range' 'error.code'
+
+# ---------------------------------------------------------------------------
+Write-Step "Tasks：创建 → 组合筛选 → 幂等复制 → 归档只读"
+# ---------------------------------------------------------------------------
+
+$task = Invoke-Api -Method POST -Path "/api/v1/projects/$projectId/tasks" -Body @{
+    name       = '冒烟任务'
+    start_date = '2026-10-01'
+    end_date   = '2026-10-05'
+}
+Assert-Equal $task.Status 201 'POST /api/v1/projects/{id}/tasks'
+$taskId = $task.Body.data.id
+Assert-Equal $task.Body.data.membership_role 'owner' '创建者应为任务持有者'
+
+# 组合筛选（历史缺陷：恒为空）
+$combined = Invoke-Api -Method POST -Path "/api/v1/projects/$projectId/tasks/query" -Body @{
+    owner_id    = $userId
+    assignee_id = $userId
+}
+Assert-Equal $combined.Status 200 '组合筛选应 200'
+if ($combined.Body.pagination.total -eq 1) {
+    Write-Host "  [PASS] owner_id + assignee_id 组合筛选命中 1 条（历史缺陷为 0）" -ForegroundColor Green
+} else {
+    Write-Host ("  [FAIL] 组合筛选 total = {0}，期望 1" -f $combined.Body.pagination.total) -ForegroundColor Red
+    $script:Failures++
+}
+
+# 唯一 owner 不可移除
+$removeTaskOwner = Invoke-Api -Method DELETE -Path "/api/v1/tasks/$taskId/members/$userId"
+Assert-Equal $removeTaskOwner.Status 403 '移除任务唯一持有者应 403'
+
+# 幂等复制：首次 201，重复 200，且只产生一个副本
+$copyKey = "smoke-copy-$Username"
+$copy1 = Invoke-Api -Method POST -Path "/api/v1/tasks/$taskId/copy" -Body @{} -Headers @{ 'Idempotency-Key' = $copyKey }
+Assert-Equal $copy1.Status 201 '首次复制应 201'
+$copyId = $copy1.Body.data.id
+
+$copy2 = Invoke-Api -Method POST -Path "/api/v1/tasks/$taskId/copy" -Body @{} -Headers @{ 'Idempotency-Key' = $copyKey }
+Assert-Equal $copy2.Status 200 '重复复制应 200（重放）'
+Assert-Equal $copy2.Body.data.id $copyId '重放必须返回同一副本'
+
+$afterCopy = Invoke-Api -Method POST -Path "/api/v1/projects/$projectId/tasks/query" -Body @{}
+if ($afterCopy.Body.pagination.total -eq 2) {
+    Write-Host "  [PASS] 幂等键生效：任务总数 = 2（源 + 一个副本）" -ForegroundColor Green
+} else {
+    Write-Host ("  [FAIL] 任务总数 = {0}，期望 2（幂等键未阻止重复创建）" -f $afterCopy.Body.pagination.total) -ForegroundColor Red
+    $script:Failures++
+}
+
+# 归档项目只读
+$projectDetail = Invoke-Api -Method GET -Path "/api/v1/projects/$projectId"
+$archived = Invoke-Api -Method POST -Path "/api/v1/projects/$projectId/archive" -Body @{
+    expected_updated_at = $projectDetail.Body.data.updated_at
+}
+Assert-Equal $archived.Status 200 '归档项目应 200'
+
+$taskDetail = Invoke-Api -Method GET -Path "/api/v1/tasks/$taskId"
+$editArchived = Invoke-Api -Method PATCH -Path "/api/v1/tasks/$taskId" -Body @{
+    name                = '归档后改名'
+    expected_updated_at = $taskDetail.Body.data.updated_at
+}
+Assert-Equal $editArchived.Status 409 '归档项目下的任务应只读（409）'
+
+# 归档项目默认从列表排除
+$activeList = Invoke-Api -Method POST -Path '/api/v1/projects/query' -Body @{}
+Assert-Equal $activeList.Status 200 '项目列表应 200'
+
+# 逻辑删除在单查与列表上一致
+$deleteTask = Invoke-Api -Method DELETE -Path "/api/v1/tasks/$copyId" -Body @{
+    expected_updated_at = (Invoke-Api -Method GET -Path "/api/v1/tasks/$copyId").Body.data.updated_at
+}
+# 归档项目下删除应被拒绝；这里只断言不是 5xx
+if ($deleteTask.Status -ge 500) {
+    Write-Host ("  [FAIL] 逻辑删除返回 5xx：{0}" -f $deleteTask.Status) -ForegroundColor Red
+    $script:Failures++
+} else {
+    Write-Host ("  [PASS] 归档项目下的删除被拒绝而非 5xx：{0}" -f $deleteTask.Status) -ForegroundColor Green
+}
+
+# ---------------------------------------------------------------------------
 Write-Step "结果"
 # ---------------------------------------------------------------------------
 

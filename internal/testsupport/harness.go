@@ -13,7 +13,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -27,6 +26,9 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"github.com/myonku/project-builder/internal/app/auth"
+	"github.com/myonku/project-builder/internal/app/groups"
+	"github.com/myonku/project-builder/internal/app/projects"
+	"github.com/myonku/project-builder/internal/app/tasks"
 	"github.com/myonku/project-builder/internal/config"
 	"github.com/myonku/project-builder/internal/database"
 	"github.com/myonku/project-builder/internal/httpapi"
@@ -132,7 +134,7 @@ func ReleaseDatabaseLock() {
 
 // Logger 返回丢弃输出的日志器，避免测试噪声。
 func Logger() *slog.Logger {
-	return slog.New(slog.NewTextHandler(io.Discard, nil))
+	return slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 }
 
 // EnsureMigrated 把数据库迁移到最新版本，并返回连接池。
@@ -360,16 +362,25 @@ func TestArgon2Params() platform.Argon2Params {
 
 // Harness 是一套完整的真实依赖测试装配。
 type Harness struct {
-	Config  config.Config
-	Pool    *pgxpool.Pool
-	Redis   *Redis
-	Clock   *clock.Fixed
-	IDs     *idgen.Generator
-	Users   *auth.Repository
-	Hasher  *platform.PasswordHasher
-	Service *auth.Service
-	Router  *gin.Engine
-	Logger  *slog.Logger
+	Config config.Config
+	Pool   *pgxpool.Pool
+	Redis  *Redis
+	Clock  *clock.Fixed
+	IDs    *idgen.Generator
+	Users  *auth.Repository
+	Hasher *platform.PasswordHasher
+
+	// 各域服务，供测试直接调用（绕过 HTTP）或在断言中复用。
+	Auth     *auth.Service
+	Groups   *groups.Service
+	Projects *projects.Service
+	Tasks    *tasks.Service
+
+	// AuthHandler 同时是 ActorLoader，供调试与断言使用。
+	AuthHandler *auth.Handler
+
+	Router *gin.Engine
+	Logger *slog.Logger
 }
 
 // NewHarness 装配真实 PostgreSQL + Redis 的测试环境。
@@ -395,7 +406,7 @@ func NewHarness(t *testing.T) *Harness {
 
 	users := auth.NewRepository(pool)
 	store := auth.NewRedisSessionStore(redisHarness.Client, true)
-	service := auth.NewService(auth.Options{
+	authService := auth.NewService(auth.Options{
 		Users:    users,
 		Sessions: store,
 		Hasher:   hasher,
@@ -403,6 +414,27 @@ func NewHarness(t *testing.T) *Harness {
 		Clock:    clk,
 		Logger:   logger,
 		Security: cfg.Security,
+	})
+	authHandler := auth.NewHandler(authService, logger)
+
+	groupsService := groups.NewService(groups.Options{
+		Store:  groups.NewRepository(pool),
+		IDs:    ids,
+		Clock:  clk,
+		Logger: logger,
+	})
+	projectsService := projects.NewService(projects.Options{
+		Store:  projects.NewRepository(pool),
+		IDs:    ids,
+		Clock:  clk,
+		Logger: logger,
+	})
+	tasksService := tasks.NewService(tasks.Options{
+		Store:    tasks.NewRepository(pool),
+		Projects: ProjectAccessAdapter{Service: projectsService},
+		IDs:      ids,
+		Clock:    clk,
+		Logger:   logger,
 	})
 
 	engine := httpapi.Router(httpapi.Dependencies{
@@ -414,20 +446,29 @@ func NewHarness(t *testing.T) *Harness {
 			PostgresPing: func() error { return pool.Ping(context.Background()) },
 			RedisPing:    func() error { return redisHarness.Client.Ping(context.Background()).Err() },
 		},
-		Modules: []httpapi.Registrar{auth.NewHandler(service, logger)},
+		Modules: []httpapi.Registrar{
+			authHandler,
+			groups.NewHandler(groupsService, authHandler, logger),
+			projects.NewHandler(projectsService, authHandler, logger),
+			tasks.NewHandler(tasksService, authHandler, logger),
+		},
 	})
 
 	return &Harness{
-		Config:  cfg,
-		Pool:    pool,
-		Redis:   redisHarness,
-		Clock:   clk,
-		IDs:     ids,
-		Users:   users,
-		Hasher:  hasher,
-		Service: service,
-		Router:  engine,
-		Logger:  logger,
+		Config:      cfg,
+		Pool:        pool,
+		Redis:       redisHarness,
+		Clock:       clk,
+		IDs:         ids,
+		Users:       users,
+		Hasher:      hasher,
+		Auth:        authService,
+		Groups:      groupsService,
+		Projects:    projectsService,
+		Tasks:       tasksService,
+		AuthHandler: authHandler,
+		Router:      engine,
+		Logger:      logger,
 	}
 }
 

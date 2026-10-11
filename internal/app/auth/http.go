@@ -23,6 +23,17 @@ func NewHandler(service *Service, logger *slog.Logger) *Handler {
 	return &Handler{service: service, logger: logger}
 }
 
+// LoadActor 实现其他业务模块所需的 ActorLoader 契约。
+//
+// 放在 auth 模块里而不是让各模块自己读 Redis：会话的存储位置与 Cookie 名
+// 属于认证模块的内部知识，其他模块只应得到"当前用户是谁"。
+//
+// 返回值刻意使用 domain.User，因此这里不依赖任何业务模块（避免反向依赖）。
+func (h *Handler) LoadActor(c *gin.Context) (domain.User, error) {
+	token := httpapi.ReadSessionCookie(c, httpapi.SessionCookieName(c))
+	return h.service.ResolveSession(c.Request.Context(), token)
+}
+
 // Register 把本模块端点挂载到版本化路由组之下。
 //
 // 路径与接口文档 4.2 逐条对应。

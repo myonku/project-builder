@@ -162,3 +162,48 @@ func AsError(err error) *Error {
 	}
 	return ErrInternal.WithCause(err)
 }
+
+// AsErrorAs 等价于 errors.As(err, **Error)，用于只判断"是否领域错误"的场景。
+//
+// 命名刻意区分 AsError（归一化，总是返回值）与本函数（类型断言，可能失败）。
+func AsErrorAs(err error, target **Error) bool {
+	return errors.As(err, target)
+}
+
+// MergeErrorFields 把 err 的字段级明细合并进 fields，并返回是否发生了合并。
+//
+// 用途：字段校验函数（如 ValidateDateRange、ValidateProgress）各自返回带 fields 的
+// 领域错误，调用方需要把多组明细汇总成一次 422 响应，而不是逐次往返。
+func MergeErrorFields(err error, fields map[string]string) bool {
+	var domainErr *Error
+	if !errors.As(err, &domainErr) || len(domainErr.Fields) == 0 {
+		return false
+	}
+	for key, value := range domainErr.Fields {
+		fields[key] = value
+	}
+	return true
+}
+
+// PreferDateRange 在 fields 中优先识别日期区间错误。
+//
+// 契约（docs/04 HTTP接口契约 2.4）把"结束日期早于开始日期"单列为
+// 400 invalid_date_range，而不是笼统的 422 validation_error。
+// 因此聚合型校验函数必须区分这两类错误，不能把日期区间问题
+// 混进普通的字段校验集合里——否则客户端的错误码分支会失效。
+//
+// 返回 dateErr 非 nil 时，调用方应直接返回它（可附带已收集的其它 fields），
+// 而不是返回 422。
+func PreferDateRange(fields map[string]string, candidates ...error) *Error {
+	for _, candidate := range candidates {
+		var domainErr *Error
+		if !errors.As(candidate, &domainErr) {
+			continue
+		}
+		if domainErr.Code != CodeInvalidDateRange {
+			continue
+		}
+		return domainErr.WithFields(fields)
+	}
+	return nil
+}

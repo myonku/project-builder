@@ -9,7 +9,13 @@ import (
 const DateLayout = "2006-01-02"
 
 // TimestampLayout 是瞬时时间的对外格式：UTC ISO 8601，带 Z 后缀。
-const TimestampLayout = time.RFC3339
+//
+// 必须保留亚秒精度（RFC3339Nano 的 "Z07:00" 布局）：
+// PostgreSQL 的 TIMESTAMPTZ 精度到微秒，而客户端的 expected_updated_at
+// 是直接回传上一次响应里的 updated_at。若对外只渲染到秒，
+// 回传值会丢掉微秒部分，原子 CAS 的等值比较必然失败——
+// 表现为"刚读到的版本立刻被判为冲突"（实测踩到过）。
+const TimestampLayout = "2006-01-02T15:04:05.999999999Z07:00"
 
 // loadLocation 包装 time.LoadLocation，便于集中校验 IANA 时区标识。
 func loadLocation(name string) (*time.Location, error) {
@@ -25,7 +31,7 @@ func loadLocation(name string) (*time.Location, error) {
 //
 // 参数是 time.Time（通常来自 DATE 列或 YYYY-MM-DD 解析结果），只比较日历日部分。
 func ValidateDateRange(start, end time.Time) error {
-	s, e := dayOf(start), dayOf(end)
+	s, e := DayOf(start), DayOf(end)
 	if e.Before(s) {
 		return ErrInvalidDateRange.WithFields(map[string]string{
 			"start_date": "开始日期不能晚于结束日期",
@@ -35,8 +41,11 @@ func ValidateDateRange(start, end time.Time) error {
 	return nil
 }
 
-// dayOf 把瞬时时间截断到 UTC 日历日，避免时分秒参与日期比较。
-func dayOf(t time.Time) time.Time {
+// DayOf 把瞬时时间截断到 UTC 日历日，避免时分秒参与日期比较。
+//
+// 导出是因为任务层级校验需要比较"父任务区间是否覆盖子任务"，
+// 该逻辑在 domain 之外也要用同一套日历日语义。
+func DayOf(t time.Time) time.Time {
 	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.UTC)
 }
 
@@ -63,7 +72,7 @@ func IsOverdue(endDate time.Time, status string, today time.Time) bool {
 	default:
 		return false
 	}
-	return dayOf(endDate).Before(dayOf(today))
+	return DayOf(endDate).Before(DayOf(today))
 }
 
 // ProgressStatus 按进度推导默认状态。

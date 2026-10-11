@@ -84,6 +84,11 @@ func Router(deps Dependencies) *gin.Engine {
 	// 从而把 404/405 误报成未登录，严重影响前端排查。
 	gateway := NewSessionGateway(cfg.Security.SessionCookieName)
 	gateway.PublicPathPrefix = apiPrefix
+	// 把 Cookie 名写入上下文，业务模块据此读取会话令牌而不各自持有配置。
+	api.Use(func(c *gin.Context) {
+		c.Set(sessionCookieNameContextKey, cfg.Security.SessionCookieName)
+		c.Next()
+	})
 	api.Use(gateway.Middleware())
 
 	// 健康检查是契约端点，挂在版本前缀之下（与 Python 版本路径一致）。

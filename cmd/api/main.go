@@ -17,7 +17,11 @@ import (
 	"time"
 
 	"github.com/myonku/project-builder/internal/app/auth"
+	"github.com/myonku/project-builder/internal/app/groups"
+	"github.com/myonku/project-builder/internal/app/projects"
+	"github.com/myonku/project-builder/internal/app/tasks"
 	"github.com/myonku/project-builder/internal/config"
+	"github.com/myonku/project-builder/internal/domain"
 	"github.com/myonku/project-builder/internal/httpapi"
 	"github.com/myonku/project-builder/internal/platform"
 	"github.com/myonku/project-builder/internal/platform/clock"
@@ -86,6 +90,34 @@ func run() error {
 		Security: cfg.Security,
 	})
 
+	// authHandler 同时承担两个角色：注册自身端点，以及为其他模块解析当前用户。
+	// 各业务模块只依赖 groups.ActorLoader 契约，不直接接触会话细节。
+	authHandler := auth.NewHandler(authService, logger)
+
+	groupsService := groups.NewService(groups.Options{
+		Store:  groups.NewRepository(postgres.Pool),
+		IDs:    ids,
+		Clock:  clk,
+		Logger: logger,
+	})
+
+	projectsService := projects.NewService(projects.Options{
+		Store:  projects.NewRepository(postgres.Pool),
+		IDs:    ids,
+		Clock:  clk,
+		Logger: logger,
+	})
+
+	tasksService := tasks.NewService(tasks.Options{
+		Store: tasks.NewRepository(postgres.Pool),
+		// 装配点负责把 projects 的项目记录适配为 tasks 所需的投影，
+		// 这样两个业务模块之间不产生 import 依赖。
+		Projects: projectsAccessor{service: projectsService},
+		IDs:      ids,
+		Clock:    clk,
+		Logger:   logger,
+	})
+
 	engine := httpapi.Router(httpapi.Dependencies{
 		Config: cfg,
 		Logger: logger,
@@ -107,7 +139,10 @@ func run() error {
 			},
 		},
 		Modules: []httpapi.Registrar{
-			auth.NewHandler(authService, logger),
+			authHandler,
+			groups.NewHandler(groupsService, authHandler, logger),
+			projects.NewHandler(projectsService, authHandler, logger),
+			tasks.NewHandler(tasksService, authHandler, logger),
 		},
 	})
 
@@ -152,8 +187,31 @@ func run() error {
 	return nil
 }
 
-// newLogger 构造结构化日志器。
+// projectsAccessor 把 projects 模块的项目记录适配为 tasks 模块所需的投影。
 //
+// 存在的唯一理由：让两个业务模块互不依赖。适配逻辑本身只有字段搬运，
+// 因此刻意保持极薄——如果这里出现业务判断，说明边界划错了。
+type projectsAccessor struct {
+	service *projects.Service
+}
+
+// Access 实现 tasks.ProjectAccess。
+func (a projectsAccessor) Access(
+	ctx context.Context, projectID, actorID string,
+) (tasks.ProjectView, domain.Permission, error) {
+	record, permission, err := a.service.AccessFor(ctx, projectID, actorID)
+	if err != nil {
+		return tasks.ProjectView{}, domain.PermNone, err
+	}
+	return tasks.ProjectView{
+		ID:         record.ID,
+		Status:     record.Status,
+		Visibility: record.Visibility,
+		ArchivedAt: record.ArchivedAt,
+	}, permission, nil
+}
+
+// newLogger 构造结构化日志器。//
 // 时间统一由 slog 以 UTC 输出（全局基线约定 12）；
 // 日志中不得写入密码、令牌、完整邮件内容或附件内容。
 func newLogger() *slog.Logger {
