@@ -306,6 +306,153 @@ Assert-Equal $staleVersion.Status 409 '过期版本应 409'
 Assert-Equal $staleVersion.Body.error.code 'version_conflict' 'error.code'
 
 # ---------------------------------------------------------------------------
+Write-Step "Users：可见性 → 权限 → 版本 → 字段生效"
+# ---------------------------------------------------------------------------
+
+# 注册并登录第二个用户，用于验证跨用户可见性与"可见但不可改"。
+$secondUsername = "${Username}_b"
+$primarySession = $session
+$session = New-Object Microsoft.PowerShell.Commands.WebRequestSession
+$null = Invoke-Api -Method POST -Path '/api/v1/auth/register' -Body @{
+    username     = $secondUsername
+    email        = "$secondUsername@example.com"
+    display_name = '冒烟用户 B'
+    password     = 'correct horse battery'
+    timezone     = 'UTC'
+}
+$secondLogin = Invoke-Api -Method POST -Path '/api/v1/auth/login' -Body @{
+    identifier = $secondUsername
+    password   = 'correct horse battery'
+}
+Assert-Equal $secondLogin.Status 200 '第二个用户登录'
+$secondUserId = $secondLogin.Body.data.id
+
+# 尚未加入同一工作组时互相不可见：必须是 404，不能泄漏账号是否存在。
+$session = $primarySession
+$invisible = Invoke-Api -Method GET -Path "/api/v1/users/$secondUserId"
+Assert-Equal $invisible.Status 404 '尚无协作关系时不可见（404）'
+Assert-Equal $invisible.Body.error.code 'user_not_found' 'error.code'
+
+$null = Invoke-Api -Method POST -Path "/api/v1/groups/$groupId/members" -Body @{ user_id = $secondUserId }
+
+$visible = Invoke-Api -Method GET -Path "/api/v1/users/$secondUserId"
+Assert-Equal $visible.Status 200 '同组成员应可见（200）'
+if ($visible.Body.data.password_hash) {
+    Write-Host "  [FAIL] 用户资料响应泄漏了 password_hash" -ForegroundColor Red
+    $script:Failures++
+} else {
+    Write-Host "  [PASS] 用户资料响应未包含 password_hash" -ForegroundColor Green
+}
+
+# 同组成员可以看见，但不能修改别人的资料。
+$session = New-Object Microsoft.PowerShell.Commands.WebRequestSession
+$null = Invoke-Api -Method POST -Path '/api/v1/auth/login' -Body @{
+    identifier = $secondUsername
+    password   = 'correct horse battery'
+}
+$foreignEdit = Invoke-Api -Method PATCH -Path "/api/v1/users/$userId" -Body @{
+    display_name        = '被同事改名'
+    expected_updated_at = '2026-10-11T00:00:00Z'
+}
+Assert-Equal $foreignEdit.Status 403 '修改他人资料应 403'
+Assert-Equal $foreignEdit.Body.error.code 'permission_denied' 'error.code'
+
+# 停用用户仅限系统管理员。
+$foreignDisable = Invoke-Api -Method POST -Path "/api/v1/users/$userId/disable" -Body @{
+    expected_updated_at = '2026-10-11T00:00:00Z'
+}
+Assert-Equal $foreignDisable.Status 403 '非管理员停用用户应 403'
+
+$session = $primarySession
+$selfDisable = Invoke-Api -Method POST -Path "/api/v1/users/$userId/disable" -Body @{
+    expected_updated_at = '2026-10-11T00:00:00Z'
+}
+Assert-Equal $selfDisable.Status 403 '普通用户停用他人应 403'
+
+# 路径参数非法：必须 400，不能交给数据库退化成 500。
+$badUserID = Invoke-Api -Method GET -Path '/api/v1/users/not-a-uuid'
+Assert-Equal $badUserID.Status 400 '非法 user_id 应 400'
+Assert-Equal $badUserID.Body.error.code 'invalid_request' 'error.code'
+
+$missingUser = Invoke-Api -Method GET -Path '/api/v1/users/00000000-0000-7000-8000-000000000000'
+Assert-Equal $missingUser.Status 404 '不存在的用户应 404 user_not_found'
+
+$myProfile = Invoke-Api -Method GET -Path "/api/v1/users/$userId"
+Assert-Equal $myProfile.Status 200 'GET /api/v1/users/{self}'
+$myVersion = $myProfile.Body.data.updated_at
+
+# 只有版本、没有任何可改字段：必须 422，否则会推进 updated_at 让别的客户端版本失效。
+$emptyUpdate = Invoke-Api -Method PATCH -Path "/api/v1/users/$userId" -Body @{
+    expected_updated_at = $myVersion
+}
+Assert-Equal $emptyUpdate.Status 422 '空更新应 422'
+Assert-Equal $emptyUpdate.Body.error.code 'validation_error' 'error.code'
+
+# 未知字段（username 不在契约内）必须被拒绝，而不是静默忽略。
+$unknownField = Invoke-Api -Method PATCH -Path "/api/v1/users/$userId" -Body @{
+    username            = 'renamed'
+    expected_updated_at = $myVersion
+}
+Assert-Equal $unknownField.Status 422 '未知字段应 422'
+Assert-Equal $unknownField.Body.error.code 'validation_error' 'error.code'
+
+$badTimezone = Invoke-Api -Method PATCH -Path "/api/v1/users/$userId" -Body @{
+    timezone            = 'Mars/Olympus'
+    expected_updated_at = $myVersion
+}
+Assert-Equal $badTimezone.Status 422 '非法时区应 422'
+
+# 普通用户即使是本人也不能改状态或系统角色。
+$selfRole = Invoke-Api -Method PATCH -Path "/api/v1/users/$userId" -Body @{
+    system_role         = 'admin'
+    expected_updated_at = $myVersion
+}
+Assert-Equal $selfRole.Status 403 '普通用户改系统角色应 403'
+Assert-Equal $selfRole.Body.error.code 'permission_denied' 'error.code'
+
+# 邮箱唯一性由数据库保证。
+$duplicateEmail = Invoke-Api -Method PATCH -Path "/api/v1/users/$userId" -Body @{
+    email               = "$secondUsername@example.com"
+    expected_updated_at = $myVersion
+}
+Assert-Equal $duplicateEmail.Status 409 '占用他人邮箱应 409'
+Assert-Equal $duplicateEmail.Body.error.code 'conflict' 'error.code'
+
+# 字段必须真实生效（历史缺陷：归一化丢字段，返回 200 但目标字段没变）。
+$profileUpdate = Invoke-Api -Method PATCH -Path "/api/v1/users/$userId" -Body @{
+    display_name        = '冒烟用户（已改名）'
+    timezone            = 'Pacific/Honolulu'
+    reminder_enabled    = $false
+    expected_updated_at = $myVersion
+}
+Assert-Equal $profileUpdate.Status 200 'PATCH /api/v1/users/{self}'
+Assert-Equal $profileUpdate.Body.data.display_name '冒烟用户（已改名）' 'display_name 已生效'
+Assert-Equal $profileUpdate.Body.data.timezone 'Pacific/Honolulu' 'timezone 已生效'
+Assert-Equal $profileUpdate.Body.data.reminder_enabled $false 'reminder_enabled 已生效'
+if ($profileUpdate.Body.data.updated_at -ne $myVersion) {
+    Write-Host "  [PASS] 资料更新推进了 updated_at（版本协议生效）" -ForegroundColor Green
+} else {
+    Write-Host "  [FAIL] 资料更新必须推进 updated_at" -ForegroundColor Red
+    $script:Failures++
+}
+
+# 过期版本应 409。
+$staleProfile = Invoke-Api -Method PATCH -Path "/api/v1/users/$userId" -Body @{
+    display_name        = '用过期版本改名'
+    expected_updated_at = $myVersion
+}
+Assert-Equal $staleProfile.Status 409 '过期版本应 409'
+Assert-Equal $staleProfile.Body.error.code 'version_conflict' 'error.code'
+
+# 复原时区，避免影响后续对派生日期的判断。
+$restore = Invoke-Api -Method PATCH -Path "/api/v1/users/$userId" -Body @{
+    timezone            = 'Asia/Shanghai'
+    expected_updated_at = $profileUpdate.Body.data.updated_at
+}
+Assert-Equal $restore.Status 200 '时区复原'
+Assert-Equal $restore.Body.data.timezone 'Asia/Shanghai' '时区复原已生效'
+
+# ---------------------------------------------------------------------------
 Write-Step "Projects：创建 → 派生字段 → 归档只读"
 # ---------------------------------------------------------------------------
 

@@ -29,6 +29,7 @@ import (
 	"github.com/myonku/project-builder/internal/app/groups"
 	"github.com/myonku/project-builder/internal/app/projects"
 	"github.com/myonku/project-builder/internal/app/tasks"
+	"github.com/myonku/project-builder/internal/app/users"
 	"github.com/myonku/project-builder/internal/config"
 	"github.com/myonku/project-builder/internal/database"
 	"github.com/myonku/project-builder/internal/httpapi"
@@ -367,11 +368,13 @@ type Harness struct {
 	Redis  *Redis
 	Clock  *clock.Fixed
 	IDs    *idgen.Generator
+	// Users 是 auth 模块的用户仓储（注册与登录路径使用）。
 	Users  *auth.Repository
 	Hasher *platform.PasswordHasher
 
 	// 各域服务，供测试直接调用（绕过 HTTP）或在断言中复用。
 	Auth     *auth.Service
+	Profiles *users.Service
 	Groups   *groups.Service
 	Projects *projects.Service
 	Tasks    *tasks.Service
@@ -404,10 +407,10 @@ func NewHarness(t *testing.T) *Harness {
 	ids := idgen.NewTimeOrdered(clk.Now)
 	hasher := platform.NewPasswordHasherWith(TestArgon2Params())
 
-	users := auth.NewRepository(pool)
+	authUsers := auth.NewRepository(pool)
 	store := auth.NewRedisSessionStore(redisHarness.Client, true)
 	authService := auth.NewService(auth.Options{
-		Users:    users,
+		Users:    authUsers,
 		Sessions: store,
 		Hasher:   hasher,
 		IDs:      ids,
@@ -423,11 +426,18 @@ func NewHarness(t *testing.T) *Harness {
 		Clock:  clk,
 		Logger: logger,
 	})
-	projectsService := projects.NewService(projects.Options{
-		Store:  projects.NewRepository(pool),
-		IDs:    ids,
-		Clock:  clk,
+	// usersService 兼作 projects 的时区来源：与 cmd/api 的装配保持一致，
+	// 否则测试验证的就不是生产行为（见 testsupport/adapter.go 的同类说明）。
+	usersService := users.NewService(users.Options{
+		Store:  users.NewRepository(pool),
 		Logger: logger,
+	})
+	projectsService := projects.NewService(projects.Options{
+		Store:     projects.NewRepository(pool),
+		Timezones: usersService,
+		IDs:       ids,
+		Clock:     clk,
+		Logger:    logger,
 	})
 	tasksService := tasks.NewService(tasks.Options{
 		Store:    tasks.NewRepository(pool),
@@ -448,6 +458,7 @@ func NewHarness(t *testing.T) *Harness {
 		},
 		Modules: []httpapi.Registrar{
 			authHandler,
+			users.NewHandler(usersService, authHandler, logger),
 			groups.NewHandler(groupsService, authHandler, logger),
 			projects.NewHandler(projectsService, authHandler, logger),
 			tasks.NewHandler(tasksService, authHandler, logger),
@@ -460,9 +471,10 @@ func NewHarness(t *testing.T) *Harness {
 		Redis:       redisHarness,
 		Clock:       clk,
 		IDs:         ids,
-		Users:       users,
+		Users:       authUsers,
 		Hasher:      hasher,
 		Auth:        authService,
+		Profiles:    usersService,
 		Groups:      groupsService,
 		Projects:    projectsService,
 		Tasks:       tasksService,

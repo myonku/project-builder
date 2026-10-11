@@ -73,6 +73,10 @@ var (
 	}
 	MemberRoles    = []string{MemberRoleOwner, MemberRoleMember}
 	MemberStatuses = []string{MemberStatusActive, MemberStatusRemoved}
+	// UserStatuses / UserSystemRoles 与 ck_users_user_status /
+	// ck_users_user_system_role 两个 CHECK 约束一一对应（docs/02 3.1）。
+	UserStatuses    = []string{UserStatusActive, UserStatusDisabled}
+	UserSystemRoles = []string{UserSystemRoleMember, UserSystemRoleAdmin}
 )
 
 // 任务层级上限（需求文档 5.4：父子任务最大 3 层）。
@@ -119,6 +123,42 @@ func (p Permission) AtLeast(required Permission) bool { return p >= required }
 // 需求文档 4.3：组内可编辑允许修改共享任务，但不能修改项目共享权限。
 // 因此共享级别本身永远不授予 PermManage。
 func CanManageProjectVisibility(visibility string) bool { return false }
+
+// CanReadUserProfile 报告 actor 是否可以读取目标用户的资料。
+//
+// sharesWorkspace 由仓储计算（请求者与目标用户是否同属一个工作组或同一项目），
+// 因为该判断需要 JOIN 才能完成；而"本人 / 系统管理员"是纯权限语义，留在领域层。
+//
+// 把这个布尔量作为参数而不是在领域层查库，是为了让规则保持纯函数、可表驱动测试。
+func CanReadUserProfile(actor User, targetUserID string, sharesWorkspace bool) bool {
+	if actor.ID == "" || targetUserID == "" {
+		return false
+	}
+	if actor.IsAdmin() || actor.ID == targetUserID {
+		return true
+	}
+	return sharesWorkspace
+}
+
+// CanUpdateUserProfile 报告 actor 是否可以修改目标用户的资料。
+//
+// 仅本人与系统管理员。同组成员只获得读取权限，不获得修改权限——
+// 否则任何人都能改同事的邮箱，而邮箱是登录标识。
+func CanUpdateUserProfile(actor User, targetUserID string) bool {
+	if actor.ID == "" || targetUserID == "" {
+		return false
+	}
+	return actor.IsAdmin() || actor.ID == targetUserID
+}
+
+// RequiresUserAdministration 报告给定更新是否触及只有系统管理员才能修改的字段。
+//
+// 与 CanUpdateUserProfile 分开是为了给出准确的错误语义：
+// "本人改自己的状态"不是无权访问，而是该字段不对普通用户开放，
+// 因此需要 403 + fields 说明，而不是笼统的 403。
+func RequiresUserAdministration(update UserProfileUpdate) bool {
+	return update.Status != nil || update.SystemRole != nil
+}
 
 // ProjectVisibleToGroup 报告给定共享级别是否让项目进入组内视图。
 func ProjectVisibleToGroup(visibility string) bool {

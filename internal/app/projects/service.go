@@ -40,20 +40,32 @@ type Page[T any] struct {
 	Page  listquery.Pagination
 }
 
+// TimezoneProvider 按用户 ID 返回其 IANA 时区。
+//
+// 由装配点注入（生产环境是 app/users 的服务，测试环境是同一实现或替身）。
+// 定义在消费方而不是 provider 侧，是本项目的惯例：模块只声明自己需要的最小能力，
+// 因此 projects 不需要 import users，两个业务模块之间不产生依赖边。
+type TimezoneProvider interface {
+	TimezoneOf(ctx context.Context, userID string) (string, error)
+}
+
 // Service 承载项目用例。
 type Service struct {
-	repo   Store
-	ids    *idgen.Generator
-	clk    clock.Clock
-	logger *slog.Logger
+	repo      Store
+	timezones TimezoneProvider
+	ids       *idgen.Generator
+	clk       clock.Clock
+	logger    *slog.Logger
 }
 
 // Options 是 Service 的构造参数。
 type Options struct {
-	Store  Store
-	IDs    *idgen.Generator
-	Clock  clock.Clock
-	Logger *slog.Logger
+	Store Store
+	// Timezones 用于按请求者时区计算"今天"（派生逾期字段）。
+	Timezones TimezoneProvider
+	IDs       *idgen.Generator
+	Clock     clock.Clock
+	Logger    *slog.Logger
 }
 
 // NewService 构造项目用例服务。
@@ -66,7 +78,13 @@ func NewService(opts Options) *Service {
 	if clk == nil {
 		clk = clock.NewSystem()
 	}
-	return &Service{repo: opts.Store, ids: opts.IDs, clk: clk, logger: logger}
+	return &Service{
+		repo:      opts.Store,
+		timezones: opts.Timezones,
+		ids:       opts.IDs,
+		clk:       clk,
+		logger:    logger,
+	}
 }
 
 // CreateInput 是创建项目的用例输入。
@@ -175,7 +193,7 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (ProjectRecord, er
 // 可见性：项目成员，或归属组的活跃成员且共享级别非私有。
 // 不可见返回 404 而不是 403——私有项目的存在性不应泄漏给任意登录用户。
 func (s *Service) Detail(ctx context.Context, projectID, actorID string) (ProjectRecord, error) {
-	record, err := s.repo.FindProjectForUser(ctx, projectID, actorID, s.today(actorID))
+	record, err := s.repo.FindProjectForUser(ctx, projectID, actorID, s.today(ctx, actorID))
 	if err != nil {
 		return ProjectRecord{}, err
 	}
@@ -189,7 +207,7 @@ func (s *Service) Detail(ctx context.Context, projectID, actorID string) (Projec
 //
 // 这样任务模块不需要自己复制一遍"项目成员 / 组内共享 / 归档只读"的判定。
 func (s *Service) Access(ctx context.Context, projectID, actorID string) (ProjectRecord, domain.Permission, error) {
-	record, err := s.repo.FindProjectForUser(ctx, projectID, actorID, s.today(actorID))
+	record, err := s.repo.FindProjectForUser(ctx, projectID, actorID, s.today(ctx, actorID))
 	if err != nil {
 		return ProjectRecord{}, domain.PermNone, err
 	}
@@ -244,7 +262,7 @@ func (s *Service) List(ctx context.Context, in ListInput) (Page[ProjectRecord], 
 		OwnerID:         in.OwnerID,
 		Name:            in.Name,
 		IncludeArchived: in.IncludeArchived,
-		Today:           s.today(in.ActorID),
+		Today:           s.today(ctx, in.ActorID),
 	}
 
 	total, err := s.repo.CountProjects(ctx, filter)
@@ -303,7 +321,7 @@ func (s *Service) Update(ctx context.Context, actor domain.User, in UpdateInput)
 	assertNotDropped("start_date", in.StartDate != nil, normalized.StartDate != nil)
 	assertNotDropped("end_date", in.EndDate != nil, normalized.EndDate != nil)
 
-	current, err := s.repo.FindProjectForUser(ctx, in.ProjectID, in.ActorID, s.today(in.ActorID))
+	current, err := s.repo.FindProjectForUser(ctx, in.ProjectID, in.ActorID, s.today(ctx, in.ActorID))
 	if err != nil {
 		return ProjectRecord{}, err
 	}
@@ -370,7 +388,7 @@ type ArchiveInput struct {
 // 需求文档 5.3 + 接口契约 4.5：owner 或管理员归档项目。
 // 归档后项目只读（由 domain.CanEditProjectTasks / IsReadOnly 保证）。
 func (s *Service) Archive(ctx context.Context, actor domain.User, in ArchiveInput) (ProjectRecord, error) {
-	current, err := s.repo.FindProjectForUser(ctx, in.ProjectID, in.ActorID, s.today(in.ActorID))
+	current, err := s.repo.FindProjectForUser(ctx, in.ProjectID, in.ActorID, s.today(ctx, in.ActorID))
 	if err != nil {
 		return ProjectRecord{}, err
 	}
@@ -592,7 +610,7 @@ func (s *Service) RemoveMember(ctx context.Context, projectID, actorID, userID s
 
 // requireVisible 要求项目对 actor 可见。
 func (s *Service) requireVisible(ctx context.Context, projectID, actorID string) (ProjectRecord, error) {
-	record, err := s.repo.FindProjectForUser(ctx, projectID, actorID, s.today(actorID))
+	record, err := s.repo.FindProjectForUser(ctx, projectID, actorID, s.today(ctx, actorID))
 	if err != nil {
 		return ProjectRecord{}, err
 	}
@@ -604,7 +622,7 @@ func (s *Service) requireVisible(ctx context.Context, projectID, actorID string)
 
 // requireManage 要求 actor 是项目持有者。
 func (s *Service) requireManage(ctx context.Context, projectID, actorID string) (ProjectRecord, error) {
-	record, err := s.repo.FindProjectForUser(ctx, projectID, actorID, s.today(actorID))
+	record, err := s.repo.FindProjectForUser(ctx, projectID, actorID, s.today(ctx, actorID))
 	if err != nil {
 		return ProjectRecord{}, err
 	}
@@ -616,10 +634,42 @@ func (s *Service) requireManage(ctx context.Context, projectID, actorID string) 
 
 // today 返回按请求者时区计算的"今天"。
 //
-// 当前实现使用服务器时钟的 UTC 日历日：用户时区在 Users 模块落地后接入，
-// 此处保留集中入口，避免逾期判定散落在各处。
-func (s *Service) today(_ string) time.Time {
-	return domain.DayOf(s.clk.Now())
+// 需求文档 5.7：底层时间统一 UTC，上层按用户时区计算业务日期。
+// 用户时区由装配点注入的 TimezoneProvider 提供（生产环境是 app/users）。
+//
+// 为什么不直接把 actor 时区从 HTTP 层传下来：本服务的权限判定入口
+// AccessFor 会被其他模块以"只有两个 ID"的方式调用（见 adapter.go），
+// 无法保证调用方手上总有完整的用户对象。以用户 ID 查时区是唯一在两种
+// 调用方式下都成立的做法。
+//
+// 读取失败时回退到 UTC 日历日并记录告警，而不是让整个请求失败：
+// 这个值只影响派生展示字段（is_overdue / overdue_task_count），
+// 让一次列表请求因为一个展示值而 500 是更差的结果。
+func (s *Service) today(ctx context.Context, actorID string) time.Time {
+	fallback := domain.DayOf(s.clk.Now())
+	if s.timezones == nil {
+		return fallback
+	}
+
+	timezone, err := s.timezones.TimezoneOf(ctx, actorID)
+	if err != nil {
+		s.logger.Warn("读取用户时区失败，本次按 UTC 计算今天",
+			slog.String("user_id", actorID),
+			slog.Any("cause", err),
+		)
+		return fallback
+	}
+
+	today, err := domain.Today(s.clk.Now(), timezone)
+	if err != nil {
+		s.logger.Warn("用户时区非法，本次按 UTC 计算今天",
+			slog.String("user_id", actorID),
+			slog.String("timezone", timezone),
+			slog.Any("cause", err),
+		)
+		return fallback
+	}
+	return today
 }
 
 // permissionOf 计算 actor 对项目记录的权限。

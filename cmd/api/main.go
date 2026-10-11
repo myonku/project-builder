@@ -20,6 +20,7 @@ import (
 	"github.com/myonku/project-builder/internal/app/groups"
 	"github.com/myonku/project-builder/internal/app/projects"
 	"github.com/myonku/project-builder/internal/app/tasks"
+	"github.com/myonku/project-builder/internal/app/users"
 	"github.com/myonku/project-builder/internal/config"
 	"github.com/myonku/project-builder/internal/domain"
 	"github.com/myonku/project-builder/internal/httpapi"
@@ -101,11 +102,21 @@ func run() error {
 		Logger: logger,
 	})
 
-	projectsService := projects.NewService(projects.Options{
-		Store:  projects.NewRepository(postgres.Pool),
-		IDs:    ids,
-		Clock:  clk,
+	// usersService 同时承担两个角色：注册自身端点，以及为其他模块提供
+	// "按用户 ID 查时区"的能力（派生逾期字段按用户时区计算"今天"）。
+	// 它由 *users.Service 直接满足 projects.TimezoneProvider，
+	// 因此装配点不需要额外的适配器：接口方法签名与实现完全一致。
+	usersService := users.NewService(users.Options{
+		Store:  users.NewRepository(postgres.Pool),
 		Logger: logger,
+	})
+
+	projectsService := projects.NewService(projects.Options{
+		Store:     projects.NewRepository(postgres.Pool),
+		Timezones: usersService,
+		IDs:       ids,
+		Clock:     clk,
+		Logger:    logger,
 	})
 
 	tasksService := tasks.NewService(tasks.Options{
@@ -140,6 +151,7 @@ func run() error {
 		},
 		Modules: []httpapi.Registrar{
 			authHandler,
+			users.NewHandler(usersService, authHandler, logger),
 			groups.NewHandler(groupsService, authHandler, logger),
 			projects.NewHandler(projectsService, authHandler, logger),
 			tasks.NewHandler(tasksService, authHandler, logger),

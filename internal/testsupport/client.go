@@ -239,6 +239,15 @@ type Authenticated struct {
 // 密码固定为 sharedPassword：集成测试关心的是权限与约束，不是密码策略。
 func (h *Harness) RegisterAndLogin(t *testing.T, username string) Authenticated {
 	t.Helper()
+	return h.RegisterAndLoginWithTimezone(t, username, "UTC")
+}
+
+// RegisterAndLoginWithTimezone 与 RegisterAndLogin 相同，但显式指定注册时区。
+//
+// 时区会影响所有派生日期（is_overdue / overdue_task_count），
+// 因此验证"按用户时区计算今天"必须能够注册非 UTC 用户。
+func (h *Harness) RegisterAndLoginWithTimezone(t *testing.T, username, timezone string) Authenticated {
+	t.Helper()
 
 	client := h.Client(t)
 	email := fmt.Sprintf("%s@example.com", username)
@@ -248,7 +257,7 @@ func (h *Harness) RegisterAndLogin(t *testing.T, username string) Authenticated 
 		"email":        email,
 		"display_name": username,
 		"password":     SharedPassword,
-		"timezone":     "UTC",
+		"timezone":     timezone,
 	})
 	registered.RequireStatus(t, 201)
 	userID := Str(registered.Data(t), "id")

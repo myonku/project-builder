@@ -186,9 +186,10 @@ type memberResponse struct {
 
 // newTaskResponse 把仓储记录投影为对外结构。
 //
-// today 用于派生 is_overdue：逾期是按用户时区计算的展示字段，
-// 因此必须由调用方显式传入"今天"，不在这里读系统时钟。
-func newTaskResponse(record TaskRecord, today string) taskResponse {
+// today 由调用方按**请求者时区**计算后传入（Service.TodayFor）：
+// 逾期是派生展示字段，其判定基准必须跟随用户时区，而不是服务器 UTC 日历日
+// （需求文档 5.7）。
+func newTaskResponse(record TaskRecord, today time.Time) taskResponse {
 	var deletedAt *string
 	if record.DeletedAt != nil {
 		formatted := domain.FormatTimestamp(*record.DeletedAt)
@@ -208,7 +209,7 @@ func newTaskResponse(record TaskRecord, today string) taskResponse {
 		EndDate:     domain.FormatDate(record.EndDate),
 		IsMilestone: record.IsMilestone,
 		IsShared:    record.IsShared,
-		IsOverdue:   domain.IsOverdue(record.EndDate, record.Status, mustParseDay(today)),
+		IsOverdue:   domain.IsOverdue(record.EndDate, record.Status, today),
 		DeletedAt:   deletedAt,
 		UpdatedAt:   domain.FormatTimestamp(record.UpdatedAt),
 	}
@@ -272,7 +273,7 @@ func (h *Handler) create(c *gin.Context) {
 		return
 	}
 
-	httpapi.RespondCreated(c, newTaskResponse(created, h.today()))
+	httpapi.RespondCreated(c, newTaskResponse(created, h.service.TodayFor(actor)))
 }
 
 // detail 处理 GET /tasks/{task_id}。
@@ -294,7 +295,7 @@ func (h *Handler) detail(c *gin.Context) {
 		return
 	}
 
-	httpapi.RespondOK(c, newTaskResponse(record, h.today()))
+	httpapi.RespondOK(c, newTaskResponse(record, h.service.TodayFor(actor)))
 }
 
 // list 处理 POST /projects/{project_id}/tasks/query。
@@ -337,7 +338,7 @@ func (h *Handler) list(c *gin.Context) {
 		return
 	}
 
-	today := h.today()
+	today := h.service.TodayFor(actor)
 	items := make([]taskResponse, 0, len(page.Items))
 	for _, record := range page.Items {
 		items = append(items, newTaskResponse(record, today))
@@ -397,7 +398,7 @@ func (h *Handler) update(c *gin.Context) {
 		return
 	}
 
-	httpapi.RespondOK(c, newTaskResponse(updated, h.today()))
+	httpapi.RespondOK(c, newTaskResponse(updated, h.service.TodayFor(actor)))
 }
 
 // updateDates 处理 PATCH /tasks/{task_id}/dates。
@@ -431,7 +432,7 @@ func (h *Handler) updateDates(c *gin.Context) {
 		return
 	}
 
-	httpapi.RespondOK(c, newTaskResponse(updated, h.today()))
+	httpapi.RespondOK(c, newTaskResponse(updated, h.service.TodayFor(actor)))
 }
 
 // delete 处理 DELETE /tasks/{task_id}（逻辑删除）。
@@ -512,7 +513,7 @@ func (h *Handler) copy(c *gin.Context) {
 		return
 	}
 
-	response := newTaskResponse(created, h.today())
+	response := newTaskResponse(created, h.service.TodayFor(actor))
 	if replayed {
 		httpapi.RespondOK(c, response)
 		return
@@ -666,13 +667,6 @@ func (h *Handler) actor(c *gin.Context) (domain.User, error) {
 	return h.actorLoader.LoadActor(c)
 }
 
-// today 返回用于派生 is_overdue 的当前日历日。
-//
-// 集中一处以便后续接入用户时区；当前使用服务器 UTC 日历日。
-func (h *Handler) today() string {
-	return domain.FormatDate(domain.DayOf(time.Now().UTC()))
-}
-
 // errNoActorLoader 表示装配遗漏。
 var errNoActorLoader = errors.New("tasks: 未注入 ActorLoader")
 
@@ -688,16 +682,4 @@ func requireUUIDParam(c *gin.Context, name string) (string, error) {
 		return "", domain.ErrInvalidRequest.WithField(name, "必须是合法的 UUID 字符串")
 	}
 	return value, nil
-}
-
-// mustParseDay 解析 YYYY-MM-DD。
-//
-// 输入来自 today()，格式由本模块自己生成，因此解析失败属于编程错误；
-// 退化返回零值会让 is_overdue 恒为 false，因此这里 panic 以便在测试中立刻暴露。
-func mustParseDay(value string) time.Time {
-	parsed, err := time.Parse(domain.DateLayout, value)
-	if err != nil {
-		panic("tasks: today() 生成了非法日期: " + value)
-	}
-	return parsed.UTC()
 }

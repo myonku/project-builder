@@ -6,7 +6,7 @@
 
 ## 当前状态
 
-**第一阶段（地基 + Auth）与第二阶段（Groups / Projects / Tasks）已完成并经真实依赖验证。**
+**第一至第三阶段已完成并经真实依赖验证：地基 + Auth、Groups / Projects / Tasks、Users。**
 
 | 能力 | 状态 |
 | --- | --- |
@@ -17,12 +17,14 @@
 | 初始迁移 `000001_init`（9 张表、CHECK、部分唯一索引、外键删除行为、up/down 可逆） | ✅ 已实现 |
 | Auth：注册、登录、登出、当前用户（Argon2id + Redis 会话 + HttpOnly Cookie） | ✅ 已实现 |
 | Groups / Projects / Tasks | ✅ 已实现（第二阶段） |
-| Users / Plan Views / Attachments / Reminders / Audit | ⬜ 第三阶段及以后 |
+| Users：资料查询/更新、管理员停用、按用户时区计算"今天" | ✅ 已实现（第三阶段） |
+| Plan Views / Attachments / Reminders / Audit | ⬜ 第三阶段剩余 |
 
 真实依赖验证结果（PostgreSQL 16.15 + Redis 7）：
 
-- `go test ./...` **195 项通过、0 失败、0 跳过**，含真实数据库上的迁移可逆性、约束生效性、单一 owner 不变式，以及 Auth/Groups/Projects/Tasks 的端到端用例。
-- `scripts/smoke.ps1` 对运行中的服务执行 **62 项断言全部通过**（健康检查、认证全链路、三域 CRUD、分页边界、排序白名单、版本冲突、组合筛选、幂等复制、归档只读）。
+- `go test ./...` **顶层 219 项通过、0 失败、0 跳过**（含子用例共 609 项），覆盖真实数据库上的迁移可逆性、约束生效性、单一 owner 不变式，以及 Auth/Users/Groups/Projects/Tasks 的端到端用例。
+- `scripts/smoke.ps1` 对运行中的服务执行 **90 项断言全部通过**（健康检查、认证全链路、用户资料、三域 CRUD、分页边界、排序白名单、版本冲突、组合筛选、幂等复制、归档只读）。
+- 关键实现经**变异验证**：逐条注入缺陷并确认对应用例确实失败，见 [docs/06](docs/06-迁移进度与验证.md) 5.7。
 
 进度与阶段划分见 [docs/06-迁移进度与验证.md](docs/06-迁移进度与验证.md)。
 
@@ -109,6 +111,7 @@ project-builder/
 │   ├── app/                        # 业务模块：每域 repo.go + service.go + http.go(+ sort.go)
 │   │   ├── apperr/                 # PostgreSQL 错误 → 领域错误的统一翻译 + 事务抽象
 │   │   ├── auth/                   # 注册/登录/登出/当前用户（额外含 session.go）
+│   │   ├── users/                  # 用户资料、可见性、管理员停用、按用户查时区
 │   │   ├── groups/                 # 工作组、成员、加入申请
 │   │   ├── projects/               # 项目、成员、归档、派生统计
 │   │   └── tasks/                  # 任务、成员、层级、幂等复制
@@ -117,7 +120,7 @@ project-builder/
 │   └── testsupport/                # 集成测试装配、清理与 HTTP 客户端辅助
 ├── docs/                           # 设计与契约文档（00 需求 → 06 进度）
 ├── docker/                         # 测试依赖 compose 与测试配置
-├── scripts/smoke.ps1               # 端到端冒烟检查（62 项断言）
+├── scripts/smoke.ps1               # 端到端冒烟检查（90 项断言）
 ├── config.toml                     # 本地开发默认配置（不含敏感值）
 ├── .env.example                    # 配置键名与占位符（不含真实值）
 └── Makefile                        # run / test / migrate / check

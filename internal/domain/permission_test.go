@@ -125,6 +125,8 @@ func TestEnumWhitelistsMatchDatabaseConstraints(t *testing.T) {
 		"not_started", "in_progress", "completed", "cancelled")
 	assertSameSet(t, "MemberRoles", MemberRoles, "owner", "member")
 	assertSameSet(t, "MemberStatuses", MemberStatuses, "active", "removed")
+	assertSameSet(t, "UserStatuses", UserStatuses, "active", "disabled")
+	assertSameSet(t, "UserSystemRoles", UserSystemRoles, "member", "admin")
 }
 
 // assertSameSet 断言两个集合完全相等且都无重复项。

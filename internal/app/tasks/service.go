@@ -71,6 +71,31 @@ type Page[T any] struct {
 	Page  listquery.Pagination
 }
 
+// TodayFor 返回按 actor 时区计算的"今天"，用于派生 is_overdue。
+//
+// 需求文档 5.7：底层时间统一 UTC，上层按用户时区计算业务日期。
+// "今天"的算法集中在 domain.Today，projects 模块使用同一实现，规则不会漂移。
+//
+// 时区直接取自已加载的当前用户（auth 每次请求都回数据库读取用户），
+// 因此这里不需要额外查询，也不需要把 users 模块的仓储注入本模块。
+// 这与 projects 模块按用户 ID 查时区的做法不同，原因见 projects.Service.today：
+// projects 的权限入口会被其他模块以"只有两个 ID"的方式调用，拿不到完整用户对象。
+//
+// 时区非法时回退到 UTC 日历日：该值只影响派生展示字段，
+// 不应让整个读取路径因此 500。
+func (s *Service) TodayFor(actor domain.User) time.Time {
+	today, err := domain.Today(s.clk.Now(), actor.Timezone)
+	if err != nil {
+		s.logger.Warn("用户时区非法，按 UTC 计算今天",
+			slog.String("user_id", actor.ID),
+			slog.String("timezone", actor.Timezone),
+			slog.Any("cause", err),
+		)
+		return domain.DayOf(s.clk.Now())
+	}
+	return today
+}
+
 // Service 承载任务用例。
 type Service struct {
 	repo     Store

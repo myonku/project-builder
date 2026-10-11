@@ -349,3 +349,222 @@ func TestErrorUnwrapExposesCause(t *testing.T) {
 		t.Fatal("errors.Is 应能穿透到 Cause")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// 用户资料更新（第三阶段 Users 模块）
+// ---------------------------------------------------------------------------
+
+// strPtr / boolPtr 是构造"已提供的可选字段"的辅助函数。
+func strPtr(value string) *string { return &value }
+func boolPtr(value bool) *bool    { return &value }
+
+func TestNormalizeUserProfileUpdateAcceptsValidInput(t *testing.T) {
+	t.Parallel()
+
+	got, fields := NormalizeUserProfileUpdate(UserProfileUpdate{
+		DisplayName:     strPtr("  爱丽丝  "),
+		Email:           strPtr("  Alice@Example.COM "),
+		Timezone:        strPtr(" Asia/Shanghai "),
+		ReminderEnabled: boolPtr(false),
+	})
+	if len(fields) != 0 {
+		t.Fatalf("期望无字段错误，实际为 %v", fields)
+	}
+	if *got.DisplayName != "爱丽丝" {
+		t.Errorf("display_name = %q，期望去除首尾空格", *got.DisplayName)
+	}
+	if *got.Email != "alice@example.com" {
+		t.Errorf("email = %q，期望归一化为小写", *got.Email)
+	}
+	if *got.Timezone != "Asia/Shanghai" {
+		t.Errorf("timezone = %q，期望去除首尾空格", *got.Timezone)
+	}
+	if *got.ReminderEnabled {
+		t.Error("reminder_enabled 应保留 false，而不是被当成未提供")
+	}
+}
+
+// TestNormalizeUserProfileUpdateKeepsProvidedFields 锁住红线第 6 条：
+// 归一化不得把调用方已提供的字段变成 nil，否则更新会被静默忽略。
+func TestNormalizeUserProfileUpdateKeepsProvidedFields(t *testing.T) {
+	t.Parallel()
+
+	got, _ := NormalizeUserProfileUpdate(UserProfileUpdate{
+		DisplayName:     strPtr("Alice"),
+		Email:           strPtr("alice@example.com"),
+		Timezone:        strPtr("UTC"),
+		ReminderEnabled: boolPtr(true),
+		Status:          strPtr(UserStatusActive),
+		SystemRole:      strPtr(UserSystemRoleAdmin),
+	})
+
+	switch {
+	case got.DisplayName == nil:
+		t.Error("display_name 被归一化丢弃")
+	case got.Email == nil:
+		t.Error("email 被归一化丢弃")
+	case got.Timezone == nil:
+		t.Error("timezone 被归一化丢弃")
+	case got.ReminderEnabled == nil:
+		t.Error("reminder_enabled 被归一化丢弃")
+	case got.Status == nil:
+		t.Error("status 被归一化丢弃")
+	case got.SystemRole == nil:
+		t.Error("system_role 被归一化丢弃")
+	}
+}
+
+// TestNormalizeUserProfileUpdateLeavesOmittedFieldsNil 确保"未提供"仍是"不修改"。
+func TestNormalizeUserProfileUpdateLeavesOmittedFieldsNil(t *testing.T) {
+	t.Parallel()
+
+	got, fields := NormalizeUserProfileUpdate(UserProfileUpdate{DisplayName: strPtr("Alice")})
+	if len(fields) != 0 {
+		t.Fatalf("期望无字段错误，实际为 %v", fields)
+	}
+	if got.Email != nil || got.Timezone != nil || got.ReminderEnabled != nil ||
+		got.Status != nil || got.SystemRole != nil {
+		t.Fatalf("未提供的字段必须保持 nil，实际为 %+v", got)
+	}
+}
+
+func TestNormalizeUserProfileUpdateRejectsInvalidValues(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		input UserProfileUpdate
+		field string
+	}{
+		{"空白显示名", UserProfileUpdate{DisplayName: strPtr("   ")}, "display_name"},
+		{"显示名超长", UserProfileUpdate{DisplayName: strPtr(strings.Repeat("字", 129))}, "display_name"},
+		{"空邮箱", UserProfileUpdate{Email: strPtr("")}, "email"},
+		{"邮箱格式非法", UserProfileUpdate{Email: strPtr("not-an-email")}, "email"},
+		{"邮箱超长", UserProfileUpdate{Email: strPtr(strings.Repeat("a", 320) + "@example.com")}, "email"},
+		// 更新时不允许清空时区：注册时"省略或为空"默认 UTC，更新时空值没有业务含义。
+		{"空时区", UserProfileUpdate{Timezone: strPtr("")}, "timezone"},
+		{"非法时区", UserProfileUpdate{Timezone: strPtr("Mars/Olympus")}, "timezone"},
+		{"时区超长", UserProfileUpdate{Timezone: strPtr(strings.Repeat("a", 65))}, "timezone"},
+		{"未知状态", UserProfileUpdate{Status: strPtr("deleted")}, "status"},
+		{"未知角色", UserProfileUpdate{SystemRole: strPtr("superuser")}, "system_role"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, fields := NormalizeUserProfileUpdate(tc.input)
+			if _, ok := fields[tc.field]; !ok {
+				t.Fatalf("期望字段 %q 报错，实际为 %v", tc.field, fields)
+			}
+		})
+	}
+}
+
+// TestUserProfileUpdateHasChanges 锁住"空更新"必须被拒绝这一契约加强项。
+func TestUserProfileUpdateHasChanges(t *testing.T) {
+	t.Parallel()
+
+	if (UserProfileUpdate{}).HasChanges() {
+		t.Error("空更新不应被视为有变更")
+	}
+	// 显式设为 false 是一次真实变更，不能与"未提供"混为一谈。
+	if !(UserProfileUpdate{ReminderEnabled: boolPtr(false)}).HasChanges() {
+		t.Error("显式关闭提醒应被视为有变更")
+	}
+}
+
+func TestApplyUserProfileUpdateMergesOnlyProvidedFields(t *testing.T) {
+	t.Parallel()
+
+	current := User{
+		ID: "u1", DisplayName: "Alice", Email: "alice@example.com",
+		Status: UserStatusActive, SystemRole: UserSystemRoleAdmin, Timezone: "UTC",
+	}
+	merged := ApplyUserProfileUpdate(current, UserProfileUpdate{DisplayName: strPtr("Alicia")})
+
+	if merged.DisplayName != "Alicia" {
+		t.Errorf("display_name = %q，期望被更新", merged.DisplayName)
+	}
+	if merged.Email != current.Email || merged.Status != current.Status ||
+		merged.SystemRole != current.SystemRole || merged.Timezone != current.Timezone {
+		t.Fatalf("未提供的字段不应变化，实际为 %+v", merged)
+	}
+}
+
+// TestWouldRemoveLastAdmin 覆盖"系统不得失去全部管理入口"这一不变式。
+func TestWouldRemoveLastAdmin(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name              string
+		wasActiveAdmin    bool
+		willBeActiveAdmin bool
+		otherActiveAdmins int
+		want              bool
+	}{
+		{"非管理员不触发", false, false, 0, false},
+		{"仍是活跃管理员", true, true, 0, false},
+		{"最后一个活跃管理员被降级", true, false, 0, true},
+		{"最后一个活跃管理员被停用", true, false, 0, true},
+		{"还有其他活跃管理员", true, false, 1, false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := WouldRemoveLastAdmin(tc.wasActiveAdmin, tc.willBeActiveAdmin, tc.otherActiveAdmins)
+			if got != tc.want {
+				t.Fatalf("WouldRemoveLastAdmin(%v, %v, %d) = %v，期望 %v",
+					tc.wasActiveAdmin, tc.willBeActiveAdmin, tc.otherActiveAdmins, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestUserProfilePermissions 覆盖可见性与修改权的判定矩阵。
+func TestUserProfilePermissions(t *testing.T) {
+	t.Parallel()
+
+	actor := User{ID: "actor", Status: UserStatusActive, SystemRole: UserSystemRoleMember}
+	admin := User{ID: "admin", Status: UserStatusActive, SystemRole: UserSystemRoleAdmin}
+
+	tests := []struct {
+		name           string
+		actor          User
+		target         string
+		sharesWorkpace bool
+		wantRead       bool
+		wantUpdate     bool
+	}{
+		{"本人", actor, "actor", false, true, true},
+		{"管理员", admin, "someone", false, true, true},
+		{"同组同项目的普通成员", actor, "someone", true, true, false},
+		{"无关用户", actor, "someone", false, false, false},
+		{"目标为空", actor, "", false, false, false},
+		{"未登录", User{}, "someone", true, false, false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := CanReadUserProfile(tc.actor, tc.target, tc.sharesWorkpace); got != tc.wantRead {
+				t.Errorf("CanReadUserProfile = %v，期望 %v", got, tc.wantRead)
+			}
+			if got := CanUpdateUserProfile(tc.actor, tc.target); got != tc.wantUpdate {
+				t.Errorf("CanUpdateUserProfile = %v，期望 %v", got, tc.wantUpdate)
+			}
+		})
+	}
+}
+
+// TestRequiresUserAdministration 确保"普通用户改自己的状态/角色"被识别为需要管理员权限。
+func TestRequiresUserAdministration(t *testing.T) {
+	t.Parallel()
+
+	if RequiresUserAdministration(UserProfileUpdate{DisplayName: strPtr("Alice")}) {
+		t.Error("仅修改显示名不应要求管理员权限")
+	}
+	if !RequiresUserAdministration(UserProfileUpdate{Status: strPtr(UserStatusDisabled)}) {
+		t.Error("修改状态必须要求管理员权限")
+	}
+	if !RequiresUserAdministration(UserProfileUpdate{SystemRole: strPtr(UserSystemRoleAdmin)}) {
+		t.Error("修改系统角色必须要求管理员权限")
+	}
+}
