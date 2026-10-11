@@ -34,15 +34,16 @@ func TestMigrationsApplyFromEmptyDatabase(t *testing.T) {
 	if dirty {
 		t.Fatal("schema 处于脏状态")
 	}
-	if version != 3 {
-		t.Fatalf("迁移版本 = %d，期望 3（000001 初始 schema + 000002 tasks.updated_by + 000003 attachments）", version)
+	if version != 4 {
+		t.Fatalf("迁移版本 = %d，期望 4（000001 初始 schema + 000002 tasks.updated_by "+
+			"+ 000003 attachments + 000004 reminders）", version)
 	}
 
-	// 全部 10 张业务表必须存在。
+	// 全部 11 张业务表必须存在。
 	expected := []string{
 		"users", "groups", "group_members", "group_join_requests",
 		"projects", "project_members", "tasks", "task_members",
-		"attachments", "idempotency_keys",
+		"attachments", "reminders", "idempotency_keys",
 	}
 	for _, table := range expected {
 		var exists bool
@@ -172,7 +173,7 @@ func TestEveryBusinessTableHasAuditColumns(t *testing.T) {
 	tables := []string{
 		"users", "groups", "group_members", "group_join_requests",
 		"projects", "project_members", "tasks", "task_members",
-		"attachments", "idempotency_keys",
+		"attachments", "reminders", "idempotency_keys",
 	}
 	required := []string{"id", "created_at", "updated_at"}
 

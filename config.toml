@@ -37,14 +37,21 @@ password = ""
 dial_timeout_seconds = 5
 
 [mail]
-enabled = true
-host = "smtp.office365.com"
+# 邮件默认关闭。启用需要同时提供账号、密码与发件地址，
+# 且**凭据不要写在这个文件里**（它已入库）：用环境变量注入
+#   MAIL_USERNAME / MAIL_PASSWORD / MAIL_FROM_ADDRESS
+# 认证机制默认 login（实测 smtp-mail.outlook.com 不接受 AUTH PLAIN）。
+enabled = false
+host = "smtp-mail.outlook.com"
 port = 587
 username = ""
 password = ""
 from_address = ""
 from_name = "项目计划管理系统"
 use_tls = true
+auth_method = "login"
+# 邮件正文里的任务链接需要一个外部可达地址。
+task_url_template = "http://localhost:8080/tasks/{task_id}"
 
 [storage]
 backend = "local"

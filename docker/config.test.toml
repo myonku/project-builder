@@ -36,6 +36,7 @@ password = "project_builder_test_redis_password"
 dial_timeout_seconds = 5
 
 [mail]
+# 集成测试注入假发送器，因此这里保持关闭。
 # 指向 Mailpit，便于后续 Reminders 阶段直接观察邮件而不真的外发。
 enabled = true
 host = "127.0.0.1"

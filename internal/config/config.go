@@ -91,7 +91,26 @@ type MailConfig struct {
 	Password    string `toml:"password"`
 	FromAddress string `toml:"from_address"`
 	FromName    string `toml:"from_name"`
-	UseTLS      bool   `toml:"use_tls"`
+	// UseTLS 为真时在明文连接之上协商 STARTTLS（端口 587 的常规做法）。
+	UseTLS bool `toml:"use_tls"`
+	// ImplicitTLS 为真时直接以 TLS 连接（端口 465 的做法）。
+	//
+	// 与 UseTLS 分开：465 上"先明文再 STARTTLS"会直接失败，587 上直接 TLS 也连不上。
+	// 合成一个布尔量必然产生"配置看起来对、但永远连不上"的状态。
+	ImplicitTLS bool `toml:"implicit_tls"`
+	// AuthMethod 是 SMTP 认证机制：login（默认）、plain 或 xoauth2。
+	//
+	// 实测 smtp-mail.outlook.com **不接受 AUTH PLAIN**（回应
+	// `504 5.7.4 Unrecognized authentication type`），只接受 LOGIN 与 XOAUTH2。
+	// 官方页面标注的 "OAuth2/Modern Auth" 对应 xoauth2，需要外部获取的访问令牌。
+	AuthMethod string `toml:"auth_method"`
+	// OAuth2AccessToken 仅在 auth_method = xoauth2 时使用。
+	//
+	// 只接受访问令牌：换取它所需的客户端注册信息（client_id / tenant）
+	// 由部署方持有，本服务不实现一轮 OAuth2 授权码流程。
+	OAuth2AccessToken string `toml:"oauth2_access_token"`
+	// TaskURLTemplate 是邮件正文里任务链接的模板，用 {task_id} 占位。
+	TaskURLTemplate string `toml:"task_url_template"`
 }
 
 // StorageConfig 描述附件存储。MVP 仅本地文件系统。
@@ -276,11 +295,18 @@ func defaultConfig() Config {
 			DialTimeoutSeconds: 5,
 		},
 		Mail: MailConfig{
-			Enabled:  true,
-			Host:     "smtp.office365.com",
-			Port:     587,
-			FromName: "项目计划管理系统",
-			UseTLS:   true,
+			// 默认**关闭**：打开邮件就必须提供账号与发件地址，
+			// 否则"启动成功但每封都发不出去"是最难排查的一种状态。
+			// 因此启用邮件是一次显式动作（见 docs/03 §3.5.1）。
+			Enabled: false,
+			// 与 Outlook 官方说明一致：SMTP 走 smtp-mail.outlook.com:587 + STARTTLS。
+			Host:       "smtp-mail.outlook.com",
+			Port:       587,
+			FromName:   "项目计划管理系统",
+			UseTLS:     true,
+			AuthMethod: "login",
+			// 邮件里的"任务链接"需要一个外部可达的地址，因此必须可配置。
+			TaskURLTemplate: "http://localhost:8080/tasks/{task_id}",
 		},
 		Storage: StorageConfig{
 			Backend:         "local",
@@ -433,6 +459,9 @@ func envBindings() []envBinding {
 
 		{"STORAGE_BACKEND", stringSetter(func(c *Config) *string { return &c.Storage.Backend })},
 		{"STORAGE_LOCAL_ROOT", stringSetter(func(c *Config) *string { return &c.Storage.LocalRoot })},
+		{"MAIL_AUTH_METHOD", stringSetter(func(c *Config) *string { return &c.Mail.AuthMethod })},
+		{"MAIL_OAUTH2_ACCESS_TOKEN", stringSetter(func(c *Config) *string { return &c.Mail.OAuth2AccessToken })},
+		{"MAIL_IMPLICIT_TLS", boolSetter(func(c *Config) *bool { return &c.Mail.ImplicitTLS })},
 		{"STORAGE_MAX_FILE_SIZE", int64Setter(func(c *Config) *int64 { return &c.Storage.MaxFileSize })},
 		{"STORAGE_MAX_FILES_PER_USER", intSetter(func(c *Config) *int { return &c.Storage.MaxFilesPerUser })},
 		{"STORAGE_ALLOWED_EXTENSIONS", stringSliceSetter(func(c *Config) *[]string { return &c.Storage.AllowedExtensions })},
@@ -665,6 +694,27 @@ func (c Config) validate() error {
 		}
 	}
 
+	if c.Mail.Enabled {
+		if strings.TrimSpace(c.Mail.Host) == "" {
+			add("mail.host 在 mail.enabled = true 时不能为空")
+		}
+		if c.Mail.Port <= 0 || c.Mail.Port > 65535 {
+			add("mail.port 非法，实际为 %d", c.Mail.Port)
+		}
+		if strings.TrimSpace(c.Mail.FromAddress) == "" {
+			add("mail.from_address 在 mail.enabled = true 时不能为空")
+		}
+		// 认证机制写成已知值之外的内容时，发送阶段才会失败——
+		// 那时错误信息只会是"认证失败"，排查不到根因，因此启动即拒绝。
+		switch c.Mail.AuthMethod {
+		case "", "login", "plain", "xoauth2":
+		default:
+			add("mail.auth_method 只能是 login、plain 或 xoauth2，实际为 %q", c.Mail.AuthMethod)
+		}
+		if c.Mail.AuthMethod == "xoauth2" && strings.TrimSpace(c.Mail.OAuth2AccessToken) == "" {
+			add("mail.auth_method = xoauth2 时必须提供 mail.oauth2_access_token")
+		}
+	}
 	if c.Storage.MaxFileSize <= 0 {
 		add("storage.max_file_size 必须为正数，实际为 %d", c.Storage.MaxFileSize)
 	}
