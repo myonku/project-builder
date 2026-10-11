@@ -282,13 +282,18 @@ func CanEditProjectTasks(project Project, permission Permission) bool {
 // 核心不变式：一个项目最多一个 owner，且**不得移除唯一 owner**
 // （接口契约 4.5：不得移除唯一 owner）。数据库的部分唯一索引保证"最多一个"，
 // "不得移除最后一个"必须在这里判断。
+//
+// 关于"设为持有者"：因为持有者唯一，"设为持有者"只可能是**转移**，
+// 由 GroupMemberActionTransfer 表达；这里刻意不再接受 Promote——
+// 早期版本把 role=owner 映射成 Promote，而 Promote 又在 ownerCount >= 1 时被拒绝，
+// 结果"持有者永远无法变更"，而错误文案却让用户"先转移持有者"，实际没有任何路径。
 func ValidateProjectMemberChange(target ProjectMember, action string, ownerCount int) error {
 	switch action {
 	case GroupMemberActionRemove:
 		if target.IsOwner() && ownerCount <= 1 {
 			return ErrPermissionDenied.WithField("user_id", "不能移除项目的唯一持有者")
 		}
-	case GroupMemberActionPromote:
+	case GroupMemberActionTransfer:
 		if target.IsOwner() {
 			return ErrConflict.WithField("role", "该成员已经是项目持有者")
 		}
@@ -297,7 +302,7 @@ func ValidateProjectMemberChange(target ProjectMember, action string, ownerCount
 			return ErrConflict.WithField("role", "该成员不是项目持有者")
 		}
 		if ownerCount <= 1 {
-			return ErrPermissionDenied.WithField("user_id", "不能降级项目的唯一持有者")
+			return ErrPermissionDenied.WithField("user_id", "不能降级项目的唯一持有者；如需换人请直接转移持有者")
 		}
 	default:
 		return ErrInvalidRequest.WithField("action", "不支持的成员变更动作")

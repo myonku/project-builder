@@ -27,6 +27,8 @@ type Store interface {
 	CountOwners(ctx context.Context, projectID string) (int, error)
 	AddMember(ctx context.Context, id, projectID, userID, role string) (MemberRecord, error)
 	UpdateMemberRole(ctx context.Context, projectID, userID, role string) (MemberRecord, error)
+	// TransferOwnership 在同一事务内先降现任持有者、再升目标，保证"至多一个"与"至少一个"。
+	TransferOwnership(ctx context.Context, projectID, targetUserID string) (MemberRecord, error)
 	RemoveMember(ctx context.Context, projectID, userID string) error
 
 	FindUser(ctx context.Context, userID string) (UserRecord, error)
@@ -535,7 +537,8 @@ func (s *Service) ChangeMemberRole(ctx context.Context, in ChangeMemberInput) (M
 
 	action := domain.GroupMemberActionDemote
 	if in.Role == domain.MemberRoleOwner {
-		action = domain.GroupMemberActionPromote
+		// 持有者唯一，因此"设为持有者"就是**转移**：在同一事务内先降现任、再升目标。
+		action = domain.GroupMemberActionTransfer
 	} else if in.Role != domain.MemberRoleMember {
 		return MemberRecord{}, domain.ErrValidation.
 			WithField("role", "角色只能是 owner 或 member")
@@ -549,14 +552,26 @@ func (s *Service) ChangeMemberRole(ctx context.Context, in ChangeMemberInput) (M
 		return MemberRecord{}, err
 	}
 
-	// 提升为新持有者时，数据库的部分唯一索引会拒绝"第二个 owner"。
-	// 这里提前给出可读错误，避免把约束冲突暴露成 409 conflict 的泛化文案。
-	if action == domain.GroupMemberActionPromote && ownerCount >= 1 {
-		return MemberRecord{}, domain.ErrConflict.
-			WithField("role", "项目只能有一个持有者，请先转移持有者")
+	// 转移目标必须是**有效用户**：把持有者交给一个已停用账号，会让项目立刻进入
+	// "谁都改不了"的状态——持有者是唯一能改项目的人，而停用账号无法登录。
+	// 这与 AddMember 对目标用户的校验是同一个理由。
+	if action == domain.GroupMemberActionTransfer {
+		owner, err := s.repo.FindUser(ctx, in.UserID)
+		if err != nil {
+			return MemberRecord{}, err
+		}
+		if !owner.IsActive() {
+			return MemberRecord{}, domain.ErrValidation.
+				WithField("user_id", "目标用户已被停用，不能成为项目持有者")
+		}
 	}
 
-	updated, err := s.repo.UpdateMemberRole(ctx, project.ID, in.UserID, in.Role)
+	var updated MemberRecord
+	if action == domain.GroupMemberActionTransfer {
+		updated, err = s.repo.TransferOwnership(ctx, project.ID, in.UserID)
+	} else {
+		updated, err = s.repo.UpdateMemberRole(ctx, project.ID, in.UserID, in.Role)
+	}
 	if err != nil {
 		return MemberRecord{}, err
 	}
@@ -565,6 +580,7 @@ func (s *Service) ChangeMemberRole(ctx context.Context, in ChangeMemberInput) (M
 		slog.String("project_id", project.ID),
 		slog.String("user_id", in.UserID),
 		slog.String("role", in.Role),
+		slog.Bool("ownership_transferred", action == domain.GroupMemberActionTransfer),
 		slog.String("actor_id", in.ActorID),
 	)
 	return updated, nil

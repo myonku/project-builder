@@ -28,6 +28,8 @@ type Store interface {
 	CountOwners(ctx context.Context, taskID string) (int, error)
 	AddMember(ctx context.Context, id, taskID, userID, role string) (MemberRecord, error)
 	UpdateMemberRole(ctx context.Context, taskID, userID, role string) (MemberRecord, error)
+	// TransferOwnership 在同一事务内先降现任持有者、再升目标。
+	TransferOwnership(ctx context.Context, taskID, targetUserID string) (MemberRecord, error)
 	RemoveMember(ctx context.Context, taskID, userID string) error
 
 	FindProjectMember(ctx context.Context, projectID, userID string) (bool, error)
@@ -836,7 +838,8 @@ func (s *Service) ChangeMemberRole(ctx context.Context, in ChangeMemberInput) (M
 	action := domain.GroupMemberActionDemote
 	switch in.Role {
 	case domain.MemberRoleOwner:
-		action = domain.GroupMemberActionPromote
+		// 持有者唯一，因此"设为持有者"就是**转移**（需求文档 5.4 的"修改持有者"）。
+		action = domain.GroupMemberActionTransfer
 	case domain.MemberRoleMember:
 	default:
 		return MemberRecord{}, domain.ErrValidation.
@@ -850,12 +853,25 @@ func (s *Service) ChangeMemberRole(ctx context.Context, in ChangeMemberInput) (M
 	if err := domain.ValidateTaskMemberChange(target.ToDomain(), action, ownerCount); err != nil {
 		return MemberRecord{}, err
 	}
-	if action == domain.GroupMemberActionPromote && ownerCount >= 1 {
-		return MemberRecord{}, domain.ErrConflict.
-			WithField("role", "任务只能有一个持有者，请先转移持有者")
+
+	// 与项目同理：把持有者交给停用账号会让任务立刻进入"谁都改不了"的状态。
+	if action == domain.GroupMemberActionTransfer {
+		targetUser, err := s.repo.FindUser(ctx, in.UserID)
+		if err != nil {
+			return MemberRecord{}, err
+		}
+		if !targetUser.IsActive() {
+			return MemberRecord{}, domain.ErrValidation.
+				WithField("user_id", "目标用户已被停用，不能成为任务持有者")
+		}
 	}
 
-	updated, err := s.repo.UpdateMemberRole(ctx, record.ID, in.UserID, in.Role)
+	var updated MemberRecord
+	if action == domain.GroupMemberActionTransfer {
+		updated, err = s.repo.TransferOwnership(ctx, record.ID, in.UserID)
+	} else {
+		updated, err = s.repo.UpdateMemberRole(ctx, record.ID, in.UserID, in.Role)
+	}
 	if err != nil {
 		return MemberRecord{}, err
 	}

@@ -155,6 +155,13 @@ const (
 	GroupMemberActionDemote  = "demote"  // 降为普通成员
 	GroupMemberActionRemove  = "remove"  // 移除成员
 	GroupMemberActionRestore = "restore" // 恢复被移除的成员
+	// GroupMemberActionTransfer 把**唯一持有者**身份转移给该成员。
+	//
+	// 它与 Promote 的区别是"一个还是可能多个"：组管理员可以有多个，
+	// 而项目/任务的持有者是唯一的（数据库部分唯一索引保证）。
+	// 因此"设为持有者"必然意味着"从现任持有者手里接管"，
+	// 必须在同一事务内先降后升，而不是新增第二个持有者。
+	GroupMemberActionTransfer = "transfer"
 )
 
 // ValidateGroupMemberChange 校验一次成员变更是否被允许。

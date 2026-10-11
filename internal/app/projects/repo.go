@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/myonku/project-builder/internal/app/apperr"
@@ -666,6 +667,65 @@ func (r *Repository) AddMember(ctx context.Context, id, projectID, userID, role 
 	)
 	if err != nil {
 		return MemberRecord{}, apperr.Translate(err, constraintMap)
+	}
+	return member, nil
+}
+
+// TransferOwnership 把项目持有者身份转移给目标成员。
+//
+// 必须在**同一个事务**内完成"先降现任、再升目标"：
+//
+//   - 部分唯一索引 `project_single_owner` 在**语句边界**检查，因此顺序不能反——
+//     先升目标会立刻撞上"第二个 owner"，先降现任则中间态是"没有 owner"，
+//     这个中间态绝不能提交（否则项目会处于无人可管理的状态）。
+//   - 降级条件带 `user_id <> $2`：目标本身就是现任持有者时不该自我降级
+//     （服务层在此之前已用 domain 规则拒绝这种情况，这里只是让 SQL 自身也成立）。
+//
+// 两条语句合起来保证不变式"任何时刻至多一个 owner"，事务保证"至少一个"。
+func (r *Repository) TransferOwnership(
+	ctx context.Context, projectID, targetUserID string,
+) (MemberRecord, error) {
+	var updated MemberRecord
+
+	err := apperr.InTx(ctx, r.pool, func(ctx context.Context, tx apperr.Querier) error {
+		const demote = `
+			UPDATE project_members
+			   SET role = 'member', updated_at = now()
+			 WHERE project_id = $1 AND role = 'owner' AND user_id <> $2`
+
+		if _, err := tx.Exec(ctx, demote, projectID, targetUserID); err != nil {
+			return apperr.Translate(err, constraintMap)
+		}
+
+		const promote = `
+			UPDATE project_members
+			   SET role = 'owner', updated_at = now()
+			 WHERE project_id = $1 AND user_id = $2
+			RETURNING id, project_id, user_id, role, created_at`
+
+		member, err := scanMember(tx.QueryRow(ctx, promote, projectID, targetUserID))
+		if err != nil {
+			if apperr.IsNoRows(err) {
+				return domain.ErrResourceNotFound.
+					WithField("user_id", "该用户不是项目成员")
+			}
+			return apperr.Translate(err, constraintMap)
+		}
+		updated = member
+		return nil
+	})
+	if err != nil {
+		return MemberRecord{}, err
+	}
+	return updated, nil
+}
+
+// scanMember 读取一行项目成员。
+func scanMember(row pgx.Row) (MemberRecord, error) {
+	var member MemberRecord
+	err := row.Scan(&member.ID, &member.ProjectID, &member.UserID, &member.Role, &member.CreatedAt)
+	if err != nil {
+		return MemberRecord{}, err
 	}
 	return member, nil
 }

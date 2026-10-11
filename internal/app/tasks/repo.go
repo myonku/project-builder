@@ -747,6 +747,53 @@ func (r *Repository) FindProjectMember(ctx context.Context, projectID, userID st
 	return exists, nil
 }
 
+// TransferOwnership 把任务持有者身份转移给目标成员。
+//
+// 与项目完全同一套做法，理由也相同：持有者唯一，所以"设为持有者"必然是转移；
+// 必须在同一事务内**先降现任、再升目标**——
+// 部分唯一索引 `task_single_owner` 在语句边界检查，顺序反过来会立刻撞上"第二个 owner"，
+// 而先降现任的中间态是"没有 owner"，绝不能提交。
+func (r *Repository) TransferOwnership(
+	ctx context.Context, taskID, targetUserID string,
+) (MemberRecord, error) {
+	var updated MemberRecord
+
+	err := apperr.InTx(ctx, r.pool, func(ctx context.Context, tx apperr.Querier) error {
+		const demote = `
+			UPDATE task_members
+			   SET role = 'member', updated_at = now()
+			 WHERE task_id = $1 AND role = 'owner' AND user_id <> $2`
+
+		if _, err := tx.Exec(ctx, demote, taskID, targetUserID); err != nil {
+			return apperr.Translate(err, constraintMap)
+		}
+
+		const promote = `
+			UPDATE task_members
+			   SET role = 'owner', updated_at = now()
+			 WHERE task_id = $1 AND user_id = $2
+			RETURNING id, task_id, user_id, role, created_at`
+
+		var member MemberRecord
+		err := tx.QueryRow(ctx, promote, taskID, targetUserID).Scan(
+			&member.ID, &member.TaskID, &member.UserID, &member.Role, &member.CreatedAt,
+		)
+		if err != nil {
+			if apperr.IsNoRows(err) {
+				return domain.ErrResourceNotFound.
+					WithField("user_id", "该用户不是任务成员")
+			}
+			return apperr.Translate(err, constraintMap)
+		}
+		updated = member
+		return nil
+	})
+	if err != nil {
+		return MemberRecord{}, err
+	}
+	return updated, nil
+}
+
 // FindUser 查询用户的最小信息。
 func (r *Repository) FindUser(ctx context.Context, userID string) (UserRecord, error) {
 	const query = `SELECT id, status FROM users WHERE id = $1`

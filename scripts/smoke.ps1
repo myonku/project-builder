@@ -761,6 +761,76 @@ if ($deleteTask.Status -ge 500) {
 }
 
 # ---------------------------------------------------------------------------
+Write-Step "持有者转移"
+# ---------------------------------------------------------------------------
+
+# 用独立的项目做转移，避免影响前面用例里"以持有者身份操作"的前提。
+$transferProject = Invoke-Api -Method POST -Path '/api/v1/projects' -Body @{
+    name       = "转移冒烟项目 $Username"
+    group_id   = $groupId
+    start_date = '2026-10-01'
+    end_date   = '2026-10-31'
+}
+Assert-Equal $transferProject.Status 201 '创建转移用的项目'
+$transferProjectId = $transferProject.Body.data.id
+
+$null = Invoke-Api -Method POST -Path "/api/v1/projects/$transferProjectId/members" -Body @{
+    user_id = $secondUserId
+}
+
+# 降级唯一持有者应被拒绝：要换人必须用转移，而不是先降后升两步。
+$demoteSoleOwner = Invoke-Api -Method PATCH -Path "/api/v1/projects/$transferProjectId/members/$userId" -Body @{
+    role = 'member'
+}
+Assert-Equal $demoteSoleOwner.Status 403 '降级唯一持有者应 403'
+
+# 转移：role=owner 表示把持有者身份交给该成员。
+$transferred = Invoke-Api -Method PATCH -Path "/api/v1/projects/$transferProjectId/members/$secondUserId" -Body @{
+    role = 'owner'
+}
+Assert-Equal $transferred.Status 200 '转移持有者应 200'
+Assert-Equal $transferred.Body.data.role 'owner' '接管者角色为 owner'
+
+# 不变式：任何时刻恰好一个持有者。
+$owners = Invoke-Api -Method POST -Path "/api/v1/projects/$transferProjectId/members/query" -Body @{
+    role = 'owner'
+}
+Assert-Equal $owners.Body.pagination.total 1 '转移后恰好一个持有者'
+
+# 原持有者已降为普通成员，不再能管理成员（404，不泄漏项目存在性）。
+$afterTransfer = Invoke-Api -Method POST -Path "/api/v1/projects/$transferProjectId/members" -Body @{
+    user_id = $userId
+}
+Assert-Equal $afterTransfer.Status 404 '转移后原持有者失去管理权'
+
+# 后续断言必须由**现在的持有者**发起：非持有者只会拿到 404，
+# 那样就分不清"重复转移被拒"与"没有权限"，断言会以错误的理由通过。
+$session = New-Object Microsoft.PowerShell.Commands.WebRequestSession
+$null = Invoke-Api -Method POST -Path '/api/v1/auth/login' -Body @{
+    identifier = $secondUsername
+    password   = 'correct horse battery'
+}
+
+# 已是持有者时再次转移：409，而不是"成功但没有变化"。
+$repeatTransfer = Invoke-Api -Method PATCH -Path "/api/v1/projects/$transferProjectId/members/$secondUserId" -Body @{
+    role = 'owner'
+}
+Assert-Equal $repeatTransfer.Status 409 '重复转移应 409'
+
+# 转移给非成员：404，且整体回滚（持有者不能被留在"空缺"状态）。
+$nonMember = '00000000-0000-7000-8000-000000000001'
+$transferToNonMember = Invoke-Api -Method PATCH -Path "/api/v1/projects/$transferProjectId/members/$nonMember" -Body @{
+    role = 'owner'
+}
+Assert-Equal $transferToNonMember.Status 404 '转移给非成员应 404'
+$ownersAfterFailure = Invoke-Api -Method POST -Path "/api/v1/projects/$transferProjectId/members/query" -Body @{
+    role = 'owner'
+}
+Assert-Equal $ownersAfterFailure.Body.pagination.total 1 '失败的转移必须整体回滚（仍恰好一个持有者）'
+
+$session = $primarySession
+
+# ---------------------------------------------------------------------------
 Write-Step "结果"
 # ---------------------------------------------------------------------------
 

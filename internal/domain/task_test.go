@@ -247,8 +247,11 @@ func TestValidateTaskMemberChange(t *testing.T) {
 		{name: "非唯一 owner 可移除", target: owner, action: GroupMemberActionRemove, ownerCount: 2},
 		{name: "唯一 owner 不可降级", target: owner, action: GroupMemberActionDemote, ownerCount: 1, wantErr: true},
 		{name: "普通成员不可降级", target: member, action: GroupMemberActionDemote, ownerCount: 1, wantErr: true},
-		{name: "普通成员可提升", target: member, action: GroupMemberActionPromote, ownerCount: 1},
-		{name: "已是 owner 不可提升", target: owner, action: GroupMemberActionPromote, ownerCount: 1, wantErr: true},
+		// 需求文档 5.4 把"修改持有者"列为任务支持的编辑项：转移必须是允许的。
+		{name: "普通成员可接管持有者", target: member, action: GroupMemberActionTransfer, ownerCount: 1},
+		{name: "无持有者时可直接成为持有者", target: member, action: GroupMemberActionTransfer, ownerCount: 0},
+		{name: "已是持有者无需转移", target: owner, action: GroupMemberActionTransfer, ownerCount: 1, wantErr: true},
+		{name: "Promote 不再被接受", target: member, action: GroupMemberActionPromote, ownerCount: 1, wantErr: true},
 		{name: "不支持的动作", target: member, action: "nope", ownerCount: 1, wantErr: true},
 	}
 

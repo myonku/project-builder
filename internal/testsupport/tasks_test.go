@@ -360,10 +360,45 @@ func TestTaskMemberMustBeProjectMember(t *testing.T) {
 		response.RequireCode(t, "permission_denied")
 	})
 
-	t.Run("不能出现第二个持有者", func(t *testing.T) {
-		response := owner.Client.Patch(URL("/tasks/"+taskID+"/members/"+outsider.UserID),
+	// 需求文档 5.4 把"修改持有者"列为任务支持的编辑项；放在最后，
+	// 因为它会把 owner 降级，前面以 owner 身份操作的子用例都必须先跑完。
+	t.Run("任务持有者可以转移", func(t *testing.T) {
+		transferred := owner.Client.Patch(URL("/tasks/"+taskID+"/members/"+outsider.UserID),
 			map[string]any{"role": "owner"})
-		response.RequireStatus(t, http.StatusConflict)
+		transferred.RequireStatus(t, http.StatusOK)
+
+		var owners int
+		if err := harness.Pool.QueryRow(context.Background(),
+			`SELECT count(*) FROM task_members WHERE task_id = $1 AND role = 'owner'`,
+			taskID).Scan(&owners); err != nil {
+			t.Fatalf("统计任务持有者失败: %v", err)
+		}
+		if owners != 1 {
+			t.Fatalf("转移后任务持有者数量 = %d，期望恰好 1", owners)
+		}
+
+		// 转移后成员角色必须如实反映：新持有者是 owner，原持有者降为 member。
+		//
+		// 这里不assert"原持有者失去管理任务成员的能力"：任务成员变更只要求
+		// **项目成员**（PermWrite），本来就不要求是任务持有者，因此转移不会改变这一点。
+		members := owner.Client.Post(URL("/tasks/"+taskID+"/members/query"),
+			map[string]any{"page": 1, "page_size": 50}).RequireStatus(t, http.StatusOK)
+		roles := map[string]string{}
+		for _, item := range members.ListData(t) {
+			roles[Str(item, "user_id")] = Str(item, "role")
+		}
+		if roles[outsider.UserID] != "owner" {
+			t.Errorf("接管者的角色 = %q，期望 owner", roles[outsider.UserID])
+		}
+		if roles[owner.UserID] != "member" {
+			t.Errorf("原持有者的角色 = %q，期望 member", roles[owner.UserID])
+		}
+
+		// 已是持有者时再次请求转移：冲突，而不是"成功但没有变化"。
+		repeat := outsider.Client.Patch(URL("/tasks/"+taskID+"/members/"+outsider.UserID),
+			map[string]any{"role": "owner"})
+		repeat.RequireStatus(t, http.StatusConflict)
+		repeat.RequireField(t, "role")
 	})
 }
 

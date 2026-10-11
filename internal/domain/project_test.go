@@ -317,7 +317,7 @@ func TestCanEditProjectTasksHonoursArchive(t *testing.T) {
 	}
 }
 
-// TestValidateProjectMemberChange 覆盖"不得移除唯一 owner"。
+// TestValidateProjectMemberChange 覆盖"不得移除/降级唯一 owner"与"持有者转移"。
 func TestValidateProjectMemberChange(t *testing.T) {
 	t.Parallel()
 
@@ -337,9 +337,13 @@ func TestValidateProjectMemberChange(t *testing.T) {
 		{name: "唯一 owner 不可降级", target: owner, action: GroupMemberActionDemote, ownerCount: 1, wantErr: true},
 		{name: "非唯一 owner 可降级", target: owner, action: GroupMemberActionDemote, ownerCount: 2},
 		{name: "普通成员不可降级", target: member, action: GroupMemberActionDemote, ownerCount: 1, wantErr: true},
-		{name: "已是 owner 不可再提升", target: owner, action: GroupMemberActionPromote, ownerCount: 1, wantErr: true},
-		{name: "普通成员可提升", target: member, action: GroupMemberActionPromote, ownerCount: 1},
-		{name: "不支持的动作", target: member, action: "transfer", ownerCount: 1, wantErr: true},
+		// 转移：把持有者身份交给普通成员是允许的，即使当前已有持有者。
+		{name: "普通成员可接管持有者", target: member, action: GroupMemberActionTransfer, ownerCount: 1},
+		{name: "无持有者时可直接成为持有者", target: member, action: GroupMemberActionTransfer, ownerCount: 0},
+		{name: "已是持有者无需转移", target: owner, action: GroupMemberActionTransfer, ownerCount: 1, wantErr: true},
+		// Promote 不再是项目成员变更的合法动作：它表达"新增一个持有者"，与唯一性冲突。
+		{name: "Promote 不再被接受", target: member, action: GroupMemberActionPromote, ownerCount: 1, wantErr: true},
+		{name: "不支持的动作", target: member, action: "nonsense", ownerCount: 1, wantErr: true},
 	}
 
 	for _, tc := range tests {

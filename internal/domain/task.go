@@ -312,13 +312,16 @@ func ValidateTaskMemberInvariant(isProjectMember bool) error {
 // ValidateTaskMemberChange 校验任务成员变更。
 //
 // 与项目一致：最多一个 owner，且不得移除/降级唯一 owner。
+//
+// 需求文档 5.4 把"修改持有者"列为任务支持的编辑项，因此这里必须接受
+// GroupMemberActionTransfer（转移持有者），而不是只接受一个永远会被拒绝的 Promote。
 func ValidateTaskMemberChange(target TaskMember, action string, ownerCount int) error {
 	switch action {
 	case GroupMemberActionRemove:
 		if target.IsOwner() && ownerCount <= 1 {
 			return ErrPermissionDenied.WithField("user_id", "不能移除任务的唯一持有者")
 		}
-	case GroupMemberActionPromote:
+	case GroupMemberActionTransfer:
 		if target.IsOwner() {
 			return ErrConflict.WithField("role", "该成员已经是任务持有者")
 		}
@@ -327,7 +330,7 @@ func ValidateTaskMemberChange(target TaskMember, action string, ownerCount int) 
 			return ErrConflict.WithField("role", "该成员不是任务持有者")
 		}
 		if ownerCount <= 1 {
-			return ErrPermissionDenied.WithField("user_id", "不能降级任务的唯一持有者")
+			return ErrPermissionDenied.WithField("user_id", "不能降级任务的唯一持有者；如需换人请直接转移持有者")
 		}
 	default:
 		return ErrInvalidRequest.WithField("action", "不支持的成员变更动作")

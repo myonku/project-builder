@@ -371,13 +371,6 @@ func TestProjectMemberInvariants(t *testing.T) {
 		response.RequireStatus(t, http.StatusForbidden)
 	})
 
-	t.Run("不能出现第二个持有者", func(t *testing.T) {
-		response := owner.Client.Patch(URL("/projects/"+projectID+"/members/"+member.UserID),
-			map[string]any{"role": "owner"})
-		response.RequireStatus(t, http.StatusConflict)
-		response.RequireCode(t, "conflict")
-	})
-
 	t.Run("普通项目成员不能管理成员", func(t *testing.T) {
 		third := harness.RegisterAndLogin(t, "carol")
 		response := member.Client.Post(URL("/projects/"+projectID+"/members"),
@@ -415,6 +408,93 @@ func TestProjectMemberInvariants(t *testing.T) {
 			map[string]any{"user_id": other.UserID})
 		response.RequireStatus(t, http.StatusCreated)
 		other.Client.Get(URL("/projects/"+projectID)).RequireStatus(t, http.StatusOK)
+	})
+
+	// 转移持有者放在最后：它会把 owner 降级，因此前面所有"以 owner 身份操作"的子用例
+	// 都必须在它之前跑完。这也正是早期版本的一个隐患——把转移当成"提升"的副作用，
+	// 会让同一个用例里后续步骤的前提悄悄失效。
+	t.Run("持有者可以转移", func(t *testing.T) {
+		transferred := owner.Client.Patch(URL("/projects/"+projectID+"/members/"+member.UserID),
+			map[string]any{"role": "owner"})
+		transferred.RequireStatus(t, http.StatusOK)
+		if got := Str(transferred.Data(t), "role"); got != "owner" {
+			t.Fatalf("转移后的角色 = %q，期望 owner", got)
+		}
+
+		// 不变式：任何时刻恰好一个持有者。
+		var owners int
+		if err := harness.Pool.QueryRow(context.Background(),
+			`SELECT count(*) FROM project_members WHERE project_id = $1 AND role = 'owner'`,
+			projectID).Scan(&owners); err != nil {
+			t.Fatalf("统计持有者失败: %v", err)
+		}
+		if owners != 1 {
+			t.Fatalf("转移后持有者数量 = %d，期望恰好 1", owners)
+		}
+
+		// 新持有者获得管理权，原持有者降为普通成员并失去管理权。
+		third := harness.RegisterAndLogin(t, "frank")
+		member.Client.Post(URL("/projects/"+projectID+"/members"),
+			map[string]any{"user_id": third.UserID}).RequireStatus(t, http.StatusCreated)
+
+		owner.Client.Post(URL("/projects/"+projectID+"/members"),
+			map[string]any{"user_id": third.UserID}).
+			RequireStatus(t, http.StatusNotFound)
+
+		// 已是持有者时再次请求转移：冲突，而不是"成功但没有变化"。
+		repeat := member.Client.Patch(URL("/projects/"+projectID+"/members/"+member.UserID),
+			map[string]any{"role": "owner"})
+		repeat.RequireStatus(t, http.StatusConflict)
+		repeat.RequireField(t, "role")
+	})
+
+	t.Run("不能把持有者转给已停用用户", func(t *testing.T) {
+		// 转移目标必须是有效用户：否则项目会立刻进入"谁都改不了"的状态。
+		pending := harness.RegisterAndLogin(t, "grace")
+		member.Client.Post(URL("/projects/"+projectID+"/members"),
+			map[string]any{"user_id": pending.UserID}).RequireStatus(t, http.StatusCreated)
+		if _, err := harness.Pool.Exec(context.Background(),
+			`UPDATE users SET status = 'disabled', updated_at = now() WHERE id = $1`,
+			pending.UserID); err != nil {
+			t.Fatalf("停用用户失败: %v", err)
+		}
+
+		response := member.Client.Patch(URL("/projects/"+projectID+"/members/"+pending.UserID),
+			map[string]any{"role": "owner"})
+		response.RequireStatus(t, http.StatusUnprocessableEntity)
+		response.RequireField(t, "user_id")
+
+		var owners int
+		if err := harness.Pool.QueryRow(context.Background(),
+			`SELECT count(*) FROM project_members WHERE project_id = $1 AND role = 'owner'`,
+			projectID).Scan(&owners); err != nil {
+			t.Fatalf("统计持有者失败: %v", err)
+		}
+		if owners != 1 {
+			t.Fatalf("被拒绝的转移不应改变持有者数量，实际 %d", owners)
+		}
+	})
+
+	t.Run("转移给非成员必须整体回滚", func(t *testing.T) {
+		// 这是"必须放在同一事务里"的直接证据：转移由两条语句组成
+		// （先降现任、再升目标）。若第二条失败而第一条已经提交，
+		// 项目就会处于"没有持有者"的状态——没有任何人能再管理它。
+		nonMember := harness.RegisterAndLogin(t, "heidi")
+
+		response := member.Client.Patch(URL("/projects/"+projectID+"/members/"+nonMember.UserID),
+			map[string]any{"role": "owner"})
+		response.RequireStatus(t, http.StatusNotFound)
+		response.RequireField(t, "user_id")
+
+		var owners int
+		if err := harness.Pool.QueryRow(context.Background(),
+			`SELECT count(*) FROM project_members WHERE project_id = $1 AND role = 'owner'`,
+			projectID).Scan(&owners); err != nil {
+			t.Fatalf("统计持有者失败: %v", err)
+		}
+		if owners != 1 {
+			t.Fatalf("失败的转移必须整体回滚：持有者数量 = %d，期望仍为 1", owners)
+		}
 	})
 }
 
