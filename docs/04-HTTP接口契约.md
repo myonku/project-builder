@@ -930,9 +930,50 @@ RETURNING id, updated_at;
 
 **未实现（人工确认暂不需要）**：回收站界面、过期自动清理、断点续传、多文件一次上传。**彻底删除**已提供，用于回收磁盘。
 
-### 4.9 Reminders、Audit ⬜ 规划中（第三阶段剩余）
+### 4.9 提醒 ✅ 已实现（第三阶段）
 
-- 提醒：`GET /reminders`、`GET /reminders/{reminder_id}`、`POST /reminders/{reminder_id}/retry`。事务提交后生成，使用 `dedupe_key`。
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| `GET` | `/reminders` | 提醒列表；查询参数 `kind`、`task_id`、`page`、`page_size`、`sort` |
+| `GET` | `/reminders/{reminder_id}` | 提醒详情 |
+| `POST` | `/reminders/{reminder_id}/retry` | 重新排入待发送（仅 `failed` / `skipped`） |
+
+**提醒对象**
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `id` | UUID | 提醒 id |
+| `task_id` | UUID | 关联任务 |
+| `recipient_id` / `recipient_email` | UUID / string | 收件人；邮件地址是**发送时刻的快照** |
+| `kind` | string | `task_assigned` / `task_start_soon` / `task_due_soon` / `task_overdue` / `task_owner_changed` |
+| `kind_label` | string | 类型的中文说明（便于前端直接展示） |
+| `scheduled_for` | string | **计划发送时刻**（由工作日规则算出） |
+| `status` | string | `pending` / `sent` / `failed` / `skipped` |
+| `attempts` | number | 已尝试次数（含跳过） |
+| `last_error` | string | 失败原因或跳过原因 |
+| `sent_at` | string \| null | 发送成功时刻 |
+
+不含 `dedupe_key`：它是幂等机制的载体，属于实现细节。
+
+**作用域**：普通用户只能看到**发给自己的**提醒；系统管理员看全部（"谁没收到、为什么没收到"是处置异常所需的信息，见 docs/01 §5.9）。他人的提醒按不存在处理（`404`）。
+
+**状态语义**：`skipped` 与 `failed` 必须分开。`failed` 表示"发送尝试失败，需要人排查"；`skipped` 表示"按规则就不该发"——收件人没有邮箱/已停用/关闭提醒、任务已完成或取消、**邮件功能未启用**。把后者记成 `failed` 会让失败列表永远噪声不断。
+
+**重试**：只有 `failed` 与 `skipped` 可以重试。`skipped` 允许重试是因为它的原因可能已经消失（运维刚把 SMTP 配好）；`sent` **不允许**——重试等于重复发送，而"同一提醒不重复发送"是需求里的硬要求，因此返回 `409`。`pending` 返回 `409`（已在队列中，无需重试）。
+
+**生成规则（需求文档 5.7）**
+
+- 由**后台派发循环**按固定周期（`scheduler.interval_seconds`）扫描：需求明确要求"系统按固定周期检查待发送提醒"，且"邮件发送不得阻塞用户操作"。
+- 时间型提醒在"提前 1 个工作日"那天生成（周一到期 → 上周五提醒）；**计时按收件人所在时区**计算"今天"，因此同一任务对不同时区的成员可能落在不同的提醒日。
+- 延期提醒每个任务只提醒一次。
+- 收件人：任务成员（含任务持有者）与项目持有者。不合格的收件人**不落库**（为关闭提醒的用户每分钟写一行 `skipped` 是纯粹的行数增长，回答的是没人会问的问题）；但派发时会**重新判定**，此时不合格的会如实记成 `skipped`。
+- 事件型提醒（新任务分配、持有者变更）由任务写入路径在事务提交后**插入一行**，发送仍交给后台循环。
+- 幂等由 `dedupe_key` 上的唯一约束保证（键含任务、收件人、类型与**时间窗口**）：周期扫描可以放心重复运行。
+
+**邮件内容**：至少包含项目名、任务名、负责人、计划周期、状态、进度、任务链接与提醒原因（需求文档 5.7 的逐项要求）。链接模板来自 `mail.task_url_template`。
+
+### 4.10 Audit ⬜ 规划中（第三阶段剩余）
+
 - 审计：`GET /audit`，支持 `object_type`、`object_id`、`actor_id`、`action`、时间范围与分页。
 
 ## 5. 写接口处理顺序
