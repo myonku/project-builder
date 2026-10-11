@@ -102,13 +102,36 @@ type StorageConfig struct {
 	MaxFilesPerUser int    `toml:"max_files_per_user"`
 }
 
-// SecurityConfig 描述会话与密码策略。
+// SecurityConfig 描述会话、密码策略与引导管理员。
 type SecurityConfig struct {
 	SessionSecret     string `toml:"session_secret"`
 	SessionTTLSeconds int    `toml:"session_ttl_seconds"`
 	PasswordMinLength int    `toml:"password_min_length"`
 	SecureCookies     bool   `toml:"secure_cookies"`
 	SessionCookieName string `toml:"session_cookie_name"`
+
+	// 引导管理员（bootstrap administrator）。
+	//
+	// 背景：本系统的使用场景中普通用户不需要管理员角色，因此没有分发管理员的需求；
+	// 只需要在系统初始化时录入**一个**系统级后台账号即可。而全部管理员端点都要求
+	// 调用者已是管理员，所以必须有一个不依赖 HTTP 的初始化入口——就是这组配置。
+	//
+	// 语义（见 auth.Service.EnsureAdministrator）：
+	//   - BootstrapAdminUsername 为空 ⇒ 本功能关闭，不做任何事；
+	//   - 账号不存在 ⇒ 按给定的邮箱/密码/显示名创建，并直接置为 admin；
+	//   - 账号已存在 ⇒ **只确保其 system_role 为 admin，绝不覆盖密码**，
+	//     否则每次重启都会把管理员改过的密码打回配置里的初始值。
+	//
+	// 因此 BootstrapAdminPassword 是**一次性**的：账号建好之后即可从环境中移除。
+	BootstrapAdminUsername    string `toml:"bootstrap_admin_username"`
+	BootstrapAdminEmail       string `toml:"bootstrap_admin_email"`
+	BootstrapAdminPassword    string `toml:"bootstrap_admin_password"`
+	BootstrapAdminDisplayName string `toml:"bootstrap_admin_display_name"`
+}
+
+// BootstrapAdminEnabled 报告是否配置了引导管理员。
+func (c SecurityConfig) BootstrapAdminEnabled() bool {
+	return strings.TrimSpace(c.BootstrapAdminUsername) != ""
 }
 
 // SchedulerConfig 描述单实例应用内调度参数。
@@ -375,6 +398,10 @@ func envBindings() []envBinding {
 		{"SECURITY_PASSWORD_MIN_LENGTH", intSetter(func(c *Config) *int { return &c.Security.PasswordMinLength })},
 		{"SECURITY_SECURE_COOKIES", boolSetter(func(c *Config) *bool { return &c.Security.SecureCookies })},
 		{"SECURITY_SESSION_COOKIE_NAME", stringSetter(func(c *Config) *string { return &c.Security.SessionCookieName })},
+		{"SECURITY_BOOTSTRAP_ADMIN_USERNAME", stringSetter(func(c *Config) *string { return &c.Security.BootstrapAdminUsername })},
+		{"SECURITY_BOOTSTRAP_ADMIN_EMAIL", stringSetter(func(c *Config) *string { return &c.Security.BootstrapAdminEmail })},
+		{"SECURITY_BOOTSTRAP_ADMIN_PASSWORD", stringSetter(func(c *Config) *string { return &c.Security.BootstrapAdminPassword })},
+		{"SECURITY_BOOTSTRAP_ADMIN_DISPLAY_NAME", stringSetter(func(c *Config) *string { return &c.Security.BootstrapAdminDisplayName })},
 
 		{"SCHEDULER_ENABLED", boolSetter(func(c *Config) *bool { return &c.Scheduler.Enabled })},
 		{"SCHEDULER_INTERVAL_SECONDS", intSetter(func(c *Config) *int { return &c.Scheduler.IntervalSeconds })},
@@ -618,6 +645,25 @@ func (c Config) validate() error {
 		add("security.session_cookie_name 不能为空")
 	}
 
+	// 引导管理员：要么整组都不配置（功能关闭），要么必须完整。
+	//
+	// 为什么不允许"只配用户名"：那会让一次本该创建管理员的初始化静默地什么都不做，
+	// 而操作者以为自己已经录入完毕。宁可启动失败也不要留一个"看起来配了"的空配置。
+	bootstrapUsername := strings.TrimSpace(c.Security.BootstrapAdminUsername)
+	bootstrapEmail := strings.TrimSpace(c.Security.BootstrapAdminEmail)
+	switch {
+	case bootstrapUsername == "":
+		if bootstrapEmail != "" || c.Security.BootstrapAdminPassword != "" {
+			add("security.bootstrap_admin_username 为空时不得单独配置邮箱或密码（引导管理员功能要么整组配置，要么全部留空）")
+		}
+	case bootstrapEmail == "":
+		add("配置了 security.bootstrap_admin_username 时必须同时提供 security.bootstrap_admin_email")
+	case c.Security.BootstrapAdminPassword == "":
+		add("配置了 security.bootstrap_admin_username 时必须同时提供 security.bootstrap_admin_password")
+	}
+	// 账号名/邮箱/密码的具体格式由 domain.NormalizeRegistration 在初始化时校验，
+	// 那里是这三项规则的唯一定义处（避免配置层再写一套）。
+
 	if c.Scheduler.IntervalSeconds <= 0 {
 		add("scheduler.interval_seconds 必须为正数，实际为 %d", c.Scheduler.IntervalSeconds)
 	}
@@ -664,6 +710,11 @@ func (c Config) Summary() []any {
 		slog.String("session_secret", describeSecret(c.Security.SessionSecret)),
 		slog.Bool("secure_cookies", c.Security.SecureCookies),
 		slog.Int("session_ttl_seconds", c.Security.SessionTTLSeconds),
+		// 引导管理员：用户名不是敏感值，输出它便于运维确认初始化对象；
+		// 密码只报告是否已配置。
+		slog.Bool("bootstrap_admin_enabled", c.Security.BootstrapAdminEnabled()),
+		slog.String("bootstrap_admin_username", c.Security.BootstrapAdminUsername),
+		slog.String("bootstrap_admin_password", describeSecret(c.Security.BootstrapAdminPassword)),
 		slog.Bool("scheduler_enabled", c.Scheduler.Enabled),
 	}
 }

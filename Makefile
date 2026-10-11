@@ -13,6 +13,12 @@ TEST_DATABASE_URL := postgres://project_builder_test:project_builder_test_passwo
 TEST_REDIS_ADDR   := 127.0.0.1:16379
 TEST_REDIS_PASSWORD := project_builder_test_redis_password
 
+# 测试环境的引导管理员（仅测试凭据，与 docker/config.test.toml 保持一致）。
+# 冒烟脚本用这组凭据覆盖管理员端点的成功路径。
+TEST_BOOTSTRAP_ADMIN_USERNAME := bootstrap_admin
+TEST_BOOTSTRAP_ADMIN_EMAIL    := bootstrap_admin@test.local
+TEST_BOOTSTRAP_ADMIN_PASSWORD := bootstrap_admin_test_password
+
 BINARY_DIR := bin
 API_BINARY := $(BINARY_DIR)/api.exe
 MIGRATE_BINARY := $(BINARY_DIR)/migrate.exe
@@ -143,6 +149,9 @@ run-test-config: ## 以测试依赖启动 HTTP 服务（PostgreSQL 15432 / Redis
 	$$env:REDIS_PORT = "16379"; `
 	$$env:REDIS_PASSWORD = "$(TEST_REDIS_PASSWORD)"; `
 	$$env:SECURITY_SESSION_SECRET = "local-dev-session-secret-change-me"; `
+	$$env:SECURITY_BOOTSTRAP_ADMIN_USERNAME = "$(TEST_BOOTSTRAP_ADMIN_USERNAME)"; `
+	$$env:SECURITY_BOOTSTRAP_ADMIN_EMAIL = "$(TEST_BOOTSTRAP_ADMIN_EMAIL)"; `
+	$$env:SECURITY_BOOTSTRAP_ADMIN_PASSWORD = "$(TEST_BOOTSTRAP_ADMIN_PASSWORD)"; `
 	go run ./cmd/api
 
 .PHONY: smoke

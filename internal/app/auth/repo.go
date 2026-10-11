@@ -139,6 +139,47 @@ func (r *Repository) FindByIdentifier(ctx context.Context, identifier string) (U
 	return record, nil
 }
 
+// FindByUsername 按用户名查询用户（不区分大小写）。
+//
+// 与 FindByIdentifier 的区别：后者同时匹配邮箱，服务于登录路径；
+// 引导管理员初始化必须**只按用户名**定位目标账号，否则当一个用户名恰好等于
+// 另一个账号的邮箱时，会把错误的账号提升为管理员。
+//
+// 使用 lower() 比较，与 uq_users_username_lower 使用同一表达式，
+// 因此该查询可以走索引且与约束语义一致。
+func (r *Repository) FindByUsername(ctx context.Context, username string) (UserRecord, error) {
+	const query = `
+		SELECT ` + userColumns + `
+		FROM users
+		WHERE lower(username) = lower($1)
+		LIMIT 1`
+
+	record, err := scanUser(r.pool.QueryRow(ctx, query, username))
+	if err != nil {
+		return UserRecord{}, translateNotFound(err, domain.CodeUserNotFound, "User not found")
+	}
+	return record, nil
+}
+
+// UpdateSystemRole 设置用户的系统角色并回读。
+//
+// 只改 system_role 与 updated_at：引导管理员初始化必须能重复执行，
+// 且**绝不能**触碰密码摘要（否则每次重启都会把管理员改过的密码打回配置里的值）。
+func (r *Repository) UpdateSystemRole(ctx context.Context, id, role string) (UserRecord, error) {
+	const query = `
+		UPDATE users
+		   SET system_role = $2,
+		       updated_at = now()
+		 WHERE id = $1
+		RETURNING ` + userColumns
+
+	record, err := scanUser(r.pool.QueryRow(ctx, query, id, role))
+	if err != nil {
+		return UserRecord{}, translateNotFound(err, domain.CodeUserNotFound, "User not found")
+	}
+	return record, nil
+}
+
 // TouchLastLogin 记录最后登录时间并回读最新 updated_at。
 //
 // 使用 UPDATE ... RETURNING 显式回读，不依赖内存中可能过期的对象状态。

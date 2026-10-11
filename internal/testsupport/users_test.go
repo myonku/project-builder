@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/myonku/project-builder/internal/app/auth"
 )
 
 // Users 域的集成测试（接口契约 4.3）。
@@ -17,9 +19,10 @@ import (
 
 // promoteToAdmin 直接把用户提升为系统管理员。
 //
-// 为什么直接写库：契约没有"提升为管理员"的端点，而本阶段必须验证管理员专属行为
-// （停用他人、修改系统角色、最后管理员不变式）。直接用 SQL 准备前置状态是集成测试的
-// 常规做法，并未绕过被测路径——被验证的仍然是真实的 HTTP → 用例服务 → SQL。
+// 受支持的初始化入口是配置驱动的 auth.Service.EnsureAdministrator
+// （见 TestBootstrapAdministratorUnlocksAdminEndpoints）；这个辅助函数保留下来
+// 是为了在用例中**临时**造出第二个管理员等前置状态，比走初始化流程更直接。
+// 它同时是"在引入初始化配置之前，只能这样造管理员"的可执行记录。
 func promoteToAdmin(t *testing.T, harness *Harness, userID string) {
 	t.Helper()
 
@@ -1044,6 +1047,104 @@ func TestAdminResetPassword(t *testing.T) {
 	admin.Client.Post(URL("/users/"+active.UserID+"/disable"),
 		map[string]any{"expected_updated_at": disableVersion}).RequireStatus(t, 200)
 	active.Client.Get(URL("/auth/me")).RequireStatus(t, 401)
+}
+
+// TestBootstrapAdministratorUnlocksAdminEndpoints 证明"首个管理员"这条链路已经闭合。
+//
+// 在此之前，所有管理员用例都必须先用 SQL 把账号提升为 admin（见 promoteToAdmin），
+// 因为系统没有任何受支持的方式造出第一个管理员——管理员端点因此在真实部署中不可用。
+// 现在初始化入口是配置驱动（`security.bootstrap_admin_*` ⇒
+// auth.Service.EnsureAdministrator），本用例全程不碰 SQL：
+// 初始化 → 用初始化凭据登录 → 创建用户 → 列表 → 重置密码。
+func TestBootstrapAdministratorUnlocksAdminEndpoints(t *testing.T) {
+	harness := NewHarness(t)
+
+	const (
+		username = "bootstrap_admin_e2e"
+		password = "bootstrap-admin-password"
+	)
+	ctx := context.Background()
+
+	first, err := harness.Auth.EnsureAdministrator(ctx, auth.BootstrapAdminInput{
+		Username: username,
+		Email:    username + "@example.com",
+		Password: password,
+	})
+	if err != nil {
+		t.Fatalf("初始化引导管理员失败: %v", err)
+	}
+	if !first.Created {
+		t.Fatalf("首次初始化应创建账号，实际为 %+v", first)
+	}
+
+	// 用初始化凭据登录，拿到一条真实会话。
+	anonymous := harness.Client(t)
+	login := anonymous.Post(URL("/auth/login"), map[string]any{
+		"identifier": username, "password": password,
+	})
+	login.RequireStatus(t, 200)
+	cookieName := harness.Config.Security.SessionCookieName
+	cookieValue := ""
+	for _, cookie := range login.Recorder.Result().Cookies() {
+		if cookie.Name == cookieName {
+			cookieValue = cookie.Value
+		}
+	}
+	if cookieValue == "" {
+		t.Fatalf("初始化管理员登录未返回会话 Cookie")
+	}
+	admin := harness.Client(t).WithCookie(cookieName, cookieValue)
+
+	// 1) 创建用户。
+	created := admin.Post(URL("/users"), createUserBody("created_by_bootstrap"))
+	created.RequireStatus(t, 201)
+	createdID := Str(created.Data(t), "id")
+	if got := Str(created.Data(t), "system_role"); got != "member" {
+		t.Errorf("新建账号的 system_role = %q，期望 member", got)
+	}
+
+	// 2) 列表：默认口径能查到刚创建的账号。
+	listed := admin.Post(URL("/users/query"),
+		map[string]any{"page": 1, "page_size": 100}).RequireStatus(t, 200)
+	if !containsUser(listed.ListData(t), createdID) {
+		t.Fatal("用户列表应包含刚创建的账号")
+	}
+
+	// 3) 重置密码：新密码可登录，旧密码失效。
+	const newPassword = "reset by bootstrap admin"
+	admin.Post(URL("/users/"+createdID+"/password"), map[string]any{
+		"new_password":        newPassword,
+		"expected_updated_at": Str(created.Data(t), "updated_at"),
+	}).RequireStatus(t, 200)
+
+	harness.Client(t).Post(URL("/auth/login"), map[string]any{
+		"identifier": "created_by_bootstrap", "password": SharedPassword,
+	}).RequireStatus(t, 401)
+	harness.Client(t).Post(URL("/auth/login"), map[string]any{
+		"identifier": "created_by_bootstrap", "password": newPassword,
+	}).RequireStatus(t, 200)
+
+	// 4) 再次初始化（模拟"下次启动"）绝不可覆盖管理员密码。
+	//    这是整条链路里最容易造成永久性事故的一步：配置里的初始化密码通常
+	//    在账号建好后就被移除，一旦重启覆盖密码，所有人都进不去。
+	second, err := harness.Auth.EnsureAdministrator(ctx, auth.BootstrapAdminInput{
+		Username: username,
+		Email:    username + "@example.com",
+		Password: "a-completely-different-password",
+	})
+	if err != nil {
+		t.Fatalf("重复初始化失败: %v", err)
+	}
+	if second.Created || second.Promoted {
+		t.Fatalf("重复初始化不应产生变更，实际为 %+v", second)
+	}
+
+	harness.Client(t).Post(URL("/auth/login"), map[string]any{
+		"identifier": username, "password": password,
+	}).RequireStatus(t, 200)
+	harness.Client(t).Post(URL("/auth/login"), map[string]any{
+		"identifier": username, "password": "a-completely-different-password",
+	}).RequireStatus(t, 401)
 }
 
 // containsUser 报告列表中是否含指定用户的 id。

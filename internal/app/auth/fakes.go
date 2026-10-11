@@ -121,6 +121,40 @@ func (r *FakeUserRepository) TouchLastLogin(_ context.Context, id string, at tim
 	return record, nil
 }
 
+// FindByUsername 实现 UserRepository，只按用户名匹配（不匹配邮箱）。
+func (r *FakeUserRepository) FindByUsername(_ context.Context, username string) (UserRecord, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.FindErr != nil {
+		return UserRecord{}, r.FindErr
+	}
+	for _, id := range r.order {
+		record := r.byID[id]
+		if equalFold(record.Username, username) {
+			return record, nil
+		}
+	}
+	// 与真实实现一致的语义：查不到就是 user_not_found，
+	// 而不是登录路径的 invalid_credentials。
+	return UserRecord{}, domain.New(domain.CodeUserNotFound, "User not found")
+}
+
+// UpdateSystemRole 实现 UserRepository，只改角色而不触碰密码摘要。
+func (r *FakeUserRepository) UpdateSystemRole(_ context.Context, id, role string) (UserRecord, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	record, ok := r.byID[id]
+	if !ok {
+		return UserRecord{}, domain.New(domain.CodeUserNotFound, "User not found")
+	}
+	record.SystemRole = role
+	record.UpdatedAt = r.nowFunc().UTC()
+	r.byID[id] = record
+	return record, nil
+}
+
 // UpdatePasswordHash 实现 UserRepository。
 func (r *FakeUserRepository) UpdatePasswordHash(_ context.Context, id, hash string) error {
 	r.mu.Lock()
@@ -164,6 +198,16 @@ func (r *FakeUserRepository) Stored(id string) (UserRecord, bool) {
 	defer r.mu.Unlock()
 	record, ok := r.byID[id]
 	return record, ok
+}
+
+// Put 直接写入一条记录，供构造前置状态使用（例如"账号已被停用"）。
+func (r *FakeUserRepository) Put(record UserRecord) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, exists := r.byID[record.ID]; !exists {
+		r.order = append(r.order, record.ID)
+	}
+	r.byID[record.ID] = record
 }
 
 // Count 返回用户数量。

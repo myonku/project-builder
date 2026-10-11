@@ -670,3 +670,218 @@ func TestSecretDoesNotLeakIntoServiceErrors(t *testing.T) {
 		t.Fatalf("错误描述泄漏了数据库细节: %q", domainErr.Message)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// 引导管理员（系统初始化时录入一个系统级后台账号）
+// ---------------------------------------------------------------------------
+
+func bootstrapInput() BootstrapAdminInput {
+	return BootstrapAdminInput{
+		Username: "admin",
+		Email:    "admin@example.com",
+		Password: "bootstrap-password",
+	}
+}
+
+// TestEnsureAdministratorCreatesAdminAccount 覆盖"账号不存在时创建"。
+func TestEnsureAdministratorCreatesAdminAccount(t *testing.T) {
+	t.Parallel()
+
+	users := NewFakeUserRepository(func() time.Time { return fixedNow })
+	service, _ := newTestService(t, users, NewFakeSessionStore())
+
+	result, err := service.EnsureAdministrator(context.Background(), bootstrapInput())
+	if err != nil {
+		t.Fatalf("EnsureAdministrator 返回错误: %v", err)
+	}
+	if !result.Created || result.Promoted {
+		t.Fatalf("首次初始化应报告 Created=true / Promoted=false，实际为 %+v", result)
+	}
+
+	record, ok := users.Stored(result.UserID)
+	if !ok {
+		t.Fatal("账号未被创建")
+	}
+	if record.SystemRole != domain.UserSystemRoleAdmin {
+		t.Errorf("system_role = %q，期望 admin", record.SystemRole)
+	}
+	if record.Status != domain.UserStatusActive {
+		t.Errorf("status = %q，期望 active（否则管理员无法登录）", record.Status)
+	}
+	// 显示名未提供时回退到用户名。
+	if record.DisplayName != "admin" {
+		t.Errorf("display_name = %q，期望回退为用户名", record.DisplayName)
+	}
+	// 摘要必须是真实的 Argon2 摘要，且能用给定密码校验通过。
+	if !strings.HasPrefix(record.PasswordHash, "$argon2id$") {
+		t.Fatalf("密码摘要格式异常: %q", record.PasswordHash)
+	}
+	matched, err := testHasher().Verify("bootstrap-password", record.PasswordHash)
+	if err != nil || !matched {
+		t.Fatalf("摘要无法用初始化密码校验: matched=%v err=%v", matched, err)
+	}
+}
+
+// TestEnsureAdministratorPromotesExistingAccountWithoutTouchingPassword 是本组最关键的一条。
+//
+// 初始化会在**每次启动**执行，因此"已存在时绝不覆盖密码"必须是硬约束：
+// 一旦覆盖，管理员改过的密码会在下次重启时被打回配置里的初始值，
+// 而配置里的初始化密码通常早已从环境中移除，结果是所有人都进不去。
+func TestEnsureAdministratorPromotesExistingAccountWithoutTouchingPassword(t *testing.T) {
+	t.Parallel()
+
+	users := NewFakeUserRepository(func() time.Time { return fixedNow })
+	service, _ := newTestService(t, users, NewFakeSessionStore())
+
+	// 先用普通注册路径造一个普通成员，并把它当成"管理员已经改过密码"的账号。
+	registered, err := service.Register(context.Background(), validRegistration())
+	if err != nil {
+		t.Fatalf("Register 返回错误: %v", err)
+	}
+	originalHash := registered.User.PasswordHash
+
+	result, err := service.EnsureAdministrator(context.Background(), BootstrapAdminInput{
+		Username: "ALICE", // 大小写不同也必须定位到同一个账号
+		Email:    "ignored@example.com",
+		Password: "a-different-bootstrap-password",
+	})
+	if err != nil {
+		t.Fatalf("EnsureAdministrator 返回错误: %v", err)
+	}
+	if result.Created {
+		t.Fatal("账号已存在时不应再次创建")
+	}
+	if !result.Promoted {
+		t.Fatal("账号存在但不是管理员时应报告已提升")
+	}
+	if result.UserID != registered.User.ID {
+		t.Fatalf("提升的账号 = %q，期望 %q", result.UserID, registered.User.ID)
+	}
+
+	record, _ := users.Stored(result.UserID)
+	if record.SystemRole != domain.UserSystemRoleAdmin {
+		t.Errorf("system_role = %q，期望 admin", record.SystemRole)
+	}
+	if record.PasswordHash != originalHash {
+		t.Fatal("初始化**覆盖了既有密码摘要**：这会让每次重启都重置管理员密码")
+	}
+	// 邮箱同样不得被配置里的值覆盖。
+	if record.Email != registered.User.Email {
+		t.Errorf("email = %q，期望保持 %q", record.Email, registered.User.Email)
+	}
+}
+
+// TestEnsureAdministratorIsIdempotent 覆盖"已经是管理员时什么都不做"。
+//
+// 不只是"不报错"：连 updated_at 都不应推进，否则每次重启都会让其他客户端
+// 手里的版本无谓失效。
+func TestEnsureAdministratorIsIdempotent(t *testing.T) {
+	t.Parallel()
+
+	users := NewFakeUserRepository(func() time.Time { return fixedNow })
+	service, _ := newTestService(t, users, NewFakeSessionStore())
+
+	first, err := service.EnsureAdministrator(context.Background(), bootstrapInput())
+	if err != nil {
+		t.Fatalf("首次初始化失败: %v", err)
+	}
+	before, _ := users.Stored(first.UserID)
+
+	second, err := service.EnsureAdministrator(context.Background(), bootstrapInput())
+	if err != nil {
+		t.Fatalf("重复初始化失败: %v", err)
+	}
+	if second.Created || second.Promoted {
+		t.Fatalf("重复初始化不应产生变更，实际为 %+v", second)
+	}
+	if second.UserID != first.UserID {
+		t.Fatalf("重复初始化指向了不同账号：%q vs %q", second.UserID, first.UserID)
+	}
+
+	after, _ := users.Stored(first.UserID)
+	if !after.UpdatedAt.Equal(before.UpdatedAt) {
+		t.Errorf("重复初始化推进了 updated_at（%v → %v）", before.UpdatedAt, after.UpdatedAt)
+	}
+}
+
+// TestEnsureAdministratorReportsDisabledAccount 覆盖"账号被停用"的处置。
+//
+// 只报告不自动启用：自动启用会与一次显式的人工停用相抵触。
+func TestEnsureAdministratorReportsDisabledAccount(t *testing.T) {
+	t.Parallel()
+
+	users := NewFakeUserRepository(func() time.Time { return fixedNow })
+	service, _ := newTestService(t, users, NewFakeSessionStore())
+
+	created, err := service.EnsureAdministrator(context.Background(), bootstrapInput())
+	if err != nil {
+		t.Fatalf("首次初始化失败: %v", err)
+	}
+	record, _ := users.Stored(created.UserID)
+	record.Status = domain.UserStatusDisabled
+	record.SystemRole = domain.UserSystemRoleMember
+	users.Put(record)
+
+	result, err := service.EnsureAdministrator(context.Background(), bootstrapInput())
+	if err != nil {
+		t.Fatalf("重新初始化失败: %v", err)
+	}
+	if !result.Disabled {
+		t.Error("停用账号必须被报告出来，否则运维不知道管理员实际上无法登录")
+	}
+	if !result.Promoted {
+		t.Error("角色不是 admin 时应被提升，即使账号处于停用状态")
+	}
+	after, _ := users.Stored(created.UserID)
+	if after.Status != domain.UserStatusDisabled {
+		t.Error("初始化不应擅自把账号改为启用：那会与显式的人工停用相抵触")
+	}
+}
+
+// TestEnsureAdministratorRejectsInvalidInput 覆盖配置写错时的快速失败。
+//
+// 错误里只能有字段名与规则说明，绝不能出现密码内容。
+func TestEnsureAdministratorRejectsInvalidInput(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		input BootstrapAdminInput
+		field string
+	}{
+		{
+			name:  "用户名过短",
+			input: BootstrapAdminInput{Username: "ab", Email: "a@example.com", Password: "bootstrap-password"},
+			field: "username",
+		},
+		{
+			name:  "邮箱格式非法",
+			input: BootstrapAdminInput{Username: "admin", Email: "not-an-email", Password: "bootstrap-password"},
+			field: "email",
+		},
+		{
+			name:  "密码过短",
+			input: BootstrapAdminInput{Username: "admin", Email: "a@example.com", Password: "short"},
+			field: "password",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			users := NewFakeUserRepository(func() time.Time { return fixedNow })
+			service, _ := newTestService(t, users, NewFakeSessionStore())
+
+			_, err := service.EnsureAdministrator(context.Background(), tc.input)
+			domainErr := requireDomainError(t, err, domain.CodeValidationError)
+			if _, ok := domainErr.Fields[tc.field]; !ok {
+				t.Fatalf("期望字段 %q 报错，实际为 %v", tc.field, domainErr.Fields)
+			}
+			if strings.Contains(err.Error(), tc.input.Password) {
+				t.Fatalf("错误信息泄漏了密码内容: %v", err)
+			}
+			if users.Count() != 0 {
+				t.Fatal("校验失败时不应创建任何账号")
+			}
+		})
+	}
+}

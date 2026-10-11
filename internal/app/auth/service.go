@@ -20,9 +20,11 @@ type UserRepository interface {
 	CreateUser(ctx context.Context, in NewUser) (UserRecord, error)
 	FindByID(ctx context.Context, id string) (UserRecord, error)
 	FindByIdentifier(ctx context.Context, identifier string) (UserRecord, error)
+	FindByUsername(ctx context.Context, username string) (UserRecord, error)
 	TouchLastLogin(ctx context.Context, id string, at time.Time) (UserRecord, error)
 	UpdatePasswordHash(ctx context.Context, id, hash string) error
 	UpdatePasswordWithCAS(ctx context.Context, id, hash string, expectedUpdated time.Time) (UserRecord, error)
+	UpdateSystemRole(ctx context.Context, id, role string) (UserRecord, error)
 }
 
 // Service 承载认证用例。

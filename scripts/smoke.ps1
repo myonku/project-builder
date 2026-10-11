@@ -11,7 +11,12 @@
 param(
     [string]$BaseUrl = "http://127.0.0.1:8000",
     # 每次运行使用唯一用户名，避免重复注册导致 409。
-    [string]$Username = "smoke_$([DateTime]::UtcNow.ToString('yyyyMMddHHmmss'))"
+    [string]$Username = "smoke_$([DateTime]::UtcNow.ToString('yyyyMMddHHmmss'))",
+    # 引导管理员凭据：默认值对应 make run-test-config 注入的测试配置
+    # （docker/config.test.toml 与 Makefile 中的 TEST_BOOTSTRAP_ADMIN_*）。
+    # 管理员端点的成功路径需要它；缺失时该小节会给出可操作的失败提示。
+    [string]$AdminUsername = "bootstrap_admin",
+    [string]$AdminPassword = "bootstrap_admin_test_password"
 )
 
 $ErrorActionPreference = 'Stop'
@@ -502,6 +507,97 @@ $missingPassword = Invoke-Api -Method POST -Path "/api/v1/users/$userId/password
     expected_updated_at = '2026-10-11T00:00:00Z'
 }
 Assert-Equal $missingPassword.Status 422 '缺少 new_password 应 422'
+
+# ---------------------------------------------------------------------------
+Write-Step "Users：管理员端点成功路径（引导管理员）"
+# ---------------------------------------------------------------------------
+
+# 服务以 make run-test-config 启动时会按 security.bootstrap_admin_* 初始化一个
+# 系统级后台管理员，因此管理员端点的成功路径可以在这里端到端验证。
+#
+# 前提：服务启动之后**没有清空过数据库**（集成测试会 TRUNCATE 业务表，
+# 那会把引导管理员一并删掉，而初始化只在启动时执行一次）。
+$primarySession = $session
+$session = New-Object Microsoft.PowerShell.Commands.WebRequestSession
+$adminLogin = Invoke-Api -Method POST -Path '/api/v1/auth/login' -Body @{
+    identifier = $AdminUsername
+    password   = $AdminPassword
+}
+if ($adminLogin.Status -ne 200) {
+    Write-Host ("  [FAIL] 引导管理员无法登录（状态码 {0}）。请确认服务以 make run-test-config 启动，" -f $adminLogin.Status) -ForegroundColor Red
+    Write-Host "         且此后未清空过数据库（集成测试会删除引导管理员，需重启服务）。" -ForegroundColor Red
+    $script:Failures++
+} else {
+    Write-Host "  [PASS] 引导管理员可登录（初始化配置生效）" -ForegroundColor Green
+}
+
+# 管理员创建用户。
+$adminCreatedName = "smoke_created_$Username"
+$adminCreated = Invoke-Api -Method POST -Path '/api/v1/users' -Body @{
+    username     = $adminCreatedName
+    email        = "$adminCreatedName@example.com"
+    display_name = '管理员创建的账号'
+    password     = 'correct horse battery'
+    timezone     = 'Asia/Shanghai'
+}
+Assert-Equal $adminCreated.Status 201 'POST /api/v1/users（管理员）'
+Assert-Equal $adminCreated.Body.data.system_role 'member' '新建账号固定为 member'
+$adminCreatedId = $adminCreated.Body.data.id
+
+# 唯一性：重复用户名由数据库唯一索引兜底。
+$adminDuplicate = Invoke-Api -Method POST -Path '/api/v1/users' -Body @{
+    username     = $adminCreatedName
+    email        = "other_$adminCreatedName@example.com"
+    display_name = '重复用户名'
+    password     = 'correct horse battery'
+}
+Assert-Equal $adminDuplicate.Status 409 '重复用户名应 409'
+Assert-Equal $adminDuplicate.Body.error.code 'conflict' 'error.code'
+
+# 用户列表：默认口径能查到新账号。
+$adminList = Invoke-Api -Method POST -Path '/api/v1/users/query' -Body @{ page = 1; page_size = 100 }
+Assert-Equal $adminList.Status 200 'POST /api/v1/users/query（管理员）'
+$listedCreated = @($adminList.Body.data | Where-Object { $_.id -eq $adminCreatedId }).Count
+Assert-Equal $listedCreated 1 '默认列表包含新建账号'
+
+# 列表的 include_disabled 口径与分页/排序校验在管理员身份下才可达。
+$adminListAll = Invoke-Api -Method POST -Path '/api/v1/users/query' -Body @{ include_disabled = $true; page = 1; page_size = 100 }
+Assert-Equal $adminListAll.Status 200 'include_disabled=true 应 200'
+
+$adminBadSort = Invoke-Api -Method POST -Path '/api/v1/users/query' -Body @{ sort = 'password_hash' }
+Assert-Equal $adminBadSort.Status 400 '未知排序字段应 400'
+Assert-Equal $adminBadSort.Body.error.code 'invalid_request' 'error.code'
+
+$adminBadPage = Invoke-Api -Method POST -Path '/api/v1/users/query' -Body @{ page_size = 500 }
+Assert-Equal $adminBadPage.Status 400 'page_size 超限应 400'
+
+# 重置密码：新密码可用、旧密码失效。
+$adminReset = Invoke-Api -Method POST -Path "/api/v1/users/$adminCreatedId/password" -Body @{
+    new_password        = 'reset by smoke admin'
+    expected_updated_at = $adminCreated.Body.data.updated_at
+}
+Assert-Equal $adminReset.Status 200 'POST /api/v1/users/{id}/password（管理员）'
+
+$staleReset = Invoke-Api -Method POST -Path "/api/v1/users/$adminCreatedId/password" -Body @{
+    new_password        = 'another password'
+    expected_updated_at = $adminCreated.Body.data.updated_at
+}
+Assert-Equal $staleReset.Status 409 '过期版本重置应 409'
+Assert-Equal $staleReset.Body.error.code 'version_conflict' 'error.code'
+
+$resetLogin = Invoke-Api -Method POST -Path '/api/v1/auth/login' -Body @{
+    identifier = $adminCreatedName
+    password   = 'reset by smoke admin'
+}
+Assert-Equal $resetLogin.Status 200 '重置后的新密码可登录'
+
+$oldLogin = Invoke-Api -Method POST -Path '/api/v1/auth/login' -Body @{
+    identifier = $adminCreatedName
+    password   = 'correct horse battery'
+}
+Assert-Equal $oldLogin.Status 401 '重置后的旧密码应失效'
+
+$session = $primarySession
 
 # ---------------------------------------------------------------------------
 Write-Step "Projects：创建 → 派生字段 → 归档只读"

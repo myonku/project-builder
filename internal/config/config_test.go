@@ -259,6 +259,26 @@ func TestLoadRejectsInvalidValues(t *testing.T) {
 			env:      map[string]string{"SERVER_PORT": "abc"},
 			wantWord: "SERVER_PORT",
 		},
+		{
+			// 只配用户名会让一次本该创建管理员的初始化静默地什么都不做，
+			// 而操作者以为自己已经录入完毕。宁可启动失败。
+			name:     "引导管理员只配了用户名",
+			env:      map[string]string{"SECURITY_BOOTSTRAP_ADMIN_USERNAME": "admin"},
+			wantWord: "security.bootstrap_admin_email",
+		},
+		{
+			name: "引导管理员缺密码",
+			env: map[string]string{
+				"SECURITY_BOOTSTRAP_ADMIN_USERNAME": "admin",
+				"SECURITY_BOOTSTRAP_ADMIN_EMAIL":    "admin@example.com",
+			},
+			wantWord: "security.bootstrap_admin_password",
+		},
+		{
+			name:     "引导管理员未配用户名却配了密码",
+			env:      map[string]string{"SECURITY_BOOTSTRAP_ADMIN_PASSWORD": "some-password"},
+			wantWord: "security.bootstrap_admin_username",
+		},
 	}
 
 	for _, tc := range tests {
@@ -423,6 +443,8 @@ func TestSummaryRedactsSecrets(t *testing.T) {
 	cfg.Redis.Password = "redis-secret-value"
 	cfg.Mail.Password = "smtp-secret-value"
 	cfg.Security.SessionSecret = "session-secret-value"
+	cfg.Security.BootstrapAdminUsername = "bootstrap_admin"
+	cfg.Security.BootstrapAdminPassword = "bootstrap-secret-value"
 
 	var rendered strings.Builder
 	for _, attr := range cfg.Summary() {
@@ -432,6 +454,7 @@ func TestSummaryRedactsSecrets(t *testing.T) {
 
 	for _, secret := range []string{
 		"db-secret-value", "redis-secret-value", "smtp-secret-value", "session-secret-value",
+		"bootstrap-secret-value",
 	} {
 		if strings.Contains(summary, secret) {
 			t.Fatalf("启动摘要泄漏了敏感值 %q: %s", secret, summary)
@@ -441,6 +464,61 @@ func TestSummaryRedactsSecrets(t *testing.T) {
 	if !strings.Contains(summary, "session_secret=set") {
 		t.Errorf("摘要应报告 session_secret 已配置: %s", summary)
 	}
+	if !strings.Contains(summary, "bootstrap_admin_password=set") {
+		t.Errorf("摘要应报告引导管理员密码已配置: %s", summary)
+	}
+	// 用户名不是敏感值，输出它便于运维确认初始化对象。
+	if !strings.Contains(summary, "bootstrap_admin_username=bootstrap_admin") {
+		t.Errorf("摘要应输出引导管理员用户名: %s", summary)
+	}
+}
+
+// TestBootstrapAdminConfig 覆盖引导管理员的配置语义与边界。
+func TestBootstrapAdminConfig(t *testing.T) {
+	t.Run("整组配置后生效", func(t *testing.T) {
+		clearConfigEnv(t)
+		dir := t.TempDir()
+		path := writeFile(t, dir, "config.toml", `
+[security]
+bootstrap_admin_username = "admin"
+bootstrap_admin_email = "admin@example.com"
+bootstrap_admin_password = "bootstrap-password"
+`)
+		cfg, err := Load(path, "")
+		if err != nil {
+			t.Fatalf("Load 返回错误: %v", err)
+		}
+		if !cfg.Security.BootstrapAdminEnabled() {
+			t.Fatal("配置完整时应视为已启用")
+		}
+		if cfg.Security.BootstrapAdminDisplayName != "" {
+			t.Errorf("未提供显示名时应为空，实际为 %q", cfg.Security.BootstrapAdminDisplayName)
+		}
+	})
+
+	t.Run("全部留空时功能关闭", func(t *testing.T) {
+		clearConfigEnv(t)
+		cfg, err := Load(filepath.Join(t.TempDir(), "absent.toml"), "")
+		if err != nil {
+			t.Fatalf("Load 返回错误: %v", err)
+		}
+		if cfg.Security.BootstrapAdminEnabled() {
+			t.Fatal("未配置用户名时应视为功能关闭")
+		}
+	})
+
+	t.Run("只配空白用户名也算关闭", func(t *testing.T) {
+		clearConfigEnv(t)
+		dir := t.TempDir()
+		path := writeFile(t, dir, "config.toml", "[security]\nbootstrap_admin_username = \"   \"\n")
+		cfg, err := Load(path, "")
+		if err != nil {
+			t.Fatalf("Load 返回错误: %v", err)
+		}
+		if cfg.Security.BootstrapAdminEnabled() {
+			t.Fatal("空白用户名不应被视为已启用")
+		}
+	})
 }
 
 // TestDescribeSecret 覆盖敏感值描述的三种状态。

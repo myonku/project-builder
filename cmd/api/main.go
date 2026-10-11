@@ -95,6 +95,30 @@ func run() error {
 	// 各业务模块只依赖 groups.ActorLoader 契约，不直接接触会话细节。
 	authHandler := auth.NewHandler(authService, logger)
 
+	// 系统初始化时录入引导管理员。
+	//
+	// 为什么必须在启动阶段做：全部管理员端点都要求调用者已是管理员，
+	// 没有任何 HTTP 路径能造出第一个管理员。本系统面向内部小组，
+	// 普通用户不需要管理员角色，因此不做分发，只在初始化时录入一个系统级后台账号。
+	//
+	// 该操作是幂等的：账号已存在时只确保角色，绝不覆盖密码。
+	if cfg.Security.BootstrapAdminEnabled() {
+		result, err := authService.EnsureAdministrator(ctx, auth.BootstrapAdminInput{
+			Username:    cfg.Security.BootstrapAdminUsername,
+			Email:       cfg.Security.BootstrapAdminEmail,
+			Password:    cfg.Security.BootstrapAdminPassword,
+			DisplayName: cfg.Security.BootstrapAdminDisplayName,
+		})
+		if err != nil {
+			// 初始化失败必须快速失败：否则服务会在"没有可用管理员"的状态下运行，
+			// 而操作者以为自己已经录入完毕。
+			return fmt.Errorf("引导管理员初始化失败: %w", err)
+		}
+		if result.Disabled {
+			logger.Warn("引导管理员账号处于停用状态，在启用之前无法登录")
+		}
+	}
+
 	groupsService := groups.NewService(groups.Options{
 		Store:  groups.NewRepository(postgres.Pool),
 		IDs:    ids,

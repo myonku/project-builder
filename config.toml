@@ -62,6 +62,18 @@ password_min_length = 8
 secure_cookies = false
 session_cookie_name = "pb_session"
 
+# 引导管理员（系统初始化时录入一个系统级后台账号）。
+#
+# 本系统面向内部小组，普通用户不需要管理员角色，因此不做分发：只在这里录入一个，
+# 服务启动时确保它存在且是 admin。账号已存在时**只确保角色，绝不覆盖密码**，
+# 因此下面的密码是**一次性**的，账号建好后即可从环境中移除。
+#
+# 4 项必须整组配置或全部留空；只配一部分会导致启动失败（避免"看起来配了"的空配置）。
+# bootstrap_admin_username = "admin"
+# bootstrap_admin_email = "admin@example.com"
+# bootstrap_admin_password = ""          # 通过 SECURITY_BOOTSTRAP_ADMIN_PASSWORD 注入，不写入仓库
+# bootstrap_admin_display_name = "系统管理员"
+
 [scheduler]
 enabled = true
 interval_seconds = 60

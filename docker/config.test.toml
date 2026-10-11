@@ -58,6 +58,13 @@ password_min_length = 8
 secure_cookies = false
 session_cookie_name = "pb_session"
 
+# 引导管理员：测试环境显式启用，使冒烟脚本能够覆盖管理员端点的**成功路径**
+# （生产环境不启用此配置，见 docs/03-配置与运行.md 3.6）。
+bootstrap_admin_username = "bootstrap_admin"
+bootstrap_admin_email = "bootstrap_admin@test.local"
+bootstrap_admin_password = "bootstrap_admin_test_password"
+bootstrap_admin_display_name = "引导管理员"
+
 [scheduler]
 enabled = false
 interval_seconds = 60
