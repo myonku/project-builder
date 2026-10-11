@@ -166,7 +166,7 @@ func (s *Service) Gantt(ctx context.Context, actorID, projectID string) (Gantt, 
 	project := record.ToDomain()
 	permission := domain.ProjectPermission(
 		project,
-		domain.User{ID: actorID},
+		actorOf(record, actorID),
 		record.projectMember(actorID),
 		record.group(),
 		record.groupMembership(actorID),
@@ -235,6 +235,14 @@ type Filter struct {
 	Task    TaskFilter
 }
 
+// actorOf 由记录中的系统角色重建领域用户。
+//
+// 与 projects / groups 模块的同名函数同理：权限入口只拿得到 actorID，
+// 而"管理员放行"需要系统角色。查询时已一并取出，这里只做重建。
+func actorOf(record ProjectRecord, actorID string) domain.User {
+	return domain.User{ID: actorID, SystemRole: record.ActorSystemRole}
+}
+
 // withToday 把筛选条件补上"今天"。
 //
 // 逾期筛选依赖"今天"，而"今天"必须按请求者时区计算，
@@ -261,7 +269,7 @@ func (s *Service) assemble(
 		project := record.ToDomain()
 		permission := domain.ProjectPermission(
 			project,
-			domain.User{ID: actorID},
+			actorOf(record, actorID),
 			record.projectMember(actorID),
 			record.group(),
 			record.groupMembership(actorID),

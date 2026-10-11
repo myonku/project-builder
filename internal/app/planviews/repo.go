@@ -45,7 +45,8 @@ const projectFactColumns = `
 	g.status AS group_status,
 	gm.role AS group_role,
 	gm.status AS group_member_status,
-	owner.user_id AS owner_id`
+	owner.user_id AS owner_id,
+	COALESCE(actor.system_role, '') AS actor_system_role`
 
 // ProjectRecord 是项目在计划视图中的投影。
 type ProjectRecord struct {
@@ -72,6 +73,12 @@ type ProjectRecord struct {
 	GroupMemberStatus *string
 	// OwnerID 是项目持有者；数据库的部分唯一索引保证最多一个。
 	OwnerID *string
+	// ActorSystemRole 是当前请求用户的系统角色（member / admin）。
+	//
+	// 与 projects / groups 模块同样的处理：权限判定需要它才能对系统管理员放行，
+	// 而用例层只拿得到 actorID。由查询一并取出，避免又一次"角色被静默留空"
+	// ——那会让管理员放行写了却从未生效（docs/06 5.12）。
+	ActorSystemRole string
 }
 
 // ToDomain 转换为领域实体，供 domain 的权限函数使用。
@@ -261,6 +268,7 @@ func (r *Repository) Projects(
 		  LEFT JOIN group_members gm ON gm.group_id = p.group_id AND gm.user_id = $1
 		  LEFT JOIN project_members owner
 		         ON owner.project_id = p.id AND owner.role = 'owner'
+		  LEFT JOIN users actor ON actor.id = $1
 		 WHERE 1 = 1`
 	args := []any{scope.ActorID}
 
@@ -407,6 +415,7 @@ func (r *Repository) FindProject(
 		  LEFT JOIN group_members gm ON gm.group_id = p.group_id AND gm.user_id = $2
 		  LEFT JOIN project_members owner
 		         ON owner.project_id = p.id AND owner.role = 'owner'
+		  LEFT JOIN users actor ON actor.id = $2
 		 WHERE p.id = $1`
 
 	record, err := scanProject(r.pool.QueryRow(ctx, query, projectID, actorID))
@@ -416,21 +425,30 @@ func (r *Repository) FindProject(
 	return record, nil
 }
 
-// IsActiveGroupMember 报告用户是否为该组的活跃成员。
+// CanViewGroupPlan 报告用户是否可以查看该工作组的共享计划。
+//
+// 除活跃成员外，**系统管理员也放行**（需求文档 4.1）：管理员需要能查看任意组的
+// 共享计划来定位与处理异常，否则"管理员兜底"在只读路径上同样是空话。
+// 因此这个判断的语义是"可查看"，而不再字面上等于"是成员"。
 func (r *Repository) IsActiveGroupMember(ctx context.Context, groupID, userID string) (bool, error) {
 	const query = `
-		SELECT EXISTS (
-			SELECT 1 FROM groups g
-			  JOIN group_members gm ON gm.group_id = g.id
-			 WHERE g.id = $1 AND g.status = 'active'
-			   AND gm.user_id = $2 AND gm.status = 'active'
-		)`
+		SELECT
+			EXISTS (
+				SELECT 1 FROM groups g
+				  JOIN group_members gm ON gm.group_id = g.id
+				 WHERE g.id = $1 AND g.status = 'active'
+				   AND gm.user_id = $2 AND gm.status = 'active'
+			)
+			OR EXISTS (
+				SELECT 1 FROM users au
+				 WHERE au.id = $2 AND au.system_role = 'admin'
+			)`
 
-	var member bool
-	if err := r.pool.QueryRow(ctx, query, groupID, userID).Scan(&member); err != nil {
+	var allowed bool
+	if err := r.pool.QueryRow(ctx, query, groupID, userID).Scan(&allowed); err != nil {
 		return false, fmt.Errorf("查询工作组成员关系失败: %w", err)
 	}
-	return member, nil
+	return allowed, nil
 }
 
 // 任务投影的列清单与成员聚合。
@@ -508,7 +526,7 @@ func scanProject(row interface{ Scan(dest ...any) error }) (ProjectRecord, error
 		&record.Status, &record.Visibility, &record.StartDate, &record.EndDate,
 		&record.Color, &record.ArchivedAt, &record.CreatedAt, &record.UpdatedAt,
 		&actorRole, &record.GroupStatus, &record.GroupRole, &record.GroupMemberStatus,
-		&record.OwnerID,
+		&record.OwnerID, &record.ActorSystemRole,
 	)
 	if err != nil {
 		return ProjectRecord{}, err

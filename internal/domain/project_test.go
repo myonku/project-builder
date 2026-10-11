@@ -127,28 +127,98 @@ func TestCanManageGroupMembers(t *testing.T) {
 	t.Parallel()
 
 	group := Group{ID: "g1", Status: GroupStatusActive, OwnerID: "owner"}
+	// 一个被停用的组：成员与组管理员都管不了，但系统管理员必须能管
+	// （否则没人能把它重新启用——这正是"管理员兜底"要避免的死锁）。
+	disabledGroup := Group{ID: "g2", Status: GroupStatusDisabled, OwnerID: "owner"}
 
 	tests := []struct {
 		name       string
+		group      Group
 		membership *GroupMember
-		actorID    string
+		actor      User
 		want       bool
 	}{
-		{name: "所有者可管理", actorID: "owner", want: true},
-		{name: "组管理员可管理", actorID: "manager",
+		{name: "所有者可管理", group: group, actor: User{ID: "owner"}, want: true},
+		{name: "组管理员可管理", group: group, actor: User{ID: "manager"},
 			membership: &GroupMember{Role: MemberRoleManager, Status: MemberStatusActive}, want: true},
-		{name: "普通成员不可管理", actorID: "member",
+		{name: "普通成员不可管理", group: group, actor: User{ID: "member"},
 			membership: &GroupMember{Role: MemberRoleMember, Status: MemberStatusActive}, want: false},
-		{name: "非成员不可管理", actorID: "stranger", want: false},
-		{name: "被移除的组管理员不可管理", actorID: "manager",
+		{name: "非成员不可管理", group: group, actor: User{ID: "stranger"}, want: false},
+		{name: "被移除的组管理员不可管理", group: group, actor: User{ID: "manager"},
 			membership: &GroupMember{Role: MemberRoleManager, Status: MemberStatusRemoved}, want: false},
+		// 需求文档 4.1：系统管理员管理所有工作组，且不要求是成员。
+		{name: "系统管理员可管理任何组", group: group,
+			actor: User{ID: "admin", SystemRole: UserSystemRoleAdmin}, want: true},
+		{name: "系统管理员可管理已停用的组", group: disabledGroup,
+			actor: User{ID: "admin", SystemRole: UserSystemRoleAdmin}, want: true},
+		{name: "组管理员管不了已停用的组", group: disabledGroup, actor: User{ID: "manager"},
+			membership: &GroupMember{Role: MemberRoleManager, Status: MemberStatusActive}, want: false},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			if got := CanManageGroupMembers(group, tc.membership, tc.actorID); got != tc.want {
+			if got := CanManageGroupMembers(tc.group, tc.actor, tc.membership); got != tc.want {
 				t.Fatalf("CanManageGroupMembers = %v，期望 %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestCanViewGroup 覆盖"谁能看到工作组详情"。
+func TestCanViewGroup(t *testing.T) {
+	t.Parallel()
+
+	group := Group{ID: "g1", Status: GroupStatusActive, OwnerID: "owner"}
+	active := &GroupMember{Role: MemberRoleMember, Status: MemberStatusActive}
+	removed := &GroupMember{Role: MemberRoleMember, Status: MemberStatusRemoved}
+
+	tests := []struct {
+		name       string
+		membership *GroupMember
+		actor      User
+		want       bool
+	}{
+		{name: "所有者可见", actor: User{ID: "owner"}, want: true},
+		{name: "活跃成员可见", membership: active, actor: User{ID: "member"}, want: true},
+		{name: "被移除的成员不可见", membership: removed, actor: User{ID: "member"}, want: false},
+		{name: "非成员不可见", actor: User{ID: "stranger"}, want: false},
+		{name: "系统管理员可见", actor: User{ID: "admin", SystemRole: UserSystemRoleAdmin}, want: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := CanViewGroup(group, tc.actor, tc.membership); got != tc.want {
+				t.Fatalf("CanViewGroup = %v，期望 %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestCanTransferGroupOwnership 覆盖"谁可以转移工作组所有权"。
+//
+// 组管理员（manager）不行：把组交给谁是治理决定，不是日常成员管理。
+func TestCanTransferGroupOwnership(t *testing.T) {
+	t.Parallel()
+
+	group := Group{ID: "g1", Status: GroupStatusActive, OwnerID: "owner"}
+	tests := []struct {
+		name  string
+		actor User
+		want  bool
+	}{
+		{name: "所有者可以转移", actor: User{ID: "owner"}, want: true},
+		{name: "系统管理员可以转移", actor: User{ID: "admin", SystemRole: UserSystemRoleAdmin}, want: true},
+		{name: "组管理员不能转移", actor: User{ID: "manager"}, want: false},
+		{name: "普通成员不能转移", actor: User{ID: "member"}, want: false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := CanTransferGroupOwnership(group, tc.actor); got != tc.want {
+				t.Fatalf("CanTransferGroupOwnership = %v，期望 %v", got, tc.want)
 			}
 		})
 	}

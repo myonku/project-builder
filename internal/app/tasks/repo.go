@@ -188,6 +188,10 @@ func visibilityCondition(userParam int) string {
 				   AND gm.user_id = %[1]s AND gm.status = 'active'
 			)
 		)
+		-- 系统管理员可以看到全部任务（需求文档 4.1）。用与当前行无关的子查询，
+		-- 因此列表与计数两个调用方都不需要改动各自的连接子句。
+		OR EXISTS (SELECT 1 FROM users au
+		            WHERE au.id = %[1]s AND au.system_role = 'admin')
 	)`, user)
 }
 

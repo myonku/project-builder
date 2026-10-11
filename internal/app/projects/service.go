@@ -327,7 +327,7 @@ func (s *Service) Update(ctx context.Context, actor domain.User, in UpdateInput)
 	if err != nil {
 		return ProjectRecord{}, err
 	}
-	if !domain.CanManageProject(current.ToDomain(), actor, membershipOf(current)) && !actor.IsAdmin() {
+	if !domain.CanManageProject(current.ToDomain(), actor, membershipOf(current)) {
 		return ProjectRecord{}, domain.ErrPermissionDenied
 	}
 
@@ -394,7 +394,7 @@ func (s *Service) Archive(ctx context.Context, actor domain.User, in ArchiveInpu
 	if err != nil {
 		return ProjectRecord{}, err
 	}
-	if !domain.CanManageProject(current.ToDomain(), actor, membershipOf(current)) && !actor.IsAdmin() {
+	if !domain.CanManageProject(current.ToDomain(), actor, membershipOf(current)) {
 		return ProjectRecord{}, domain.ErrPermissionDenied
 	}
 	if current.ToDomain().IsArchived() {
@@ -642,7 +642,7 @@ func (s *Service) requireManage(ctx context.Context, projectID, actorID string) 
 	if err != nil {
 		return ProjectRecord{}, err
 	}
-	if !domain.CanManageProject(record.ToDomain(), domain.User{ID: actorID}, membershipOf(record)) {
+	if !domain.CanManageProject(record.ToDomain(), actorOf(record, actorID), membershipOf(record)) {
 		return ProjectRecord{}, notFound()
 	}
 	return record, nil
@@ -696,8 +696,18 @@ func permissionOf(record ProjectRecord, actorID string) domain.Permission {
 		groupMembership = &member
 	}
 	group := domain.Group{ID: record.GroupID, Status: record.GroupStatus}
-	return domain.ProjectPermission(record.ToDomain(), domain.User{ID: actorID},
+	// actor 必须带上真实的 SystemRole：domain 的权限函数据此对系统管理员放行。
+	// 无法在这里凭 actorID 重建角色，因此角色由查询一并取出（record.ActorSystemRole）。
+	return domain.ProjectPermission(record.ToDomain(), actorOf(record, actorID),
 		membershipOf(record), group, groupMembership)
+}
+
+// actorOf 由记录中的系统角色重建领域用户。
+//
+// 与 groups 模块的同名函数同理：权限入口大多只拿得到 actorID，而管理员放行需要
+// 系统角色。查询时已把它取出，这里只做重建，不额外查库。
+func actorOf(record ProjectRecord, actorID string) domain.User {
+	return domain.User{ID: actorID, SystemRole: record.ActorSystemRole}
 }
 
 // membershipOf 从项目记录取出领域成员关系，非成员时返回 nil。

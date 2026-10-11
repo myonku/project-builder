@@ -76,6 +76,13 @@ type ProjectRecord struct {
 
 	// Membership 是当前请求用户在本项目的成员关系；nil 表示不是项目成员。
 	Membership *MemberRecord
+	// ActorSystemRole 是当前请求用户的系统角色（member / admin）。
+	//
+	// 由 FindProjectForUser 与 ListProjects **两者**都取出（各自的 `JOIN users actor`）。
+	// 权限判定需要它才能对系统管理员放行；早期实现各处只传 domain.User{ID: actorID}，
+	// 角色恒为空，于是"管理员放行"写了却从未生效——本仓库把这类缺陷
+	// （字段被静默留空）视为最危险的一类，见 docs/06-迁移进度与验证.md 5.12。
+	ActorSystemRole string
 	// GroupMembership 是当前请求用户在项目归属组中的成员关系；nil 表示不是组员。
 	// 组内共享判定完全依赖它，因此必须与项目一起取出，避免两次往返产生不一致快照。
 	GroupMembership *GroupMemberRecord
@@ -266,6 +273,11 @@ func visibleCondition(userParam int) string {
 			            WHERE g.id = p.group_id AND g.status = 'active'
 			              AND gm.user_id = %[1]s AND gm.status = 'active')
 		)
+		-- 系统管理员可以看到全部项目（需求文档 4.1）。
+		-- 用与当前行无关的子查询而不是往 FROM 里加 JOIN：所有调用方共用同一个条件，
+		-- 不必为了一个常量判断去改各自的连接子句。
+		OR EXISTS (SELECT 1 FROM users au
+		            WHERE au.id = %[1]s AND au.system_role = 'admin')
 	)`, user)
 }
 
@@ -327,11 +339,13 @@ func (r *Repository) FindProjectForUser(ctx context.Context, projectID, userID s
 		SELECT ` + projectColumns + `,` + projectDerivedColumns + `,
 		       pm.id, pm.project_id, pm.user_id, pm.role, pm.created_at,
 		       gm.role, gm.status,
-		       g.status
+		       g.status,
+		       COALESCE(actor.system_role, '')
 		  FROM projects p
 		  JOIN groups g ON g.id = p.group_id
 		  LEFT JOIN project_members pm ON pm.project_id = p.id AND pm.user_id = $2
 		  LEFT JOIN group_members gm ON gm.group_id = p.group_id AND gm.user_id = $2
+		  LEFT JOIN users actor ON actor.id = $2
 		 WHERE p.id = $3`
 
 	var record ProjectRecord
@@ -348,6 +362,7 @@ func (r *Repository) FindProjectForUser(ctx context.Context, projectID, userID s
 		&memberID, &memberProjectID, &memberUserID, &memberRole, &memberCreatedAt,
 		&groupMemberRole, &groupMemberStatus,
 		&record.GroupStatus,
+		&record.ActorSystemRole,
 	)
 	if err != nil {
 		if apperr.IsNoRows(err) {
@@ -406,9 +421,11 @@ func (r *Repository) CountProjects(ctx context.Context, filter ListFilter) (int,
 func (r *Repository) ListProjects(ctx context.Context, filter ListFilter, orderBy string, limit, offset int) ([]ProjectRecord, error) {
 	query := `
 		SELECT ` + projectColumns + `,` + projectDerivedColumns + `,
-		       pm.id, pm.project_id, pm.user_id, pm.role, pm.created_at
+		       pm.id, pm.project_id, pm.user_id, pm.role, pm.created_at,
+		       COALESCE(actor.system_role, '')
 		  FROM projects p
 		  LEFT JOIN project_members pm ON pm.project_id = p.id AND pm.user_id = $2
+		  LEFT JOIN users actor ON actor.id = $2
 		 WHERE ` + visibleCondition(2)
 	args := []any{filter.Today, filter.UserID}
 
@@ -439,6 +456,7 @@ func (r *Repository) ListProjects(ctx context.Context, filter ListFilter, orderB
 			&record.CreatedAt, &record.UpdatedAt,
 			&record.TaskMetrics, &record.OverdueTaskCount,
 			&memberID, &memberProjectID, &memberUserID, &memberRole, &memberCreatedAt,
+			&record.ActorSystemRole,
 		); err != nil {
 			return nil, fmt.Errorf("读取项目行失败: %w", err)
 		}

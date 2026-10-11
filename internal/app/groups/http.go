@@ -75,6 +75,7 @@ type updateRequest struct {
 	Name            *string            `json:"name"`
 	Description     *string            `json:"description"`
 	Status          *string            `json:"status"`
+	OwnerID         *string            `json:"owner_id"`
 	ExpectedUpdated *httpapi.Timestamp `json:"expected_updated_at" validate:"required"`
 }
 
@@ -332,6 +333,7 @@ func (h *Handler) update(c *gin.Context) {
 		Description:     emptyToNil(request.Description),
 		DescriptionSet:  httpapi.HasKey(body, "description"),
 		Status:          request.Status,
+		OwnerID:         request.OwnerID,
 		ExpectedUpdated: request.ExpectedUpdated.Time,
 	})
 	if err != nil {

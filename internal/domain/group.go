@@ -127,26 +127,56 @@ func CanAccessGroup(group Group, membership *GroupMember) bool {
 
 // CanManageGroupMembers 报告用户能否管理组成员（审核申请、移除成员、设置角色）。
 //
-// 需求文档 5.2：工作组所有者可以审核加入申请、移除成员及设置组管理员。
-func CanManageGroupMembers(group Group, membership *GroupMember, actorID string) bool {
+// 需求文档 5.2：工作组所有者可以审核加入申请、移除成员及设置组管理员；
+// 系统管理员"管理所有用户、工作组和系统级数据"（需求文档 4.1），因此同样放行。
+//
+// 管理员的判断必须在**组是否可用之前**：否则一个被停用的工作组连管理员都改不了，
+// 也就没人能把它重新启用——这正是"管理员兜底"要避免的死锁。
+func CanManageGroupMembers(group Group, actor User, membership *GroupMember) bool {
+	if actor.IsAdmin() {
+		return true
+	}
 	if !group.IsActive() {
 		return false
 	}
-	if group.OwnerID == actorID {
+	if group.OwnerID == actor.ID {
 		return true
 	}
 	return membership != nil && membership.IsManager()
 }
 
-// CanUpdateGroup 报告用户能否修改组本身（名称、描述、状态）。
+// CanViewGroup 报告 actor 能否查看该工作组的详情与成员列表。
 //
-// 需求文档 5.2：系统管理员可以修改和停用工作组。因此系统管理员在此处绕过成员检查，
-// 但仍要求工作组存在。
-func CanUpdateGroup(group Group, actor User, membership *GroupMember) bool {
+// 与 requireAccess 的既有语义完全一致（所有者或活跃成员），只额外放行系统管理员。
+// 刻意**不**检查组是否停用：停用的组对原成员仍然可见（他们需要看到"组已停用"），
+// 这一行为在引入管理员放行时保持不变。
+func CanViewGroup(group Group, actor User, membership *GroupMember) bool {
 	if actor.IsAdmin() {
 		return true
 	}
-	return CanManageGroupMembers(group, membership, actor.ID)
+	if group.OwnerID == actor.ID {
+		return true
+	}
+	return membership != nil && membership.IsActive()
+}
+
+// CanTransferGroupOwnership 报告 actor 能否转移工作组所有权。
+//
+// 只有当前所有者与系统管理员可以。组管理员（manager）**不能**：
+// 把所有权交给谁是治理决定，不是日常成员管理；REST 语义上它更接近"改组的属性"，
+// 因此走 PATCH /groups/{id} 的 owner_id 字段而不是成员角色接口。
+func CanTransferGroupOwnership(group Group, actor User) bool {
+	if actor.IsAdmin() {
+		return true
+	}
+	return group.OwnerID != "" && group.OwnerID == actor.ID
+}
+
+// CanUpdateGroup 报告用户能否修改组本身（名称、描述、状态、所有者）。
+//
+// 需求文档 5.2：系统管理员可以修改和停用工作组。
+func CanUpdateGroup(group Group, actor User, membership *GroupMember) bool {
+	return CanManageGroupMembers(group, actor, membership)
 }
 
 // 成员变更动作。

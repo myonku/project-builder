@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/myonku/project-builder/internal/app/apperr"
 	"github.com/myonku/project-builder/internal/domain"
 	"github.com/myonku/project-builder/internal/listquery"
 	"github.com/myonku/project-builder/internal/platform/clock"
@@ -21,6 +22,8 @@ type Store interface {
 	CountGroups(ctx context.Context, filter ListFilter) (int, error)
 	CreateGroupInTx(ctx context.Context, params CreateGroupParams) (GroupRecord, error)
 	UpdateGroup(ctx context.Context, params GroupUpdateParams) (GroupRecord, error)
+	// TransferOwnership 在同一事务内改写 groups.owner_id 与目标成员的 manager 角色。
+	TransferOwnership(ctx context.Context, params TransferOwnershipParams) (GroupRecord, error)
 
 	FindMember(ctx context.Context, groupID, userID string) (MemberRecord, error)
 	ListMembers(ctx context.Context, filter MemberFilter, orderBy string, limit, offset int) ([]MemberRecord, error)
@@ -145,7 +148,7 @@ func (s *Service) Detail(ctx context.Context, groupID, actorID string) (GroupRec
 		return GroupRecord{}, err
 	}
 
-	if record.OwnerID != actorID && !isActiveMember(record.Membership) {
+	if !domain.CanViewGroup(record.ToDomain(), actorOf(record, actorID), membershipOf(record)) {
 		return GroupRecord{}, notFound()
 	}
 	return record, nil
@@ -205,11 +208,20 @@ type UpdateInput struct {
 	DescriptionSet  bool
 	Status          *string
 	ExpectedUpdated time.Time
+	// OwnerID 非 nil 时转移工作组所有权。
+	//
+	// 为什么放在这里而不是成员角色接口：groups.owner_id 是**工作组自身的治理属性**，
+	// 不是 group_members 里的一个角色（docs/02 §3.2.1 的决策）。成员角色只有
+	// member / manager 两种，把"所有者"塞进去会与那份决策冲突。
+	OwnerID *string
 }
 
 // Update 修改工作组。
 //
 // 权限（需求文档 5.2）：所有者、组管理员可改；系统管理员可改。
+// 但**转移所有权**只有当前所有者与系统管理员可以做：把组交给谁是治理决定，
+// 不是日常成员管理。
+//
 // 版本冲突由数据库 CAS 判定（见 Repository.UpdateGroup）。
 func (s *Service) Update(ctx context.Context, actor domain.User, in UpdateInput) (GroupRecord, error) {
 	normalized, fields := domain.NormalizeGroupUpdate(domain.GroupUpdateInput{
@@ -232,6 +244,10 @@ func (s *Service) Update(ctx context.Context, actor domain.User, in UpdateInput)
 		return GroupRecord{}, domain.ErrPermissionDenied
 	}
 
+	if in.OwnerID != nil {
+		return s.transferOwnership(ctx, actor, current, in)
+	}
+
 	updated, err := s.repo.UpdateGroup(ctx, GroupUpdateParams{
 		ID:              in.GroupID,
 		Name:            normalized.Name,
@@ -246,6 +262,74 @@ func (s *Service) Update(ctx context.Context, actor domain.User, in UpdateInput)
 
 	s.logger.Info("工作组已更新",
 		slog.String("group_id", updated.ID),
+		slog.String("actor_id", in.ActorID),
+	)
+	return updated, nil
+}
+
+// transferOwnership 转移工作组所有权。
+//
+// 前置条件（全部在写入前给出明确错误，而不是让数据库约束兜底）：
+//   - 只有当前所有者或系统管理员可以发起（组管理员不行）；
+//   - 目标必须是该组的**活跃成员**——所有者必须能管理组，而管理权限要求成员关系；
+//   - 目标必须是有效用户（未停用），否则组会立刻进入"谁都改不了"的状态；
+//   - 目标不能已经是所有者（那是"没有变化"，应返回 409 而不是假装成功）。
+//
+// 写入在同一事务内完成两件事：groups.owner_id 与目标成员的 manager 角色。
+// 两者是同一事实的两种表示（docs/02 §3.2.1），必须同生共死——
+// 否则会出现"是所有者但没有管理者成员行"，或反之。
+func (s *Service) transferOwnership(
+	ctx context.Context, actor domain.User, current GroupRecord, in UpdateInput,
+) (GroupRecord, error) {
+	target := *in.OwnerID
+
+	if !domain.CanTransferGroupOwnership(current.ToDomain(), actor) {
+		return GroupRecord{}, domain.ErrPermissionDenied
+	}
+	if target == current.OwnerID {
+		return GroupRecord{}, domain.ErrConflict.
+			WithField("owner_id", "该用户已经是工作组所有者")
+	}
+
+	membership, err := s.repo.FindMember(ctx, current.ID, target)
+	switch {
+	case err == nil:
+	case apperr.IsNotFound(err):
+		// 目标不是该组成员：这是请求本身的问题（422 + 字段明细），
+		// 而不是"资源不存在"——组是存在且可见的，问题出在目标用户上。
+		return GroupRecord{}, domain.ErrValidation.
+			WithField("owner_id", "目标用户不是该工作组的成员")
+	default:
+		return GroupRecord{}, err
+	}
+	if !isActiveMember(&membership) {
+		return GroupRecord{}, domain.ErrValidation.
+			WithField("owner_id", "目标用户不是该工作组的活跃成员")
+	}
+
+	targetUser, err := s.repo.FindUser(ctx, target)
+	if err != nil {
+		return GroupRecord{}, err
+	}
+	if !targetUser.IsActive() {
+		return GroupRecord{}, domain.ErrValidation.
+			WithField("owner_id", "目标用户已被停用，不能成为工作组所有者")
+	}
+
+	updated, err := s.repo.TransferOwnership(ctx, TransferOwnershipParams{
+		GroupID:         current.ID,
+		NewOwnerID:      target,
+		PreviousOwnerID: current.OwnerID,
+		ExpectedUpdated: in.ExpectedUpdated,
+	})
+	if err != nil {
+		return GroupRecord{}, err
+	}
+
+	s.logger.Info("工作组所有权已转移",
+		slog.String("group_id", updated.ID),
+		slog.String("previous_owner_id", current.OwnerID),
+		slog.String("new_owner_id", target),
 		slog.String("actor_id", in.ActorID),
 	)
 	return updated, nil
@@ -286,9 +370,6 @@ func (s *Service) ListMembers(ctx context.Context, in MemberListInput) (Page[Mem
 		return Page[MemberRecord]{}, err
 	}
 	orderClause := MemberSort.OrderBy(order)
-	if err != nil {
-		return Page[MemberRecord]{}, err
-	}
 
 	filter := MemberFilter{GroupID: in.GroupID, Role: in.Role, Status: in.Status}
 
@@ -545,9 +626,6 @@ func (s *Service) ListJoinRequests(ctx context.Context, actor domain.User, in Jo
 		return Page[JoinRequestRecord]{}, err
 	}
 	orderClause := JoinRequestSort.OrderBy(order)
-	if err != nil {
-		return Page[JoinRequestRecord]{}, err
-	}
 
 	total, err := s.repo.CountJoinRequests(ctx, group.ID, in.Status)
 	if err != nil {
@@ -623,25 +701,25 @@ func (s *Service) reopenJoinRequest(ctx context.Context, groupID, userID string)
 	return reopened, nil
 }
 
-// requireAccess 要求 actor 是该组的活跃成员或所有者，返回组记录。
+// requireAccess 要求 actor 是该组的活跃成员、所有者，或系统管理员，返回组记录。
 func (s *Service) requireAccess(ctx context.Context, groupID, actorID string) (GroupRecord, error) {
 	record, err := s.repo.FindGroupForUser(ctx, groupID, actorID)
 	if err != nil {
 		return GroupRecord{}, err
 	}
-	if record.OwnerID != actorID && !isActiveMember(record.Membership) {
+	if !domain.CanViewGroup(record.ToDomain(), actorOf(record, actorID), membershipOf(record)) {
 		return GroupRecord{}, notFound()
 	}
 	return record, nil
 }
 
-// requireManage 要求 actor 具备成员管理权限，返回组记录。
+// requireManage 要求 actor 具备成员管理权限（所有者、组管理员或系统管理员），返回组记录。
 func (s *Service) requireManage(ctx context.Context, groupID, actorID string) (GroupRecord, error) {
 	record, err := s.repo.FindGroupForUser(ctx, groupID, actorID)
 	if err != nil {
 		return GroupRecord{}, err
 	}
-	if !domain.CanManageGroupMembers(record.ToDomain(), membershipOf(record), actorID) {
+	if !domain.CanManageGroupMembers(record.ToDomain(), actorOf(record, actorID), membershipOf(record)) {
 		return GroupRecord{}, notFound()
 	}
 	return record, nil
@@ -653,10 +731,23 @@ func (s *Service) requireReviewer(ctx context.Context, actor domain.User, groupI
 	if err != nil {
 		return GroupRecord{}, err
 	}
+	// 这里直接用调用方传入的 actor：它来自会话解析，已经带有真实的 SystemRole。
 	if !domain.CanUpdateGroup(record.ToDomain(), actor, membershipOf(record)) {
 		return GroupRecord{}, notFound()
 	}
 	return record, nil
+}
+
+// actorOf 由记录中的系统角色重建领域用户。
+//
+// 存在的理由：本模块的权限入口大多只拿得到 actorID，而"系统管理员放行"
+// 需要知道调用者的系统角色。查询时已把它一并取出（record.ActorSystemRole），
+// 因此这里不需要额外查库。
+//
+// 必须走这一处，不要在别处写 domain.User{ID: actorID}——那样 SystemRole 恒为空，
+// 管理员放行会静默失效（这正是引入本函数前的实际缺陷）。
+func actorOf(record GroupRecord, actorID string) domain.User {
+	return domain.User{ID: actorID, SystemRole: record.ActorSystemRole}
 }
 
 // notFound 返回统一的"工作组不存在或不可见"错误。
@@ -704,7 +795,7 @@ func contains(allowed ...string) func(string) bool {
 }
 
 // resolveMemberAction 把角色/状态的变更翻译为领域动作。
-func resolveMemberAction(target domain.GroupMember, role, status *string) (string, error) {
+func resolveMemberAction(_ domain.GroupMember, role, status *string) (string, error) {
 	if role != nil {
 		switch *role {
 		case domain.MemberRoleManager:

@@ -37,6 +37,14 @@ type GroupRecord struct {
 
 	// Membership 是当前请求用户在**本组**的成员关系；nil 表示不是成员。
 	Membership *MemberRecord
+
+	// ActorSystemRole 是当前请求用户的系统角色（member / admin）。
+	//
+	// 随查询一并取出，而不是让用例层再查一次用户：权限判定需要它
+	// （domain 的组权限函数对系统管理员放行），而用例层手上只有 actorID。
+	// 早期实现各处只传 domain.User{ID: actorID}，角色恒为空，
+	// 于是"管理员放行"写了却从未生效。
+	ActorSystemRole string
 }
 
 // ToDomain 转换为领域实体。
@@ -154,7 +162,7 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 func (r *Repository) Pool() *pgxpool.Pool { return r.pool }
 
 // db 返回用于自动提交模式的执行器。
-func (r *Repository) db() apperr.Querier { return r.pool }
+// func (r *Repository) db() apperr.Querier { return r.pool }
 
 // CreateGroupInTx 在一个事务内创建工作组的**全部初始状态**。
 //
@@ -216,9 +224,11 @@ func (r *Repository) CreateGroupInTx(ctx context.Context, params CreateGroupPara
 func (r *Repository) FindGroupForUser(ctx context.Context, groupID, userID string) (GroupRecord, error) {
 	const query = `
 		SELECT ` + groupColumns + `,
-		       m.id, m.group_id, m.user_id, m.role, m.status, m.joined_at
+		       m.id, m.group_id, m.user_id, m.role, m.status, m.joined_at,
+		       COALESCE(actor.system_role, '')
 		  FROM groups g
 		  LEFT JOIN group_members m ON m.group_id = g.id AND m.user_id = $2
+		  LEFT JOIN users actor ON actor.id = $2
 		 WHERE g.id = $1`
 
 	var record GroupRecord
@@ -229,6 +239,7 @@ func (r *Repository) FindGroupForUser(ctx context.Context, groupID, userID strin
 		&record.ID, &record.Name, &record.Description, &record.Status,
 		&record.OwnerID, &record.CreatedAt, &record.UpdatedAt,
 		&memberID, &memberGroupID, &memberUserID, &memberRole, &memberStatus, &memberJoinedAt,
+		&record.ActorSystemRole,
 	)
 	if err != nil {
 		if apperr.IsNoRows(err) {
@@ -250,13 +261,30 @@ func (r *Repository) FindGroupForUser(ctx context.Context, groupID, userID strin
 	return record, nil
 }
 
+// groupScopeJoin / groupScopeCondition 定义"当前用户可见的工作组"。
+//
+// 两种来源：我是该组的成员（**含已被移除的成员关系**，与引入管理员放行前的行为一致
+// ——前端需要展示"已停用/已被移除"的状态）；以及**系统管理员**可以查看全部工作组
+// （需求文档 4.1：管理所有用户、工作组和系统级数据、处理异常数据）。
+//
+// 为什么必须是 LEFT JOIN + 显式条件，而不是原来的 INNER JOIN：
+// 管理员通常不是组员，INNER JOIN 会让列表对他恒为空——那样"管理员能处理异常数据"
+// 就只是文档里的一句话，而不是可用的能力。
+//
+// 计数与列表**共用**这两个常量，避免二者筛选条件漂移
+// （第二阶段实测过 total 与实际条目数不一致的缺陷）。
+const groupScopeJoin = `
+		  LEFT JOIN group_members m ON m.group_id = g.id AND m.user_id = $1
+		  LEFT JOIN users actor ON actor.id = $1`
+
+const groupScopeCondition = `( m.user_id IS NOT NULL OR actor.system_role = 'admin' )`
+
 // CountGroups 统计符合条件的当前用户所属工作组数量。
 func (r *Repository) CountGroups(ctx context.Context, filter ListFilter) (int, error) {
 	query := `
 		SELECT count(*)
-		  FROM groups g
-		  JOIN group_members m ON m.group_id = g.id AND m.user_id = $1
-		 WHERE 1 = 1`
+		  FROM groups g` + groupScopeJoin + `
+		 WHERE ` + groupScopeCondition
 	args := []any{filter.UserID}
 
 	if filter.Status != nil {
@@ -277,10 +305,10 @@ func (r *Repository) CountGroups(ctx context.Context, filter ListFilter) (int, e
 func (r *Repository) ListGroups(ctx context.Context, filter ListFilter, orderBy string, limit, offset int) ([]GroupRecord, error) {
 	query := `
 		SELECT ` + groupColumns + `,
-		       m.id, m.group_id, m.user_id, m.role, m.status, m.joined_at
-		  FROM groups g
-		  JOIN group_members m ON m.group_id = g.id AND m.user_id = $1
-		 WHERE 1 = 1`
+		       m.id, m.group_id, m.user_id, m.role, m.status, m.joined_at,
+		       COALESCE(actor.system_role, '')
+		  FROM groups g` + groupScopeJoin + `
+		 WHERE ` + groupScopeCondition
 	args := []any{filter.UserID}
 
 	if filter.Status != nil {
@@ -301,21 +329,109 @@ func (r *Repository) ListGroups(ctx context.Context, filter ListFilter, orderBy 
 	for rows.Next() {
 		var record GroupRecord
 		var member MemberRecord
+		var memberID, memberGroupID, memberUserID, memberRole, memberStatus *string
+		var memberJoinedAt *time.Time
 		if err := rows.Scan(
 			&record.ID, &record.Name, &record.Description, &record.Status,
 			&record.OwnerID, &record.CreatedAt, &record.UpdatedAt,
-			&member.ID, &member.GroupID, &member.UserID, &member.Role,
-			&member.Status, &member.JoinedAt,
+			&memberID, &memberGroupID, &memberUserID, &memberRole,
+			&memberStatus, &memberJoinedAt,
+			&record.ActorSystemRole,
 		); err != nil {
 			return nil, fmt.Errorf("读取工作组行失败: %w", err)
 		}
-		record.Membership = &member
+		// 管理员可能不是组员，因此成员关系是可空的。
+		if memberID != nil && memberUserID != nil && memberRole != nil && memberStatus != nil {
+			member.ID = *memberID
+			member.GroupID = derefString(memberGroupID)
+			member.UserID = *memberUserID
+			member.Role = *memberRole
+			member.Status = *memberStatus
+			member.JoinedAt = derefTime(memberJoinedAt)
+			record.Membership = &member
+		}
 		records = append(records, record)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("遍历工作组列表失败: %w", err)
 	}
 	return records, nil
+}
+
+// TransferOwnershipParams 是转移工作组所有权所需的字段。
+type TransferOwnershipParams struct {
+	GroupID         string
+	NewOwnerID      string
+	PreviousOwnerID string
+	ExpectedUpdated time.Time
+}
+
+// TransferOwnership 在同一事务内转移工作组所有权。
+//
+// 写两处，因为它们是同一事实的两种表示（docs/02 §3.2.1）：
+//  1. groups.owner_id —— 权威来源；
+//  2. group_members(new_owner) 的 role='manager' + status='active' —— 权限判定的投影。
+//     所有者必须是组管理员，否则"所有者"会看不到自己也管不了组。
+//
+// 原所有者保留成员身份，但**降为普通成员**：所有权转移意味着交出管理权，
+// 与项目/任务的持有者转移保持一致。新所有者之后可以再把他设为 manager
+// （那是一次显式的、可审计的操作）。
+//
+// 版本条件放在 groups 的 CAS 上：与其它写路径一致，避免"先读后写"。
+func (r *Repository) TransferOwnership(
+	ctx context.Context, params TransferOwnershipParams,
+) (GroupRecord, error) {
+	var updated GroupRecord
+
+	err := apperr.InTx(ctx, r.pool, func(ctx context.Context, tx apperr.Querier) error {
+		const updateOwner = `
+			UPDATE groups
+			   SET owner_id = $3, updated_at = now()
+			 WHERE id = $1 AND updated_at = $2
+			RETURNING ` + groupReturningColumns
+
+		err := tx.QueryRow(ctx, updateOwner,
+			params.GroupID, params.ExpectedUpdated, params.NewOwnerID,
+		).Scan(
+			&updated.ID, &updated.Name, &updated.Description, &updated.Status,
+			&updated.OwnerID, &updated.CreatedAt, &updated.UpdatedAt,
+		)
+		if err != nil {
+			if apperr.IsNoRows(err) {
+				return r.distinguishMissing(ctx, params.GroupID)
+			}
+			return apperr.Translate(err, constraintMap)
+		}
+
+		// 目标成为组管理员（成员行已由用例层确认为活跃成员）。
+		const promote = `
+			UPDATE group_members
+			   SET role = 'manager', status = 'active', updated_at = now()
+			 WHERE group_id = $1 AND user_id = $2`
+		if _, err := tx.Exec(ctx, promote, params.GroupID, params.NewOwnerID); err != nil {
+			return apperr.Translate(err, constraintMap)
+		}
+
+		// 原所有者降为普通成员：所有权转移就是交出管理权。
+		const demote = `
+			UPDATE group_members
+			   SET role = 'member', updated_at = now()
+			 WHERE group_id = $1 AND user_id = $2 AND role = 'manager'`
+		if _, err := tx.Exec(ctx, demote, params.GroupID, params.PreviousOwnerID); err != nil {
+			return apperr.Translate(err, constraintMap)
+		}
+		return nil
+	})
+	if err != nil {
+		return GroupRecord{}, err
+	}
+
+	// 回读一次，把新所有者在该组的成员关系一并带上，保证响应与查询路径同形。
+	record, err := r.FindGroupForUser(ctx, updated.ID, params.NewOwnerID)
+	if err != nil {
+		return GroupRecord{}, err
+	}
+	return record, nil
 }
 
 // UpdateGroup 以原子 CAS 更新工作组并回读最新 updated_at。

@@ -227,14 +227,23 @@ func (m ProjectMember) IsOwner() bool { return m.Role == MemberRoleOwner }
 //   - "组内可见"不等于"可编辑"；
 //   - 项目共享级别本身不授予修改项目（含共享权限）的能力。
 //
-// 参数：
-//   - member：actor 在项目中的成员关系，nil 表示不是项目成员；
-//   - groupMembership：actor 在项目归属组中的成员关系，nil 表示不是组员；
-//   - group：项目归属组，用于判断组是否可用。
+// 需求文档 4.1：系统管理员"管理所有用户、工作组和系统级数据，处理异常数据"。
+// 因此**系统管理员对所有项目都有管理权限**，且不要求他是项目成员或组员。
+// 该放行必须放在最前面：管理员是异常情况下的兜底手段
+// （例如项目持有者已离职/被停用），若先被成员或组状态挡掉，这个兜底就失效了。
 //
-// 注意：系统管理员的越权处理不放在这里，由用例层显式判断，
-// 避免"领域规则里藏一个全局后门"。
+// 放行的**边界**（同样重要）：
+//   - 只豁免"权限判定"，不豁免状态规则与不变式。归档项目对管理员同样是只读的
+//     （见 TaskPermission 与 Project.IsReadOnly），唯一持有者/唯一管理员等不变式
+//     对管理员一样生效。
+//   - 由用例层传入的 actor 必须携带真实的 SystemRole。早期实现各处传
+//     domain.User{ID: actorID}，角色恒为空，于是"管理员放行"写了却没生效——
+//     本仓库把这称为同一类缺陷，见 docs/06-迁移进度与验证.md 5.12。
 func ProjectPermission(project Project, actor User, member *ProjectMember, group Group, groupMembership *GroupMember) Permission {
+	if actor.IsAdmin() {
+		return PermManage
+	}
+
 	// 项目成员：持有者可管理，普通成员可写。
 	if member != nil {
 		if member.IsOwner() {
@@ -264,6 +273,10 @@ func ProjectPermission(project Project, actor User, member *ProjectMember, group
 // 需求文档 4.2 第 4 条：项目创建者默认为项目持有者，并拥有项目管理权限。
 // 需求文档 4.3：组内可编辑允许修改共享任务，但**不能**修改项目共享权限。
 func CanManageProject(project Project, actor User, member *ProjectMember) bool {
+	// 需求文档 4.1：系统管理员管理所有项目（处理异常数据），不要求是成员。
+	if actor.IsAdmin() {
+		return true
+	}
 	return member != nil && member.IsOwner()
 }
 

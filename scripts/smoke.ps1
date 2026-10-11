@@ -828,6 +828,41 @@ $ownersAfterFailure = Invoke-Api -Method POST -Path "/api/v1/projects/$transferP
 }
 Assert-Equal $ownersAfterFailure.Body.pagination.total 1 '失败的转移必须整体回滚（仍恰好一个持有者）'
 
+# 系统管理员是所有权转移的兜底：他通常不是成员，但必须能看到并接管。
+$session = New-Object Microsoft.PowerShell.Commands.WebRequestSession
+$null = Invoke-Api -Method POST -Path '/api/v1/auth/login' -Body @{
+    identifier = $AdminUsername
+    password   = $AdminPassword
+}
+
+$adminProject = Invoke-Api -Method GET -Path "/api/v1/projects/$transferProjectId"
+Assert-Equal $adminProject.Status 200 '管理员可读自己不是成员的项目'
+$adminGroup = Invoke-Api -Method GET -Path "/api/v1/groups/$groupId"
+Assert-Equal $adminGroup.Status 200 '管理员可读自己不是成员的工作组'
+
+# 管理员把项目持有者转回原用户（当前持有者是第二个用户）。
+$adminTransfer = Invoke-Api -Method PATCH -Path "/api/v1/projects/$transferProjectId/members/$userId" -Body @{
+    role = 'owner'
+}
+Assert-Equal $adminTransfer.Status 200 '管理员可转移项目持有者'
+
+# 工作组所有权转移：owner_id 是工作组自身的属性，走 PATCH /groups/{id}。
+$adminGroupDetail = Invoke-Api -Method GET -Path "/api/v1/groups/$groupId"
+$groupTransfer = Invoke-Api -Method PATCH -Path "/api/v1/groups/$groupId" -Body @{
+    owner_id            = $secondUserId
+    expected_updated_at = $adminGroupDetail.Body.data.updated_at
+}
+Assert-Equal $groupTransfer.Status 200 '管理员可转移工作组所有权'
+Assert-Equal $groupTransfer.Body.data.owner_id $secondUserId 'owner_id 已更新'
+
+# 原所有者已降为普通成员，不再能管理成员。
+# 必须用**原所有者自己的会话**：管理员在权限上是放行的，用它只会撞到"已是成员"的 409。
+$session = $primarySession
+$exOwnerManage = Invoke-Api -Method POST -Path "/api/v1/groups/$groupId/members" -Body @{
+    user_id = $userId
+}
+Assert-Equal $exOwnerManage.Status 404 '转移后原所有者失去组管理权'
+
 $session = $primarySession
 
 # ---------------------------------------------------------------------------
