@@ -1,0 +1,28 @@
+# 统一行尾与文本处理，避免 Windows/macOS/Linux 之间出现"整文件改动"的噪声 diff。
+#
+# Go 源码、SQL 迁移、配置文件与脚本一律使用 LF：
+#   - SQL 迁移必须保持字节稳定，否则 down/up 的校验会受影响；
+#   - 脚本在容器或类 Unix 环境执行时不应带 CR。
+
+* text=auto eol=lf
+
+# 显式声明文本类型（避免被当作二进制）
+*.go        text eol=lf
+*.sql       text eol=lf
+*.md        text eol=lf
+*.toml      text eol=lf
+*.yml       text eol=lf
+*.yaml      text eol=lf
+*.json      text eol=lf
+*.mod       text eol=lf
+*.sum       text eol=lf
+*.ps1       text eol=lf
+Makefile    text eol=lf
+.env.example text eol=lf
+.gitignore  text eol=lf
+
+# 二进制产物不做转换
+*.exe       binary
+*.png       binary
+*.jpg       binary
+*.pdf       binary
