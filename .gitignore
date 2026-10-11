@@ -27,3 +27,7 @@ coverage.html
 .vscode/
 .DS_Store
 Thumbs.db
+
+# 提交信息临时文件
+.commitmsg
+.git-commit-msg.tmp
