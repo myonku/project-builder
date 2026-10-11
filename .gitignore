@@ -1,0 +1,29 @@
+# 敏感配置：绝不进入版本库（见 docs/03-配置与运行.md）
+.env
+.env.local
+*.local.toml
+
+# 构建产物
+/bin/
+/dist/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# 运行期数据（附件、测试上传）
+/data/
+/var/
+*.test
+*.out
+
+# 覆盖率
+coverage.out
+coverage.html
+
+# 编辑器与操作系统
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

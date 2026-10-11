@@ -1,0 +1,65 @@
+# 集成测试与本地联调配置
+#
+# 与 config.toml 的差异只在于指向测试依赖的端口与凭据。
+# 用法：
+#   $env:APP_CONFIG_FILE = "docker/config.test.toml"
+#   go run ./cmd/api
+
+API_VERSION = "1"
+
+[server]
+host = "127.0.0.1"
+port = 8001
+read_timeout_seconds = 15
+write_timeout_seconds = 30
+shutdown_timeout_seconds = 10
+cors_allowed_origins = ["http://127.0.0.1:5173", "http://localhost:5173"]
+
+[database]
+host = "127.0.0.1"
+port = 15432
+name = "project_builder_test"
+user = "project_builder_test"
+password = "project_builder_test_password"
+ssl_mode = "disable"
+max_conns = 10
+min_conns = 1
+max_conn_lifetime_seconds = 1800
+connect_timeout_seconds = 10
+
+[redis]
+enabled = true
+host = "127.0.0.1"
+port = 16379
+db = 0
+password = "project_builder_test_redis_password"
+dial_timeout_seconds = 5
+
+[mail]
+# 指向 Mailpit，便于后续 Reminders 阶段直接观察邮件而不真的外发。
+enabled = true
+host = "127.0.0.1"
+port = 11025
+username = ""
+password = ""
+from_address = "project-builder@test.local"
+from_name = "项目计划管理系统（测试）"
+use_tls = false
+
+[storage]
+backend = "local"
+local_root = "./var/test-uploads"
+max_file_size = 10485760
+
+[security]
+session_secret = "project-builder-test-session-secret-value"
+session_ttl_seconds = 28800
+password_min_length = 8
+secure_cookies = false
+session_cookie_name = "pb_session"
+
+[scheduler]
+enabled = false
+interval_seconds = 60
+reminder_batch_size = 100
+max_retries = 3

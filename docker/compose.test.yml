@@ -1,0 +1,67 @@
+# 集成测试依赖：PostgreSQL 16 / Redis 7 / Mailpit
+#
+# 本文件与 Python 版本 backend/docker/compose.test.yml 保持一致的端口与凭据，
+# 便于两个版本共用同一套已运行的测试依赖，也便于对照验证。
+#
+# 用法：
+#   docker compose --env-file docker/test.env -f docker/compose.test.yml up -d
+#   docker compose --env-file docker/test.env -f docker/compose.test.yml down
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-project_builder_test}
+      POSTGRES_USER: ${POSTGRES_USER:-project_builder_test}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-project_builder_test_password}
+      # 迁移与集成测试需要稳定的排序与错误信息语言。
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --lc-collate=C --lc-ctype=C"
+    ports:
+      - "${POSTGRES_PORT:-15432}:5432"
+    volumes:
+      - project_builder_go_test_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - project_builder_test
+
+  redis:
+    image: redis:7-alpine
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --requirepass
+      - ${REDIS_PASSWORD:-project_builder_test_redis_password}
+    ports:
+      - "${REDIS_PORT:-16379}:6379"
+    volumes:
+      - project_builder_go_test_redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-project_builder_test_redis_password}", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - project_builder_test
+
+  # Mailpit 供后续 Reminders 阶段的邮件集成测试使用；
+  # 当前阶段不发送邮件，但保持依赖栈完整，避免阶段切换时改基础设施。
+  mailpit:
+    image: axllent/mailpit:v1.27.8
+    ports:
+      - "${MAIL_SMTP_PORT:-11025}:1025"
+      - "${MAIL_WEB_PORT:-18025}:8025"
+    networks:
+      - project_builder_test
+
+volumes:
+  project_builder_go_test_postgres:
+  project_builder_go_test_redis:
+
+networks:
+  project_builder_test:
+    driver: bridge
