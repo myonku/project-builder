@@ -429,8 +429,9 @@ func NewHarness(t *testing.T) *Harness {
 	// usersService 兼作 projects 的时区来源：与 cmd/api 的装配保持一致，
 	// 否则测试验证的就不是生产行为（见 testsupport/adapter.go 的同类说明）。
 	usersService := users.NewService(users.Options{
-		Store:  users.NewRepository(pool),
-		Logger: logger,
+		Store:    users.NewRepository(pool),
+		Accounts: authService,
+		Logger:   logger,
 	})
 	projectsService := projects.NewService(projects.Options{
 		Store:     projects.NewRepository(pool),

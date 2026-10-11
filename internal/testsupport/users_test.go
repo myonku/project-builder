@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 )
@@ -781,6 +782,278 @@ func TestInvalidTimezoneDoesNotBreakReadPaths(t *testing.T) {
 
 	actor.Client.Get(URL("/projects/"+projectID)).RequireStatus(t, 200)
 	actor.Client.Get(URL("/users/"+actor.UserID)).RequireStatus(t, 200)
+}
+
+// ---------------------------------------------------------------------------
+// 管理员端点：创建用户 / 用户列表 / 重置密码
+// ---------------------------------------------------------------------------
+
+// createUserBody 是管理员创建用户的请求体。
+func createUserBody(username string) map[string]any {
+	return map[string]any{
+		"username":     username,
+		"email":        username + "@example.com",
+		"display_name": username,
+		"password":     SharedPassword,
+		"timezone":     "Asia/Shanghai",
+	}
+}
+
+// TestAdminCreateUserEqualsSelfRegistration 覆盖"管理员代建账号"。
+//
+// 关键点是它必须与自助注册**行为一致**：固定 active/member/reminder_enabled，
+// 不自动登录、不设置会话 Cookie、不泄漏任何凭据，且字段校验与唯一性检查同一套。
+func TestAdminCreateUserEqualsSelfRegistration(t *testing.T) {
+	harness := NewHarness(t)
+
+	admin := harness.RegisterAndLogin(t, "admin_create")
+	promoteToAdmin(t, harness, admin.UserID)
+	plain := harness.RegisterAndLogin(t, "plain_create")
+
+	// 非管理员不能创建账号。
+	plain.Client.Post(URL("/users"), createUserBody("forbidden_create")).
+		RequireStatus(t, 403).RequireCode(t, "permission_denied")
+
+	// 管理员创建成功。
+	created := admin.Client.Post(URL("/users"), createUserBody("created_by_admin"))
+	created.RequireStatus(t, 201)
+
+	data := created.Data(t)
+	if got := Str(data, "status"); got != "active" {
+		t.Errorf("status = %q，期望 active", got)
+	}
+	if got := Str(data, "system_role"); got != "member" {
+		t.Errorf("system_role = %q，期望 member（管理员不能借创建直接造出第二个管理员）", got)
+	}
+	if got, ok := data["reminder_enabled"].(bool); !ok || !got {
+		t.Errorf("reminder_enabled = %v，期望 true", data["reminder_enabled"])
+	}
+	if got := Str(data, "timezone"); got != "Asia/Shanghai" {
+		t.Errorf("timezone = %q，期望 Asia/Shanghai", got)
+	}
+	// 响应必须是公开用户结构，不含任何凭据。
+	if containsAnySecret(string(created.Body)) {
+		t.Fatalf("创建用户响应疑似包含凭据字段: %s", string(created.Body))
+	}
+	// 契约 4.2：注册不自动登录。管理员代建同样不得设置会话 Cookie。
+	for _, cookie := range created.Recorder.Result().Cookies() {
+		if cookie.Name == harness.Config.Security.SessionCookieName && cookie.Value != "" {
+			t.Fatalf("代建账号不应设置会话 Cookie，实际设置了 %q", cookie.Name)
+		}
+	}
+
+	// 被创建的账号能用给定密码登录：证明了归一化与摘要写入都真实生效。
+	login := harness.Client(t).Post(URL("/auth/login"), map[string]any{
+		"identifier": "created_by_admin", "password": SharedPassword,
+	})
+	login.RequireStatus(t, 200)
+	if got := Str(login.Data(t), "id"); got != Str(data, "id") {
+		t.Errorf("登录返回的用户 id = %q，期望 %q", got, Str(data, "id"))
+	}
+
+	// 唯一性由数据库唯一索引兜底，且必须是 409 + 字段明细。
+	admin.Client.Post(URL("/users"), createUserBody("created_by_admin")).
+		RequireStatus(t, 409).RequireCode(t, "conflict").RequireField(t, "username")
+
+	duplicateEmail := createUserBody("another_admin_created")
+	duplicateEmail["email"] = "CREATED_BY_ADMIN@example.com"
+	admin.Client.Post(URL("/users"), duplicateEmail).
+		RequireStatus(t, 409).RequireCode(t, "conflict").RequireField(t, "email")
+
+	// 字段校验与注册共用同一套规则。
+	weak := createUserBody("weak_password_user")
+	weak["password"] = "short"
+	admin.Client.Post(URL("/users"), weak).
+		RequireStatus(t, 422).RequireCode(t, "validation_error").RequireField(t, "password")
+
+	// 未知字段（system_role 不在创建字段集合内）必须被拒绝，而不是被静默忽略。
+	escalate := createUserBody("escalate_admin")
+	escalate["system_role"] = "admin"
+	admin.Client.Post(URL("/users"), escalate).
+		RequireStatus(t, 422).RequireCode(t, "validation_error").RequireField(t, "system_role")
+}
+
+// TestUserListRequiresAdminAndHonoursIncludeDisabled 覆盖用户列表端点。
+func TestUserListRequiresAdminAndHonoursIncludeDisabled(t *testing.T) {
+	harness := NewHarness(t)
+
+	admin := harness.RegisterAndLogin(t, "admin_list")
+	promoteToAdmin(t, harness, admin.UserID)
+	plain := harness.RegisterAndLogin(t, "plain_list")
+	victim := harness.RegisterAndLogin(t, "victim_list")
+
+	// 非管理员：403。普通成员能看到的应当是成员列表，而不是全系统账号清单。
+	plain.Client.Post(URL("/users/query"), map[string]any{}).
+		RequireStatus(t, 403).RequireCode(t, "permission_denied")
+
+	// 默认排除停用账号。
+	beforeDisable := admin.Client.Post(URL("/users/query"),
+		map[string]any{"page": 1, "page_size": 100}).RequireStatus(t, 200)
+	baseline := beforeDisable.Pagination(t)["total"].(float64)
+	if int(baseline) < 3 {
+		t.Fatalf("列表 total = %v，期望至少包含 3 个已注册用户", baseline)
+	}
+	if len(beforeDisable.ListData(t)) != int(baseline) {
+		t.Fatalf("列表条目数 %d 与 total %v 不符（计数与列表必须复用同一套筛选）",
+			len(beforeDisable.ListData(t)), baseline)
+	}
+
+	// 停用一个账号。
+	current := admin.Client.Get(URL("/users/"+victim.UserID)).RequireStatus(t, 200)
+	admin.Client.Post(URL("/users/"+victim.UserID+"/disable"),
+		map[string]any{"expected_updated_at": Str(current.Data(t), "updated_at")}).
+		RequireStatus(t, 200)
+
+	// 停用后默认列表里查不到它。
+	hidden := admin.Client.Post(URL("/users/query"),
+		map[string]any{"page": 1, "page_size": 100}).RequireStatus(t, 200)
+	if containsUser(hidden.ListData(t), victim.UserID) {
+		t.Error("默认列表不应包含已停用账号")
+	}
+	// 默认口径的 total 也必须是"启用中账号数"，并与它返回的条目数一致。
+	hiddenTotal := hidden.Pagination(t)["total"].(float64)
+	if int(hiddenTotal) != int(baseline)-1 {
+		t.Errorf("停用 1 个账号后默认 total = %v，期望 %d", hiddenTotal, int(baseline)-1)
+	}
+	if len(hidden.ListData(t)) != int(hiddenTotal) {
+		t.Errorf("默认列表条目数 %d 与 total %v 不符", len(hidden.ListData(t)), hiddenTotal)
+	}
+
+	// 显式 include_disabled=true 时必须能查到：停用是数据保留，不是删除。
+	shown := admin.Client.Post(URL("/users/query"),
+		map[string]any{"include_disabled": true, "page": 1, "page_size": 100}).RequireStatus(t, 200)
+	if !containsUser(shown.ListData(t), victim.UserID) {
+		t.Error("include_disabled=true 时列表必须包含已停用账号")
+	}
+	shownTotal := shown.Pagination(t)["total"].(float64)
+	if int(shownTotal) != int(baseline) {
+		t.Errorf("include_disabled=true 的 total = %v，期望 %d（等于停用前的账号总数）",
+			shownTotal, int(baseline))
+	}
+	if len(shown.ListData(t)) != int(shownTotal) {
+		t.Errorf("include_disabled 列表条目数 %d 与 total %v 不符",
+			len(shown.ListData(t)), shownTotal)
+	}
+
+	// 排序白名单：未知字段 400，合法字段按方向生效。
+	admin.Client.Post(URL("/users/query"), map[string]any{"sort": "nonsense"}).
+		RequireStatus(t, 400).RequireCode(t, "invalid_request")
+	admin.Client.Post(URL("/users/query"), map[string]any{"sort": "password_hash"}).
+		RequireStatus(t, 400).RequireCode(t, "invalid_request")
+	admin.Client.Post(URL("/users/query"), map[string]any{"page_size": 500}).
+		RequireStatus(t, 400).RequireCode(t, "invalid_request")
+
+	sorted := admin.Client.Post(URL("/users/query"),
+		map[string]any{"sort": "username", "page": 1, "page_size": 100}).RequireStatus(t, 200)
+	items := sorted.ListData(t)
+	for index := 1; index < len(items); index++ {
+		if Str(items[index-1], "username") > Str(items[index], "username") {
+			t.Fatalf("按 username 升序排列不正确：%q 出现在 %q 之前",
+				Str(items[index-1], "username"), Str(items[index], "username"))
+		}
+	}
+}
+
+// TestAdminResetPassword 覆盖重置密码端点。
+//
+// 同时把"重置不吊销既有会话"这一**已知限制**变成被测试的行为，
+// 而不是没人知道的意外：若日后加上会话吊销，这条断言会失败，
+// 从而强制同时更新文档（docs/06 7.4 第 1 项）。
+func TestAdminResetPassword(t *testing.T) {
+	harness := NewHarness(t)
+
+	admin := harness.RegisterAndLogin(t, "admin_reset")
+	promoteToAdmin(t, harness, admin.UserID)
+	plain := harness.RegisterAndLogin(t, "plain_reset")
+	victim := harness.RegisterAndLogin(t, "victim_reset")
+
+	path := URL("/users/" + victim.UserID + "/password")
+
+	// 非管理员：403（先判权限再查对象，因此这个端点不会泄漏账号是否存在）。
+	plain.Client.Post(path, map[string]any{
+		"new_password": "brand new password", "expected_updated_at": "2026-10-11T09:30:00Z",
+	}).RequireStatus(t, 403).RequireCode(t, "permission_denied")
+
+	plain.Client.Post(URL("/users/00000000-0000-7000-8000-000000000000/password"), map[string]any{
+		"new_password": "brand new password", "expected_updated_at": "2026-10-11T09:30:00Z",
+	}).RequireStatus(t, 403).RequireCode(t, "permission_denied")
+
+	// 目标不存在：404。
+	admin.Client.Post(URL("/users/00000000-0000-7000-8000-000000000000/password"), map[string]any{
+		"new_password": "brand new password", "expected_updated_at": "2026-10-11T09:30:00Z",
+	}).RequireStatus(t, 404).RequireCode(t, "user_not_found")
+
+	current := admin.Client.Get(URL("/users/"+victim.UserID)).RequireStatus(t, 200)
+	version := Str(current.Data(t), "updated_at")
+
+	// 密码强度与注册同一套规则。
+	admin.Client.Post(path, map[string]any{
+		"new_password": "short", "expected_updated_at": version,
+	}).RequireStatus(t, 422).RequireCode(t, "validation_error").RequireField(t, "new_password")
+
+	// 缺版本字段。
+	admin.Client.Post(path, map[string]any{"new_password": "brand new password"}).
+		RequireStatus(t, 422).RequireCode(t, "validation_error").
+		RequireField(t, "expected_updated_at")
+
+	// 过期版本：409。
+	admin.Client.Post(path, map[string]any{
+		"new_password": "brand new password", "expected_updated_at": "2020-01-01T00:00:00Z",
+	}).RequireStatus(t, 409).RequireCode(t, "version_conflict")
+
+	const newPassword = "brand new password"
+	reset := admin.Client.Post(path, map[string]any{
+		"new_password": newPassword, "expected_updated_at": version,
+	})
+	reset.RequireStatus(t, 200)
+
+	// 响应是公开用户结构：绝不回显明文密码或摘要。
+	if containsAnySecret(string(reset.Body)) || strings.Contains(string(reset.Body), newPassword) {
+		t.Fatalf("重置密码响应泄漏了凭据: %s", string(reset.Body))
+	}
+	if got := Str(reset.Data(t), "updated_at"); got == version {
+		t.Error("重置密码必须推进 updated_at")
+	}
+
+	// 新密码可用，旧密码失效。
+	victim.Client.Post(URL("/auth/logout"), nil).RequireStatus(t, 204)
+	harness.Client(t).Post(URL("/auth/login"), map[string]any{
+		"identifier": victim.Username, "password": SharedPassword,
+	}).RequireStatus(t, 401).RequireCode(t, "invalid_credentials")
+	harness.Client(t).Post(URL("/auth/login"), map[string]any{
+		"identifier": victim.Username, "password": newPassword,
+	}).RequireStatus(t, 200)
+
+	// **已知限制**：重置不吊销既有会话。
+	//
+	// 上面那次 logout 已撤销旧会话，因此这里重新建立一条会话再重置一次，
+	// 以证明"改动密码不会让已发出的会话失效"。
+	active := harness.RegisterAndLogin(t, "session_reset")
+	active.Client.Get(URL("/auth/me")).RequireStatus(t, 200)
+
+	activeCurrent := admin.Client.Get(URL("/users/"+active.UserID)).RequireStatus(t, 200)
+	admin.Client.Post(URL("/users/"+active.UserID+"/password"), map[string]any{
+		"new_password":        "another brand new password",
+		"expected_updated_at": Str(activeCurrent.Data(t), "updated_at"),
+	}).RequireStatus(t, 200)
+
+	active.Client.Get(URL("/auth/me")).RequireStatus(t, 200)
+	// 若需要立即踢下线，现行做法是先停用再启用（停用会让既有会话立即失效）。
+	disableVersion := Str(admin.Client.Get(URL("/users/"+active.UserID)).
+		RequireStatus(t, 200).Data(t), "updated_at")
+	admin.Client.Post(URL("/users/"+active.UserID+"/disable"),
+		map[string]any{"expected_updated_at": disableVersion}).RequireStatus(t, 200)
+	active.Client.Get(URL("/auth/me")).RequireStatus(t, 401)
+}
+
+// containsUser 报告列表中是否含指定用户的 id。
+func containsUser(items []map[string]any, userID string) bool {
+	for _, item := range items {
+		if Str(item, "id") == userID {
+			return true
+		}
+	}
+	return false
 }
 
 // containsAnySecret 粗粒度检查响应体是否出现密码相关字样。

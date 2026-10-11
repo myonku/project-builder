@@ -107,6 +107,67 @@ func (r *Repository) FindProfile(ctx context.Context, userID string) (ProfileRec
 	return record, nil
 }
 
+// ListFilter 是用户列表的筛选条件。
+type ListFilter struct {
+	// IncludeDisabled 为真时同时返回已停用账号。
+	//
+	// 默认排除停用账号，但它是**显式可查**的而不是被隐藏：停用是数据保留
+	// 而不是删除（需求文档 4.2 第 6 条），因此管理列表必须能查出来。
+	IncludeDisabled bool
+}
+
+// where 生成筛选条件，供计数与列表查询**共用**。
+//
+// 必须共用：第二阶段实测过"计数查询漏掉列表的筛选条件"，
+// 表现为 pagination.total 与实际条目数不符——接口看起来正常，翻页却会错。
+func (f ListFilter) where() string {
+	if f.IncludeDisabled {
+		return ""
+	}
+	return ` WHERE status = 'active'`
+}
+
+// CountProfiles 统计满足筛选条件的用户数。
+func (r *Repository) CountProfiles(ctx context.Context, filter ListFilter) (int, error) {
+	query := `SELECT count(*) FROM users` + filter.where()
+
+	var total int
+	if err := r.pool.QueryRow(ctx, query).Scan(&total); err != nil {
+		return 0, fmt.Errorf("统计用户数失败: %w", err)
+	}
+	return total, nil
+}
+
+// ListProfiles 分页查询用户资料。
+//
+// orderBy 由 listquery 的白名单生成，列名永不来自用户输入；
+// LIMIT/OFFSET 下推到 SQL，不全量载入内存后切片（契约 2.5）。
+func (r *Repository) ListProfiles(
+	ctx context.Context, filter ListFilter, orderBy string, limit, offset int,
+) ([]ProfileRecord, error) {
+	query := `SELECT ` + profileColumns + ` FROM users` + filter.where() +
+		` ORDER BY ` + orderBy + ` LIMIT $1 OFFSET $2`
+
+	rows, err := r.pool.Query(ctx, query, limit, offset)
+	if err != nil {
+		return nil, fmt.Errorf("查询用户列表失败: %w", err)
+	}
+	defer rows.Close()
+
+	var records []ProfileRecord
+	for rows.Next() {
+		record, err := scanProfile(rows)
+		if err != nil {
+			return nil, fmt.Errorf("读取用户列表失败: %w", err)
+		}
+		records = append(records, record)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("遍历用户列表失败: %w", err)
+	}
+	return records, nil
+}
+
 // SharesWorkspace 报告两个用户是否同属一个工作组或同一个项目。
 //
 // 这是接口契约 4.3 中"可见性"的数据库侧判定：

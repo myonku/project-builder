@@ -2,10 +2,12 @@ package users
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"time"
 
 	"github.com/myonku/project-builder/internal/domain"
+	"github.com/myonku/project-builder/internal/listquery"
 )
 
 // Store 是本模块对持久化的需求。定义在消费方，测试用替身实现。
@@ -13,18 +15,45 @@ type Store interface {
 	FindProfile(ctx context.Context, userID string) (ProfileRecord, error)
 	SharesWorkspace(ctx context.Context, viewerID, targetID string) (bool, error)
 	UpdateProfile(ctx context.Context, params UpdateProfileParams) (ProfileRecord, error)
+	ListProfiles(ctx context.Context, filter ListFilter, orderBy string, limit, offset int) ([]ProfileRecord, error)
+	CountProfiles(ctx context.Context, filter ListFilter) (int, error)
+}
+
+// Accounts 是本模块对**账号级操作**的需求，由 app/auth 的用例服务实现。
+//
+// 为什么委托而不是自己写：
+//
+//  1. 管理员代建账号必须与用户自助注册**完全一致**（字段归一化、密码强度、
+//     唯一性检查、约束冲突翻译）。复制一份实现迟早会分叉，而这几项都属于安全边界。
+//  2. password_hash 的写入逻辑集中在 auth，避免两个模块各自维护同一列的写语义。
+//
+// 版本校验仍由本模块的端点负责：它是一次"对用户资源的版本化写入"，
+// 因此通过参数传给 auth，而不是让 auth 去理解 HTTP 契约。
+type Accounts interface {
+	CreateAccount(ctx context.Context, in domain.RegistrationInput) (domain.User, error)
+	ResetPassword(ctx context.Context, userID, newPassword string, expectedUpdated time.Time) (domain.User, error)
+}
+
+// Page 是列表查询结果。必须同时返回真实总数（接口契约 2.3 的 pagination.total）。
+type Page[T any] struct {
+	Items []T
+	Total int
+	Page  listquery.Pagination
 }
 
 // Service 承载用户资料用例。
 type Service struct {
-	repo   Store
-	logger *slog.Logger
+	repo     Store
+	accounts Accounts
+	logger   *slog.Logger
 }
 
 // Options 是 Service 的构造参数。
 type Options struct {
-	Store  Store
-	Logger *slog.Logger
+	Store Store
+	// Accounts 提供账号创建与密码重置，由装配点注入 app/auth 的服务。
+	Accounts Accounts
+	Logger   *slog.Logger
 }
 
 // NewService 构造用户资料用例服务。
@@ -33,8 +62,131 @@ func NewService(opts Options) *Service {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Service{repo: opts.Store, logger: logger}
+	return &Service{repo: opts.Store, accounts: opts.Accounts, logger: logger}
 }
+
+// CreateInput 是"管理员代建账号"的用例输入，字段与自助注册一致。
+type CreateInput struct {
+	Registration domain.RegistrationInput
+}
+
+// Create 由系统管理员创建一个账号（接口契约 4.3 POST /users）。
+//
+// 委托给 auth 的注册用例，因此行为与自助注册逐条一致：不自动登录、
+// 不设置会话 Cookie、status 固定 active、system_role 固定 member、
+// reminder_enabled 固定 true。
+//
+// "管理员不能借创建直接造出第二个管理员"是刻意的：升角色必须走
+// PATCH /users/{id}，从而受"系统至少保留一个启用中管理员"的不变式约束，
+// 也留下一次可审计的显式变更。
+func (s *Service) Create(ctx context.Context, actor domain.User, in CreateInput) (ProfileRecord, error) {
+	if !domain.CanAdministerUsers(actor) {
+		return ProfileRecord{}, domain.ErrPermissionDenied
+	}
+	if s.accounts == nil {
+		// 装配遗漏属于编程错误：快速失败，而不是返回"创建成功但没有账号"。
+		return ProfileRecord{}, domain.ErrInternal.WithCause(errNoAccounts)
+	}
+
+	created, err := s.accounts.CreateAccount(ctx, in.Registration)
+	if err != nil {
+		return ProfileRecord{}, err
+	}
+
+	s.logger.Info("管理员创建了账号",
+		slog.String("actor_id", actor.ID),
+		slog.String("user_id", created.ID),
+		slog.String("username", created.Username),
+	)
+
+	// 注册用例返回的是领域实体，不含 created_at / updated_at / last_login_at。
+	// 回读一次以获得完整的对外表示；这是管理员端点，调用频率极低。
+	return s.repo.FindProfile(ctx, created.ID)
+}
+
+// ListInput 是用户列表的用例输入。
+type ListInput struct {
+	IncludeDisabled bool
+	Page            listquery.PageRequest
+	Sort            string
+}
+
+// List 返回用户列表（接口契约 4.3 POST /users/query）。
+//
+// 仅系统管理员可用：普通成员能看到的应当是成员列表，而不是全系统账号清单。
+func (s *Service) List(ctx context.Context, actor domain.User, in ListInput) (Page[ProfileRecord], error) {
+	if !domain.CanAdministerUsers(actor) {
+		return Page[ProfileRecord]{}, domain.ErrPermissionDenied
+	}
+
+	page, err := in.Page.Pagination()
+	if err != nil {
+		return Page[ProfileRecord]{}, err
+	}
+	order, err := UserSort.Resolve(in.Sort)
+	if err != nil {
+		return Page[ProfileRecord]{}, err
+	}
+
+	filter := ListFilter{IncludeDisabled: in.IncludeDisabled}
+
+	total, err := s.repo.CountProfiles(ctx, filter)
+	if err != nil {
+		return Page[ProfileRecord]{}, err
+	}
+	items, err := s.repo.ListProfiles(ctx, filter, UserSort.OrderBy(order), page.Limit(), page.Offset())
+	if err != nil {
+		return Page[ProfileRecord]{}, err
+	}
+	return Page[ProfileRecord]{Items: items, Total: total, Page: page}, nil
+}
+
+// ResetPasswordInput 是重置密码的用例输入。
+type ResetPasswordInput struct {
+	TargetID        string
+	NewPassword     string
+	ExpectedUpdated time.Time
+}
+
+// ResetPassword 由系统管理员重置指定用户的密码
+// （接口契约 4.3 POST /users/{user_id}/password）。
+//
+// 校验顺序：管理员权限（403）→ 目标存在性（404）→ auth 的密码强度与 CAS 写入
+// （422 / 409）。先判权限再查对象，因此非管理员无论目标是否存在都得到同一个 403，
+// 这个端点不会变成"用户是否存在"的探测接口。
+//
+// **已知限制**：本操作不使该用户已有的会话失效。原因与替代方案见
+// docs/06-迁移进度与验证.md 7.4 第 1 项。
+func (s *Service) ResetPassword(
+	ctx context.Context, actor domain.User, in ResetPasswordInput,
+) (ProfileRecord, error) {
+	if !domain.CanAdministerUsers(actor) {
+		return ProfileRecord{}, domain.ErrPermissionDenied
+	}
+	if s.accounts == nil {
+		return ProfileRecord{}, domain.ErrInternal.WithCause(errNoAccounts)
+	}
+
+	// 先确认目标存在，让 404 与版本冲突彻底分开。
+	if _, err := s.repo.FindProfile(ctx, in.TargetID); err != nil {
+		return ProfileRecord{}, err
+	}
+
+	if _, err := s.accounts.ResetPassword(ctx, in.TargetID, in.NewPassword, in.ExpectedUpdated); err != nil {
+		return ProfileRecord{}, err
+	}
+
+	// 只记录"哪个管理员重置了哪个用户的密码"，绝不记录密码本身或摘要。
+	s.logger.Info("用户密码已被管理员重置",
+		slog.String("actor_id", actor.ID),
+		slog.String("user_id", in.TargetID),
+	)
+
+	return s.repo.FindProfile(ctx, in.TargetID)
+}
+
+// errNoAccounts 表示装配遗漏。
+var errNoAccounts = errors.New("users: 未注入 Accounts（账号级操作）")
 
 // Detail 返回目标用户的资料（接口契约 4.3 GET /users/{user_id}）。
 func (s *Service) Detail(ctx context.Context, actor domain.User, targetID string) (ProfileRecord, error) {

@@ -21,6 +21,8 @@ const (
 	EmailMaxLength       = 320
 	DisplayNameMaxLength = 128
 	TimezoneMaxLength    = 64
+	// PasswordMaxLength 是密码的字符数上限（按 Unicode 码点计）。
+	PasswordMaxLength = 256
 )
 
 var (
@@ -96,13 +98,8 @@ func NormalizeRegistration(in RegistrationInput, passwordMinLength int) (Registr
 	}
 
 	// 密码不做 Trim：前后空格是合法密码字符。
-	switch {
-	case in.Password == "":
-		fields["password"] = "密码不能为空"
-	case passwordMinLength > 0 && len(in.Password) < passwordMinLength:
-		fields["password"] = "密码长度不符合最小长度要求"
-	case len([]rune(in.Password)) > 256:
-		fields["password"] = "密码不得超过 256 个字符"
+	if detail := validatePassword(in.Password, passwordMinLength); detail != "" {
+		fields["password"] = detail
 	}
 
 	switch {
@@ -143,6 +140,35 @@ func NormalizeLogin(in LoginInput) (LoginInput, map[string]string) {
 		return in, fields
 	}
 	return in, nil
+}
+
+// validatePassword 校验密码取值，返回错误说明；合法时返回空串。
+//
+// 注册与"管理员重置密码"必须共用同一处判断：两处规则一旦分叉，
+// 管理员就可能设出一个用户自助注册时不被接受的密码（或反之），
+// 而密码强度属于安全边界，不允许出现两套标准。
+func validatePassword(password string, minLength int) string {
+	switch {
+	case password == "":
+		return "密码不能为空"
+	case minLength > 0 && len(password) < minLength:
+		return "密码长度不符合最小长度要求"
+	case len([]rune(password)) > PasswordMaxLength:
+		return "密码不得超过 256 个字符"
+	}
+	return ""
+}
+
+// NormalizeNewPassword 校验管理员重置密码时提交的新密码。
+//
+// 规则与注册完全一致（**不做 Trim**：前后空格是合法密码字符），
+// 只是字段名使用 new_password，与重置端点的契约字段名对齐——
+// 若沿用 password，前端拿到的 fields 键会与请求体对不上。
+func NormalizeNewPassword(password string, minLength int) (string, map[string]string) {
+	if detail := validatePassword(password, minLength); detail != "" {
+		return password, map[string]string{"new_password": detail}
+	}
+	return password, nil
 }
 
 // LooksLikeEmail 判断 identifier 是否按邮箱处理，用于选择查询列。

@@ -8,6 +8,7 @@ import (
 
 	"github.com/myonku/project-builder/internal/domain"
 	"github.com/myonku/project-builder/internal/httpapi"
+	"github.com/myonku/project-builder/internal/listquery"
 	"github.com/myonku/project-builder/internal/platform/idgen"
 )
 
@@ -35,20 +36,57 @@ func NewHandler(service *Service, actors ActorLoader, logger *slog.Logger) *Hand
 func (h *Handler) Register(api *gin.RouterGroup) {
 	group := api.Group("/users")
 
+	// 用户列表用 POST .../query（契约 2.5：参数较多时避免与同一资源的创建
+	// POST 路由语义混淆）。/users 与 /users/query 是两个不同路径，互不冲突。
+	group.POST("", h.create)
+	group.POST("/query", h.list)
+
 	group.GET("/:user_id", h.detail)
 	group.PATCH("/:user_id", h.update)
 	group.POST("/:user_id/disable", h.disable)
+	group.POST("/:user_id/password", h.resetPassword)
 }
 
 // ---------------------------------------------------------------------------
 // 请求与响应结构
 // ---------------------------------------------------------------------------
 
+// createRequest 对应接口契约 4.3 POST /users（管理员创建用户）。
+//
+// 字段集合与 POST /auth/register **完全一致**：管理员代建账号与自助注册
+// 走同一套归一化、密码强度与唯一性检查，不允许出现两套标准。
+type createRequest struct {
+	Username    string  `json:"username" validate:"required"`
+	Email       string  `json:"email" validate:"required"`
+	DisplayName string  `json:"display_name" validate:"required"`
+	Password    string  `json:"password" validate:"required"`
+	Timezone    *string `json:"timezone"`
+}
+
+// listRequest 对应 POST /users/query。
+type listRequest struct {
+	// IncludeDisabled 控制是否把已停用账号一并返回。
+	// 默认 false：停用账号默认不出现在管理列表里，但它不是被隐藏——显式传 true 即可查到。
+	IncludeDisabled *bool `json:"include_disabled"`
+	listquery.PageRequest
+	listquery.SortRequest
+}
+
+// resetPasswordRequest 对应 POST /users/{user_id}/password。
+//
+// 字段名是 new_password 而不是 password：重置端点不接受旧密码，
+// 用 new_password 让"这是设置新密码"在请求体里就能读出来。
+type resetPasswordRequest struct {
+	NewPassword     string             `json:"new_password" validate:"required"`
+	ExpectedUpdated *httpapi.Timestamp `json:"expected_updated_at" validate:"required"`
+}
+
 // updateRequest 对应接口契约 4.3 PATCH /users/{user_id}。
 //
 // expected_updated_at 为**必填**：契约 2.6 要求更新核心对象必须提交版本。
 // 字段集合严格等于契约列出的 6 项：username 不可修改（它是登录标识与审计主体），
-// 密码不在本端点修改（契约未定义，见 docs/04 4.3 末段）。
+// 密码也不在这里修改——它有自己的端点 `POST /users/{user_id}/password`，
+// 因为"改密码"需要单独定义强度校验与凭据回显规则。
 type updateRequest struct {
 	DisplayName     *string            `json:"display_name"`
 	Email           *string            `json:"email"`
@@ -112,6 +150,114 @@ func newProfileResponse(record ProfileRecord) profileResponse {
 // ---------------------------------------------------------------------------
 // 处理器
 // ---------------------------------------------------------------------------
+
+// create 处理 POST /users（管理员创建用户）。
+func (h *Handler) create(c *gin.Context) {
+	actor, err := h.actor(c)
+	if err != nil {
+		httpapi.Abort(c, err)
+		return
+	}
+
+	var request createRequest
+	if err := httpapi.BindJSON(c, &request); err != nil {
+		httpapi.Abort(c, err)
+		return
+	}
+
+	timezone := ""
+	if request.Timezone != nil {
+		timezone = *request.Timezone
+	}
+
+	created, err := h.service.Create(c.Request.Context(), actor, CreateInput{
+		Registration: domain.RegistrationInput{
+			Username:    request.Username,
+			Email:       request.Email,
+			DisplayName: request.DisplayName,
+			Password:    request.Password,
+			Timezone:    timezone,
+		},
+	})
+	if err != nil {
+		httpapi.Abort(c, err)
+		return
+	}
+
+	// 与自助注册一致：返回 201 与公开用户结构，不设置会话 Cookie。
+	httpapi.RespondCreated(c, newProfileResponse(created))
+}
+
+// list 处理 POST /users/query。
+func (h *Handler) list(c *gin.Context) {
+	actor, err := h.actor(c)
+	if err != nil {
+		httpapi.Abort(c, err)
+		return
+	}
+
+	var request listRequest
+	if err := httpapi.BindJSON(c, &request); err != nil {
+		httpapi.Abort(c, err)
+		return
+	}
+
+	includeDisabled := false
+	if request.IncludeDisabled != nil {
+		includeDisabled = *request.IncludeDisabled
+	}
+
+	page, err := h.service.List(c.Request.Context(), actor, ListInput{
+		IncludeDisabled: includeDisabled,
+		Page:            request.PageRequest,
+		Sort:            request.Sort,
+	})
+	if err != nil {
+		httpapi.Abort(c, err)
+		return
+	}
+
+	items := make([]profileResponse, 0, len(page.Items))
+	for _, record := range page.Items {
+		items = append(items, newProfileResponse(record))
+	}
+	httpapi.RespondList(c, items, httpapi.NewPagination(page.Page.Page, page.Page.PageSize, page.Total))
+}
+
+// resetPassword 处理 POST /users/{user_id}/password（管理员重置密码）。
+func (h *Handler) resetPassword(c *gin.Context) {
+	actor, err := h.actor(c)
+	if err != nil {
+		httpapi.Abort(c, err)
+		return
+	}
+
+	userID, err := userIDParam(c)
+	if err != nil {
+		httpapi.Abort(c, err)
+		return
+	}
+
+	var request resetPasswordRequest
+	if err := httpapi.BindJSON(c, &request); err != nil {
+		httpapi.Abort(c, err)
+		return
+	}
+
+	updated, err := h.service.ResetPassword(c.Request.Context(), actor, ResetPasswordInput{
+		TargetID:        userID,
+		NewPassword:     request.NewPassword,
+		ExpectedUpdated: request.ExpectedUpdated.Time,
+	})
+	if err != nil {
+		httpapi.Abort(c, err)
+		return
+	}
+
+	// 响应是公开用户结构：**绝不回显明文密码或摘要**。
+	// updated_at 已推进，客户端应据此更新自己手里的版本。
+	httpapi.RespondOK(c, newProfileResponse(updated))
+}
 
 // detail 处理 GET /users/{user_id}。
 func (h *Handler) detail(c *gin.Context) {

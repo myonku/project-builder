@@ -135,6 +135,29 @@ func (r *FakeUserRepository) UpdatePasswordHash(_ context.Context, id, hash stri
 	return nil
 }
 
+// UpdatePasswordWithCAS 实现 UserRepository，并模拟版本冲突语义。
+//
+// 替身必须与真实实现保持同样的错误分野（不存在 → user_not_found，
+// 版本不匹配 → version_conflict），否则用例无法代表真实行为。
+func (r *FakeUserRepository) UpdatePasswordWithCAS(
+	_ context.Context, id, hash string, expectedUpdated time.Time,
+) (UserRecord, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	record, ok := r.byID[id]
+	if !ok {
+		return UserRecord{}, domain.New(domain.CodeUserNotFound, "User not found")
+	}
+	if !record.UpdatedAt.Equal(expectedUpdated.UTC()) {
+		return UserRecord{}, domain.ErrVersionConflict
+	}
+	record.PasswordHash = hash
+	record.UpdatedAt = r.nowFunc().UTC()
+	r.byID[id] = record
+	return record, nil
+}
+
 // Stored 返回指定用户的当前记录，供断言使用。
 func (r *FakeUserRepository) Stored(id string) (UserRecord, bool) {
 	r.mu.Lock()

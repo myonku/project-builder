@@ -170,6 +170,48 @@ func (r *Repository) UpdatePasswordHash(ctx context.Context, id, hash string) er
 	return nil
 }
 
+// UpdatePasswordWithCAS 以原子 CAS 更新密码摘要并回读最新 updated_at。
+//
+// 用途：管理员重置密码。版本条件必须放进 WHERE 而不是先读后写
+// （见 docs/01-Go服务端架构设计.md 5.2）——先读后写在并发下会让两个重置请求
+// 都"成功"，此时后写入的那个静默覆盖前一个，而两边都认为自己的版本是最新的。
+func (r *Repository) UpdatePasswordWithCAS(
+	ctx context.Context, id, hash string, expectedUpdated time.Time,
+) (UserRecord, error) {
+	const query = `
+		UPDATE users
+		   SET password_hash = $2,
+		       updated_at = now()
+		 WHERE id = $1 AND updated_at = $3
+		RETURNING ` + userColumns
+
+	record, err := scanUser(r.pool.QueryRow(ctx, query, id, hash, expectedUpdated))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return UserRecord{}, r.distinguishMissing(ctx, id)
+		}
+		return UserRecord{}, fmt.Errorf("更新密码摘要失败: %w", err)
+	}
+	return record, nil
+}
+
+// distinguishMissing 区分"用户不存在"与"版本冲突"。
+//
+// 纯存在性查询，不复用带身份参数的查询：传入空 UUID 会触发 22P02 并退化为 500
+// （第二阶段实测踩到过）。全模块只保留这一处存在性判断，避免各写一份。
+func (r *Repository) distinguishMissing(ctx context.Context, id string) error {
+	var exists bool
+	err := r.pool.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM users WHERE id = $1)`, id).Scan(&exists)
+	if err != nil {
+		return fmt.Errorf("查询用户存在性失败: %w", err)
+	}
+	if !exists {
+		return domain.New(domain.CodeUserNotFound, "User not found")
+	}
+	return domain.ErrVersionConflict
+}
+
 // scanUser 从一行结果读取用户记录。
 func scanUser(row pgx.Row) (UserRecord, error) {
 	var record UserRecord

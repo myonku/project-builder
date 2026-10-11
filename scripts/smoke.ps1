@@ -453,6 +453,57 @@ Assert-Equal $restore.Status 200 '时区复原'
 Assert-Equal $restore.Body.data.timezone 'Asia/Shanghai' '时区复原已生效'
 
 # ---------------------------------------------------------------------------
+Write-Step "Users：管理员端点的权限与参数边界"
+# ---------------------------------------------------------------------------
+
+# 本脚本无法自行造出系统管理员（当前首个管理员需要直接写库，见 docs/06 7.4），
+# 因此这里只覆盖**权限与参数边界**：非管理员一律 403，非法路径/请求体在
+# 权限判定之前就被拒绝。管理员端点的成功路径由集成测试覆盖
+# （internal/testsupport/users_test.go）。
+
+# 管理员创建用户：非管理员必须 403。
+$forbiddenCreate = Invoke-Api -Method POST -Path '/api/v1/users' -Body @{
+    username     = "smoke_admin_$Username"
+    email        = "smoke_admin_$Username@example.com"
+    display_name = '不应被创建'
+    password     = 'correct horse battery'
+}
+Assert-Equal $forbiddenCreate.Status 403 '非管理员创建用户应 403'
+Assert-Equal $forbiddenCreate.Body.error.code 'permission_denied' 'error.code'
+
+# 请求体校验先于权限判定：字段本身不合法时无需先问权限。
+$invalidCreate = Invoke-Api -Method POST -Path '/api/v1/users' -Body @{ username = 'x' }
+Assert-Equal $invalidCreate.Status 422 '创建用户的非法字段应 422'
+Assert-Equal $invalidCreate.Body.error.code 'validation_error' 'error.code'
+
+# 用户列表：非管理员必须 403（普通成员应看到成员列表，而不是全系统账号清单）。
+$forbiddenList = Invoke-Api -Method POST -Path '/api/v1/users/query' -Body @{}
+Assert-Equal $forbiddenList.Status 403 '非管理员查询用户列表应 403'
+Assert-Equal $forbiddenList.Body.error.code 'permission_denied' 'error.code'
+
+# 重置密码：路径参数先校验，非法 UUID 是 400 而不是 500。
+$badPasswordPath = Invoke-Api -Method POST -Path '/api/v1/users/not-a-uuid/password' -Body @{
+    new_password        = 'brand new password'
+    expected_updated_at = '2026-10-11T00:00:00Z'
+}
+Assert-Equal $badPasswordPath.Status 400 '重置密码的非法 user_id 应 400'
+Assert-Equal $badPasswordPath.Body.error.code 'invalid_request' 'error.code'
+
+# 重置密码：非管理员必须 403。
+$forbiddenReset = Invoke-Api -Method POST -Path "/api/v1/users/$secondUserId/password" -Body @{
+    new_password        = 'brand new password'
+    expected_updated_at = '2026-10-11T00:00:00Z'
+}
+Assert-Equal $forbiddenReset.Status 403 '非管理员重置他人密码应 403'
+Assert-Equal $forbiddenReset.Body.error.code 'permission_denied' 'error.code'
+
+# 缺少 new_password：在绑定阶段就被拒绝。
+$missingPassword = Invoke-Api -Method POST -Path "/api/v1/users/$userId/password" -Body @{
+    expected_updated_at = '2026-10-11T00:00:00Z'
+}
+Assert-Equal $missingPassword.Status 422 '缺少 new_password 应 422'
+
+# ---------------------------------------------------------------------------
 Write-Step "Projects：创建 → 派生字段 → 归档只读"
 # ---------------------------------------------------------------------------
 

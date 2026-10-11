@@ -568,3 +568,78 @@ func TestRequiresUserAdministration(t *testing.T) {
 		t.Error("修改系统角色必须要求管理员权限")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// 密码规则（注册与管理员重置密码共用）
+// ---------------------------------------------------------------------------
+
+func TestNormalizeNewPasswordAcceptsValidInput(t *testing.T) {
+	t.Parallel()
+
+	// 前后空格是合法密码字符：不做 Trim。
+	const password = "  correct horse battery  "
+	got, fields := NormalizeNewPassword(password, 8)
+	if len(fields) != 0 {
+		t.Fatalf("期望无字段错误，实际为 %v", fields)
+	}
+	if got != password {
+		t.Fatalf("密码被改写为 %q，期望原样保留（不得 Trim）", got)
+	}
+}
+
+func TestNormalizeNewPasswordRejectsInvalidValues(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		password string
+		min      int
+	}{
+		{"空密码", "", 8},
+		{"短于最小长度", "short", 8},
+		{"超过 256 个码点", strings.Repeat("密", 257), 8},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, fields := NormalizeNewPassword(tc.password, tc.min)
+			// 字段名必须是契约中的 new_password：返回 password 会让前端拿到的
+			// fields 键与请求体对不上。
+			if _, ok := fields["new_password"]; !ok {
+				t.Fatalf("期望字段 new_password 报错，实际为 %v", fields)
+			}
+		})
+	}
+}
+
+// TestPasswordRuleIsSharedBetweenRegistrationAndReset 锁住"密码强度只有一套标准"。
+//
+// 注册与管理员重置密码若各自实现校验，迟早会分叉：管理员可能设出一个
+// 用户自助注册时不被接受的密码（或反之），而密码强度属于安全边界。
+func TestPasswordRuleIsSharedBetweenRegistrationAndReset(t *testing.T) {
+	t.Parallel()
+
+	candidates := []string{
+		"",
+		"short",
+		"12345678",
+		"correct horse battery",
+		strings.Repeat("密", 257),
+		"  spaced  ",
+	}
+
+	for _, password := range candidates {
+		_, registrationFields := NormalizeRegistration(RegistrationInput{
+			Username: "alice", Email: "alice@example.com",
+			DisplayName: "Alice", Password: password,
+		}, 8)
+		_, resetFields := NormalizeNewPassword(password, 8)
+
+		rejectedByRegistration := registrationFields["password"] != ""
+		rejectedByReset := resetFields["new_password"] != ""
+		if rejectedByRegistration != rejectedByReset {
+			t.Errorf("密码 %q 的判定不一致：注册拒绝=%v，重置拒绝=%v",
+				password, rejectedByRegistration, rejectedByReset)
+		}
+	}
+}

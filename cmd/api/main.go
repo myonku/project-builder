@@ -102,13 +102,15 @@ func run() error {
 		Logger: logger,
 	})
 
-	// usersService 同时承担两个角色：注册自身端点，以及为其他模块提供
-	// "按用户 ID 查时区"的能力（派生逾期字段按用户时区计算"今天"）。
-	// 它由 *users.Service 直接满足 projects.TimezoneProvider，
-	// 因此装配点不需要额外的适配器：接口方法签名与实现完全一致。
+	// usersService 同时承担三个角色：注册自身端点、为其他模块提供
+	// "按用户 ID 查时区"的能力（派生逾期字段按用户时区计算"今天"），
+	// 以及复用 auth 的账号能力（管理员代建账号、重置密码）。
+	// `*users.Service` 与 `*auth.Service` 分别直接满足 projects.TimezoneProvider 与
+	// users.Accounts，因此装配点不需要写适配器：接口方法签名与实现完全一致。
 	usersService := users.NewService(users.Options{
-		Store:  users.NewRepository(postgres.Pool),
-		Logger: logger,
+		Store:    users.NewRepository(postgres.Pool),
+		Accounts: authService,
+		Logger:   logger,
 	})
 
 	projectsService := projects.NewService(projects.Options{
