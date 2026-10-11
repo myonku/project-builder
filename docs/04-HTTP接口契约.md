@@ -324,9 +324,9 @@ RETURNING id, updated_at;
 
 ## 4. API 域和端点
 
-**已实现**：Health、Auth、Users、Groups、Projects、Tasks。以下未标注"✅ 已实现"的端点属于规划范围。
+**已实现**：Health、Auth、Users、Groups、Projects、Tasks、Plan Views。以下未标注"✅ 已实现"的端点属于规划范围。
 
-> 第二阶段（Groups / Projects / Tasks）与第三阶段首个模块（Users）已完成，
+> 第二阶段（Groups / Projects / Tasks）与第三阶段的 Users / Plan Views 已完成，
 > 并经真实 PostgreSQL 16 + Redis 7 验证。实现状态与验证证据见《06-迁移进度与验证.md》。
 
 ### 4.1 Health ✅ 已实现
@@ -678,13 +678,164 @@ RETURNING id, updated_at;
 > Python 版本把两个谓词放在同一张成员表的同一行，要求同一个人既是 owner 又是 assignee，
 > 实测单条件各返回 1 条、组合恒为 0 条。该场景必须有集成测试覆盖。
 
-### 4.7 Plan Views ⬜ 规划中（第三阶段）
+### 4.7 Plan Views ✅ 已实现
 
-- `GET /plan-views/personal`：当前用户创建、持有或参与的项目和任务。
-- `GET /plan-views/groups/{group_id}`：组内共享计划；项目共享级别与任务 `is_shared` 同时决定可见内容。
-- `GET /plan-views/projects/{project_id}/gantt`：返回层级、日期、状态、进度、owner、成员、里程碑与 `can_edit`。
+计划视图是**只读聚合端点**，共 3 个：
 
-### 4.8 Attachments、Reminders、Audit ⬜ 规划中（第三阶段）
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| `GET` | `/api/v1/plan-views/personal` | 个人计划：我是项目成员的项目及其任务 |
+| `GET` | `/api/v1/plan-views/groups/{group_id}` | 组内共享计划：本组已共享的项目与已共享任务 |
+| `GET` | `/api/v1/plan-views/projects/{project_id}/gantt` | 项目甘特图：层级、日期、状态、进度、成员、里程碑与 `can_edit` |
+
+#### 共同约定
+
+- **不分页**。计划视图是一个整体视图（甘特图必须一次拿到全部条目），
+  因此响应里的数组是完整的，不存在"截断但不告知"的情况。
+  代价是数据量大时响应会比较大；若组内规模增长到需要分页，应当**改契约**
+  （引入分页或要求时间窗口），而不是悄悄截断。
+- 汇总统计 `summary` 与数组**由同一个数据集算出**，因此
+  `summary.task_count` 恒等于 `tasks` 的长度，不存在"统计与列表各算一套"的空间。
+- **逻辑删除的任务一律不出现**。计划视图描述的是"计划"，已删除任务不属于任何计划；
+  历史数据仍可通过 `POST /projects/{id}/tasks/query`（`include_deleted: true`）查询。
+- **归档项目默认排除**，`include_archived=true` 时纳入；纳入时它的任务也会**同时**出现
+  （不会出现"项目在、任务不在"的不一致），且 `is_read_only` 为真、任务的 `can_edit` 为假。
+- 派生字段全部复用既有规则，不重写一套：`progress`（简单平均、排除已取消）、
+  `is_overdue` / `overdue_task_count`（`end_date < 今天` 且状态未结束）、
+  `can_edit`（与任务写入口使用同一个领域判定）。
+- 「今天」按**请求者时区**计算，与会话中的用户 `timezone` 一致（见 4.3 末段）。
+
+#### 查询参数（个人视图与组内视图）
+
+| 参数 | 类型 | 说明 |
+| --- | --- | --- |
+| `project_id` | uuid | 限定单个项目；**同时作用于项目与任务两侧** |
+| `project_owner_id` | uuid | 按**项目**持有者筛选 |
+| `task_owner_id` | uuid | 按**任务**持有者筛选 |
+| `task_member_id` | uuid | 按**任务成员**筛选（含持有者） |
+| `project_status` | enum | 项目状态 |
+| `task_status` | enum | 任务状态 |
+| `priority` | int | 任务优先级 `0`–`3` |
+| `due_from` / `due_to` | date | 按**任务结束日期**的范围筛选（含端点） |
+| `overdue` | bool | 为真时只返回逾期任务 |
+| `include_archived` | bool | 见上 |
+
+> **参数命名刻意消歧**：需求文档里的"按持有者筛选"同时可能指项目持有者或任务持有者，
+> "按状态筛选"同时可能指项目状态或任务状态。契约用 `project_*` / `task_*` 前缀把两者分开，
+> 不使用含义模糊的 `owner_id` / `status`。
+
+> **未知查询参数一律拒绝**（`400 invalid_request`，`fields` 中指出参数名并给出可用清单）。
+> 理由与 2.7 对请求体的要求同源：把 `task_status` 拼成 `status` 会被静默忽略，
+> 客户端以为筛选生效、实际拿到全量数据，而接口没有任何提示。
+
+甘特图端点**不接受任何查询参数**（携带即 `400`）：它是"一个项目的完整画面"，
+任何筛选都会让画面不完整。
+
+#### 成功响应（个人视图）
+
+```json
+{
+  "data": {
+    "group_id": null,
+    "projects": [
+      {
+        "id": "uuid", "name": "Migration", "description": null,
+        "group_id": "uuid", "status": "not_started", "visibility": "private",
+        "start_date": "2026-10-01", "end_date": "2026-10-31", "color": "#336699",
+        "archived_at": null, "is_archived": false, "is_read_only": false,
+        "owner_id": "uuid", "my_role": "owner",
+        "task_count": 3, "progress": 40, "overdue_task_count": 1,
+        "updated_at": "2026-10-11T04:30:54.047739Z"
+      }
+    ],
+    "tasks": [
+      {
+        "id": "uuid", "project_id": "uuid", "parent_id": null,
+        "name": "Prepare migration", "description": null,
+        "status": "in_progress", "progress": 40, "priority": 1,
+        "start_date": "2026-10-01", "end_date": "2026-10-05",
+        "is_milestone": false, "is_shared": true, "is_overdue": false,
+        "can_edit": true,
+        "owner": {"user_id": "uuid", "username": "alice", "display_name": "Alice", "role": "owner"},
+        "members": [
+          {"user_id": "uuid", "username": "alice", "display_name": "Alice", "role": "owner"}
+        ],
+        "updated_by": "uuid", "updated_by_name": "Alice",
+        "updated_at": "2026-10-11T04:30:54.047739Z"
+      }
+    ],
+    "summary": {
+      "project_count": 1, "task_count": 3,
+      "in_progress_task_count": 1, "overdue_task_count": 1, "overall_progress": 40
+    }
+  }
+}
+```
+
+- `my_role`：`owner` / `member`；`null` 表示不是项目成员（只通过组内共享可见）。
+- `updated_by` / `updated_by_name`：满足需求文档 5.6「查看任务最后修改人和最后修改时间」。
+  显示名由服务端在列表查询里一并取出，客户端不必为每一行再查一次用户。
+- `members` 已按"持有者优先、显示名"排序，可直接用于"按成员分组"的展示；
+  **分组本身是展示行为**，服务端不再提供 `group_by` 参数——它只会改变 JSON 形状，
+  而客户端已经拿到了分组所需的全部信息。
+- 组内视图的响应与个人视图同形，差别只有 `group_id` 非空，以及内容范围不同。
+
+#### 成功响应（甘特图）
+
+```json
+{
+  "data": {
+    "project": { "...同上的项目投影..." },
+    "can_manage_project": true,
+    "can_edit_tasks": true,
+    "tasks": [ "...同上的任务投影..." ],
+    "summary": { "...同上的汇总..." }
+  }
+}
+```
+
+- `can_manage_project`：能否修改项目本身（名称、日期、共享级别、成员）——即是否为持有者。
+- `can_edit_tasks`：能否修改该项目下的任务——归档项目恒为 `false`。
+- 任务按 `start_date, end_date, id` 排序，客户端依据 `parent_id` 组装层级
+  （最多 3 层，见 4.6）。
+
+#### 实测行为要点
+
+- **个人视图的范围是"我是项目成员的项目"**，不额外按 `created_by` 放宽。
+  项目创建者默认成为持有者，因此"我创建的项目"在正常情形下就是"我是成员的项目"；
+  若把 `created_by = 我` 也算进来，就会出现"把项目移交出去并被移出成员后仍能看到它"
+  的越权读取。以成员关系为准。
+- **组内视图只包含已共享内容**：项目必须是 `group_readonly` / `group_editable`，
+  任务必须 `is_shared = true`（需求文档 4.3："项目已共享但任务未共享时，
+  任务不得出现在组内视图"）。**该限制与查看者是不是项目成员无关**——
+  即使是项目成员，组内页面看到的也只有已共享任务。
+- **逐对象的可见性与可编辑性由领域层的权限函数收敛**，而不是在计划视图里再写一套 SQL 可见性谓词。
+  因此组内访客（非项目成员）看不到未共享任务，也不能编辑只读共享任务；
+  归档项目下的一切都不可编辑。计划视图的判定与 `tasks` 模块的写入口**同源**。
+- 非本组活跃成员访问组内视图返回 `404 group_not_found`；不可见的项目访问甘特图返回
+  `404 project_not_found`（与"不存在"同码，不泄漏存在性）。
+- **组内视图里项目的 `progress` 与 `overdue_task_count` 基于该视图可见的任务计算**，
+  与 `GET /projects/{id}` 的口径（基于项目**全部**任务）可能不同。
+  这是刻意的：组内访客看不到未共享任务，若按全部任务计算，就会用进度数值泄漏
+  未共享任务的存在与进展。个人视图与甘特图在查看者为项目成员时与项目详情一致。
+
+错误：
+
+| 情况 | 状态码 | 错误码 |
+| --- | --- | --- |
+| 未登录 | `401` | `authentication_required` |
+| 非本组活跃成员访问组内视图 | `404` | `group_not_found` |
+| 项目不存在或不可见 | `404` | `project_not_found` |
+| 未知查询参数 / 非法 UUID / 非法状态 / 非法优先级 / 非法布尔值 / 非法日期格式 | `400` | `invalid_request`（带 `fields`） |
+| `due_from` 晚于 `due_to` | `400` | `invalid_date_range` |
+| 路径参数不是合法 UUID | `400` | `invalid_request` |
+
+> **时间尺度（日 / 周 / 月）是纯展示参数，服务端不提供**：响应已经包含完整的日期区间，
+> 客户端可自由切换尺度。若将来需要服务端提供周/月分桶（例如为了避免前后端对"一周从哪天开始"
+> 理解不一致），应作为契约新增项引入，而不是现在猜一个形状。
+> 同理，"折叠""拖拽改日期"分别属于客户端状态与既有的 `PATCH /tasks/{id}/dates`。
+
+### 4.8 Attachments、Reminders、Audit ⬜ 规划中（第三阶段剩余）
 
 - 附件：`POST/GET /projects/{project_id}/attachments`、`POST/GET /tasks/{task_id}/attachments`、`GET /attachments/{attachment_id}/download`、`DELETE /attachments/{attachment_id}`。上传使用 multipart；下载与删除重新校验权限。
 - 提醒：`GET /reminders`、`GET /reminders/{reminder_id}`、`POST /reminders/{reminder_id}/retry`。事务提交后生成，使用 `dedupe_key`。
@@ -734,6 +885,7 @@ API 层只负责请求解析、响应序列化与错误映射，不直接查询�
 | 4.3 | 管理员代建账号与自助注册**共用同一套实现**，不复制注册流程 | 两套实现迟早会在密码强度、归一化或唯一性检查上分叉，而这三项都属于安全边界 |
 | 4.3 | 用户列表的"是否含停用账号"必须显式传 `include_disabled`，两个口径的 `total` 都与条目数一致 | 默认隐藏会让管理员以为账号消失了；而计数与列表各写一套筛选会出现 total 与实际条目数不符（第二阶段实测缺陷） |
 | 4.3 | 重置密码**先判权限再查对象**，非管理员对任何 ID 都得到同一个 403 | 否则该端点会变成"账号是否存在"的探测接口 |
+| 4.7 | 计划视图的查询参数**未知即拒绝**，且用 `project_*` / `task_*` 前缀消歧 | 拼错的参数名会被静默忽略，客户端以为筛选生效却拿到全量数据；而"持有者/状态"不加前缀时无法判断指的是项目还是任务 |
 
 ## 7. 变更规则
 
@@ -753,3 +905,4 @@ API 层只负责请求解析、响应序列化与错误映射，不直接查询�
 | 2026-10-11 | 4.3 Users 由规划改为**已实现**：补齐三个端点的字段表、错误表与行为要点；说明未实现的用户管理动作与原因；新增第 6 节 5 条契约加强项（空更新拒绝、可见性错误码、最后管理员不变式、重复停用、按用户时区计算"今天"） | 第三阶段 Users 模块落地，契约必须先于代码成为唯一权威 |
 | 2026-10-11 | 4.3 补齐**管理员端点**：`POST /users`（创建）、`POST /users/query`（列表，含 `include_disabled`）、`POST /users/{user_id}/password`（重置密码）；新增 4 条契约加强项；显式登记两处限制（重置不吊销既有会话、缺少首个管理员的受支持初始化路径） | 需求文档 5.1 要求的管理员用户管理动作落地；两处限制必须先写清再由人工决策，不能默默留白 |
 | 2026-10-11 | 两处限制按人工决策收口：首个管理员改为**配置驱动、启动时初始化**（不再需要直接写库），并说明其幂等与"绝不覆盖密码"语义；重置密码不吊销会话**确认为有意行为**（内部小组、安全要求不高），保留"先停用再启用"作为立即踢下线的做法 | 用户确认：普通用户不需要管理员角色，只需初始化时录入一个；会话吊销保持现状 |
+| 2026-10-11 | 4.7 Plan Views 由规划改为**已实现**：三个端点的完整字段表、筛选参数表、成功/错误响应与实测行为要点；显式声明五处设计选择（不分页、统计与列表同源、逻辑删除一律排除、未知参数拒绝、组内视图 progress 基于可见任务）；新增 1 条契约加强项 | 第三阶段 Plan Views 落地；其中"组内视图的 progress 与项目详情口径不同"属于必须让客户端知道的差异 |

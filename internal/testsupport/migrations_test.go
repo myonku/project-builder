@@ -34,8 +34,8 @@ func TestMigrationsApplyFromEmptyDatabase(t *testing.T) {
 	if dirty {
 		t.Fatal("schema 处于脏状态")
 	}
-	if version != 1 {
-		t.Fatalf("迁移版本 = %d，期望 1（单一初始迁移）", version)
+	if version != 2 {
+		t.Fatalf("迁移版本 = %d，期望 2（000001 初始 schema + 000002 tasks.updated_by）", version)
 	}
 
 	// 全部 9 张业务表必须存在。
@@ -133,6 +133,8 @@ func TestSchemaMatchesDocumentedShape(t *testing.T) {
 		{table: "users", column: "last_login_at", wantType: "timestamp with time zone", nullable: "YES"},
 		{table: "projects", column: "archived_at", wantType: "timestamp with time zone", nullable: "YES"},
 		{table: "tasks", column: "deleted_at", wantType: "timestamp with time zone", nullable: "YES"},
+		// 000002 新增：最后修改人（需求文档 5.6）。NOT NULL：任务总是有创建者。
+		{table: "tasks", column: "updated_by", wantType: "uuid", nullable: "NO"},
 		{table: "tasks", column: "created_at", wantType: "timestamp with time zone", nullable: "NO"},
 		{table: "group_members", column: "joined_at", wantType: "timestamp with time zone", nullable: "NO"},
 		// 业务日期列必须是纯 date，不得混入时分秒。
@@ -249,6 +251,7 @@ func TestForeignKeyDeleteBehaviours(t *testing.T) {
 		{constraint: "fk_tasks_project_id_projects", onDelete: "CASCADE"},
 		{constraint: "fk_tasks_parent_id_tasks", onDelete: "CASCADE"},
 		{constraint: "fk_tasks_created_by_users", onDelete: "RESTRICT"},
+		{constraint: "fk_tasks_updated_by_users", onDelete: "RESTRICT"},
 		{constraint: "fk_task_members_task_id_tasks", onDelete: "CASCADE"},
 		{constraint: "fk_task_members_user_id_users", onDelete: "RESTRICT"},
 		{constraint: "fk_group_members_group_id_groups", onDelete: "CASCADE"},
@@ -347,8 +350,8 @@ func TestCheckConstraintsRejectInvalidEnumValues(t *testing.T) {
 			exec: func() error {
 				projectID := insertProject(t, pool, userID)
 				_, err := pool.Exec(ctx,
-					`INSERT INTO tasks (id, project_id, created_by, name, status, start_date, end_date)
-					 VALUES (gen_random_uuid(), $1, $2, 'T', 'overdue', '2026-10-01', '2026-10-02')`,
+					`INSERT INTO tasks (id, project_id, created_by, updated_by, name, status, start_date, end_date)
+					 VALUES (gen_random_uuid(), $1, $2, $2, 'T', 'overdue', '2026-10-01', '2026-10-02')`,
 					projectID, userID)
 				return err
 			},
@@ -358,8 +361,8 @@ func TestCheckConstraintsRejectInvalidEnumValues(t *testing.T) {
 			exec: func() error {
 				projectID := insertProject(t, pool, userID)
 				_, err := pool.Exec(ctx,
-					`INSERT INTO tasks (id, project_id, created_by, name, progress, start_date, end_date)
-					 VALUES (gen_random_uuid(), $1, $2, 'T', 101, '2026-10-01', '2026-10-02')`,
+					`INSERT INTO tasks (id, project_id, created_by, updated_by, name, progress, start_date, end_date)
+					 VALUES (gen_random_uuid(), $1, $2, $2, 'T', 101, '2026-10-01', '2026-10-02')`,
 					projectID, userID)
 				return err
 			},
@@ -369,8 +372,8 @@ func TestCheckConstraintsRejectInvalidEnumValues(t *testing.T) {
 			exec: func() error {
 				projectID := insertProject(t, pool, userID)
 				_, err := pool.Exec(ctx,
-					`INSERT INTO tasks (id, project_id, created_by, name, progress, start_date, end_date)
-					 VALUES (gen_random_uuid(), $1, $2, 'T', -1, '2026-10-01', '2026-10-02')`,
+					`INSERT INTO tasks (id, project_id, created_by, updated_by, name, progress, start_date, end_date)
+					 VALUES (gen_random_uuid(), $1, $2, $2, 'T', -1, '2026-10-01', '2026-10-02')`,
 					projectID, userID)
 				return err
 			},
@@ -380,8 +383,8 @@ func TestCheckConstraintsRejectInvalidEnumValues(t *testing.T) {
 			exec: func() error {
 				projectID := insertProject(t, pool, userID)
 				_, err := pool.Exec(ctx,
-					`INSERT INTO tasks (id, project_id, created_by, name, start_date, end_date)
-					 VALUES (gen_random_uuid(), $1, $2, 'T', '2026-10-09', '2026-10-01')`,
+					`INSERT INTO tasks (id, project_id, created_by, updated_by, name, start_date, end_date)
+					 VALUES (gen_random_uuid(), $1, $2, $2, 'T', '2026-10-09', '2026-10-01')`,
 					projectID, userID)
 				return err
 			},
@@ -615,8 +618,8 @@ func insertTask(t *testing.T, pool *pgxpool.Pool, projectID, createdBy string) s
 
 	id := idgen.New().MustUUID()
 	if _, err := pool.Exec(context.Background(),
-		`INSERT INTO tasks (id, project_id, created_by, name, start_date, end_date)
-		 VALUES ($1, $2, $3, 'Task', '2026-10-01', '2026-10-05')`,
+		`INSERT INTO tasks (id, project_id, created_by, updated_by, name, start_date, end_date)
+		 VALUES ($1, $2, $3, $3, 'Task', '2026-10-01', '2026-10-05')`,
 		id, projectID, createdBy); err != nil {
 		t.Fatalf("插入任务失败: %v", err)
 	}

@@ -15,7 +15,7 @@ import (
 // taskColumns 是 tasks 表的显式列清单。
 const taskColumns = `t.id, t.project_id, t.parent_id, t.created_by, t.name, t.description,
 	t.status, t.progress, t.priority, t.start_date, t.end_date,
-	t.is_milestone, t.is_shared, t.deleted_at, t.created_at, t.updated_at`
+	t.is_milestone, t.is_shared, t.deleted_at, t.created_at, t.updated_at, t.updated_by`
 
 // taskReturningColumns 与 taskColumns 相同，但不带表别名。
 //
@@ -23,7 +23,7 @@ const taskColumns = `t.id, t.project_id, t.parent_id, t.created_by, t.name, t.de
 // "missing FROM-clause entry for table t"。
 const taskReturningColumns = `id, project_id, parent_id, created_by, name, description,
 	status, progress, priority, start_date, end_date,
-	is_milestone, is_shared, deleted_at, created_at, updated_at`
+	is_milestone, is_shared, deleted_at, created_at, updated_at, updated_by`
 
 // TaskRecord 是 tasks 表的行记录。
 type TaskRecord struct {
@@ -43,6 +43,12 @@ type TaskRecord struct {
 	DeletedAt   *time.Time
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
+	// UpdatedBy 是最近一次修改本行的用户（需求文档 5.6：查看任务最后修改人）。
+	//
+	// 它与 UpdatedAt 跟踪**同一个事件**：两者在同一条写语句里一起推进。
+	// 成员关系与附件不触碰 tasks 行，因此两者都不变。
+	// 完整的操作历史属于 Audit（activity_logs）阶段；本字段是"当前指针"。
+	UpdatedBy string
 
 	// Membership 是当前请求用户在本任务的成员关系；nil 表示不是任务成员。
 	Membership *MemberRecord
@@ -119,6 +125,11 @@ type TaskUpdateParams struct {
 	ParentID        *string
 	ParentIDSet     bool
 	ExpectedUpdated time.Time
+	// ActorID 是要写入 tasks.updated_by 的用户。
+	//
+	// 它不是"可选元数据"：写路径必须提供，否则"最后修改人"会停在旧值上，
+	// 而这种错误不会有任何报错——字段只是静静地不再更新。
+	ActorID string
 }
 
 // ListFilter 是任务列表筛选条件。
@@ -191,8 +202,9 @@ func (r *Repository) CreateTaskInTx(ctx context.Context, params CreateTaskParams
 		const insert = `
 			INSERT INTO tasks (
 				id, project_id, parent_id, created_by, name, description,
-				status, progress, priority, start_date, end_date, is_milestone, is_shared
-			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+				status, progress, priority, start_date, end_date, is_milestone, is_shared,
+				updated_by
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 			RETURNING ` + taskReturningColumns
 
 		if err := tx.QueryRow(ctx, insert,
@@ -200,12 +212,15 @@ func (r *Repository) CreateTaskInTx(ctx context.Context, params CreateTaskParams
 			params.Name, params.Description, params.Status, params.Progress,
 			params.Priority, params.StartDate, params.EndDate,
 			params.IsMilestone, params.IsShared,
+			// 创建也是一次"修改"：updated_by 从第一天起就有值，
+			// 因此 updated_by 与 updated_at 的不变式在创建路径上同样成立。
+			params.CreatedBy,
 		).Scan(
 			&created.ID, &created.ProjectID, &created.ParentID, &created.CreatedBy,
 			&created.Name, &created.Description, &created.Status, &created.Progress,
 			&created.Priority, &created.StartDate, &created.EndDate,
 			&created.IsMilestone, &created.IsShared, &created.DeletedAt,
-			&created.CreatedAt, &created.UpdatedAt,
+			&created.CreatedAt, &created.UpdatedAt, &created.UpdatedBy,
 		); err != nil {
 			return apperr.Translate(err, constraintMap)
 		}
@@ -249,7 +264,7 @@ func (r *Repository) FindTaskForUser(ctx context.Context, taskID, userID string,
 		&record.Name, &record.Description, &record.Status, &record.Progress,
 		&record.Priority, &record.StartDate, &record.EndDate,
 		&record.IsMilestone, &record.IsShared, &record.DeletedAt,
-		&record.CreatedAt, &record.UpdatedAt,
+		&record.CreatedAt, &record.UpdatedAt, &record.UpdatedBy,
 		&memberID, &memberTaskID, &memberUserID, &memberRole,
 	)
 	if err != nil {
@@ -286,7 +301,7 @@ func (r *Repository) FindTaskByID(ctx context.Context, taskID string, includeDel
 		&record.Name, &record.Description, &record.Status, &record.Progress,
 		&record.Priority, &record.StartDate, &record.EndDate,
 		&record.IsMilestone, &record.IsShared, &record.DeletedAt,
-		&record.CreatedAt, &record.UpdatedAt,
+		&record.CreatedAt, &record.UpdatedAt, &record.UpdatedBy,
 	)
 	if err != nil {
 		if apperr.IsNoRows(err) {
@@ -398,7 +413,7 @@ func (r *Repository) ListTasks(ctx context.Context, filter ListFilter, orderBy s
 			&record.Name, &record.Description, &record.Status, &record.Progress,
 			&record.Priority, &record.StartDate, &record.EndDate,
 			&record.IsMilestone, &record.IsShared, &record.DeletedAt,
-			&record.CreatedAt, &record.UpdatedAt,
+			&record.CreatedAt, &record.UpdatedAt, &record.UpdatedBy,
 			&memberID, &memberTaskID, &memberUserID, &memberRole,
 		); err != nil {
 			return nil, fmt.Errorf("读取任务行失败: %w", err)
@@ -432,7 +447,7 @@ func (r *Repository) ListAncestors(ctx context.Context, taskID string) ([]TaskRe
 		WITH RECURSIVE chain AS (
 			SELECT id, project_id, parent_id, created_by, name, description,
 			       status, progress, priority, start_date, end_date,
-			       is_milestone, is_shared, deleted_at, created_at, updated_at,
+			       is_milestone, is_shared, deleted_at, created_at, updated_at, updated_by,
 			       0 AS depth
 			  FROM tasks
 			 WHERE id = $1
@@ -440,6 +455,7 @@ func (r *Repository) ListAncestors(ctx context.Context, taskID string) ([]TaskRe
 			SELECT t.id, t.project_id, t.parent_id, t.created_by, t.name, t.description,
 			       t.status, t.progress, t.priority, t.start_date, t.end_date,
 			       t.is_milestone, t.is_shared, t.deleted_at, t.created_at, t.updated_at,
+			       t.updated_by,
 			       c.depth + 1
 			  FROM tasks t
 			  JOIN chain c ON t.id = c.parent_id
@@ -447,7 +463,7 @@ func (r *Repository) ListAncestors(ctx context.Context, taskID string) ([]TaskRe
 		)
 		SELECT id, project_id, parent_id, created_by, name, description,
 		       status, progress, priority, start_date, end_date,
-		       is_milestone, is_shared, deleted_at, created_at, updated_at
+		       is_milestone, is_shared, deleted_at, created_at, updated_at, updated_by
 		  FROM chain ORDER BY depth`
 
 	rows, err := r.pool.Query(ctx, query, taskID)
@@ -464,7 +480,7 @@ func (r *Repository) ListAncestors(ctx context.Context, taskID string) ([]TaskRe
 			&record.Name, &record.Description, &record.Status, &record.Progress,
 			&record.Priority, &record.StartDate, &record.EndDate,
 			&record.IsMilestone, &record.IsShared, &record.DeletedAt,
-			&record.CreatedAt, &record.UpdatedAt,
+			&record.CreatedAt, &record.UpdatedAt, &record.UpdatedBy,
 		); err != nil {
 			return nil, fmt.Errorf("读取祖先链行失败: %w", err)
 		}
@@ -477,6 +493,9 @@ func (r *Repository) ListAncestors(ctx context.Context, taskID string) ([]TaskRe
 }
 
 // UpdateTask 以原子 CAS 更新任务并回读最新 updated_at。
+//
+// updated_by 与 updated_at **在同一条语句里一起推进**：这是本表的一条不变式，
+// 由集成测试 `TestTaskUpdatedByAdvancesWithUpdatedAt` 锁住。
 func (r *Repository) UpdateTask(ctx context.Context, params TaskUpdateParams) (TaskRecord, error) {
 	const query = `
 		UPDATE tasks
@@ -490,6 +509,7 @@ func (r *Repository) UpdateTask(ctx context.Context, params TaskUpdateParams) (T
 		       is_milestone = COALESCE($11, is_milestone),
 		       is_shared    = COALESCE($12, is_shared),
 		       parent_id    = CASE WHEN $13 THEN $14 ELSE parent_id END,
+		       updated_by   = $15,
 		       updated_at   = now()
 		 WHERE id = $1 AND updated_at = $2
 		RETURNING ` + taskReturningColumns
@@ -502,12 +522,13 @@ func (r *Repository) UpdateTask(ctx context.Context, params TaskUpdateParams) (T
 		params.StartDate, params.EndDate,
 		params.IsMilestone, params.IsShared,
 		params.ParentIDSet, params.ParentID,
+		params.ActorID,
 	).Scan(
 		&record.ID, &record.ProjectID, &record.ParentID, &record.CreatedBy,
 		&record.Name, &record.Description, &record.Status, &record.Progress,
 		&record.Priority, &record.StartDate, &record.EndDate,
 		&record.IsMilestone, &record.IsShared, &record.DeletedAt,
-		&record.CreatedAt, &record.UpdatedAt,
+		&record.CreatedAt, &record.UpdatedAt, &record.UpdatedBy,
 	)
 	if err != nil {
 		if apperr.IsNoRows(err) {
@@ -521,20 +542,24 @@ func (r *Repository) UpdateTask(ctx context.Context, params TaskUpdateParams) (T
 // SoftDeleteTask 逻辑删除任务（CAS）。
 //
 // 需求文档 5.4：已产生提醒或操作记录的任务采用逻辑删除。
-func (r *Repository) SoftDeleteTask(ctx context.Context, taskID string, expectedUpdated, deletedAt time.Time) (TaskRecord, error) {
+// 逻辑删除同样是一次修改，因此 updated_by 与 updated_at 一起推进——
+// 谁删的这件事必须能被回答（需求文档 5.8 把删除列为关键操作）。
+func (r *Repository) SoftDeleteTask(
+	ctx context.Context, taskID, actorID string, expectedUpdated, deletedAt time.Time,
+) (TaskRecord, error) {
 	const query = `
 		UPDATE tasks
-		   SET deleted_at = $3, updated_at = now()
+		   SET deleted_at = $3, updated_by = $4, updated_at = now()
 		 WHERE id = $1 AND updated_at = $2 AND deleted_at IS NULL
 		RETURNING ` + taskReturningColumns
 
 	var record TaskRecord
-	err := r.pool.QueryRow(ctx, query, taskID, expectedUpdated, deletedAt).Scan(
+	err := r.pool.QueryRow(ctx, query, taskID, expectedUpdated, deletedAt, actorID).Scan(
 		&record.ID, &record.ProjectID, &record.ParentID, &record.CreatedBy,
 		&record.Name, &record.Description, &record.Status, &record.Progress,
 		&record.Priority, &record.StartDate, &record.EndDate,
 		&record.IsMilestone, &record.IsShared, &record.DeletedAt,
-		&record.CreatedAt, &record.UpdatedAt,
+		&record.CreatedAt, &record.UpdatedAt, &record.UpdatedBy,
 	)
 	if err != nil {
 		if apperr.IsNoRows(err) {

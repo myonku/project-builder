@@ -18,6 +18,7 @@ import (
 
 	"github.com/myonku/project-builder/internal/app/auth"
 	"github.com/myonku/project-builder/internal/app/groups"
+	"github.com/myonku/project-builder/internal/app/planviews"
 	"github.com/myonku/project-builder/internal/app/projects"
 	"github.com/myonku/project-builder/internal/app/tasks"
 	"github.com/myonku/project-builder/internal/app/users"
@@ -155,6 +156,15 @@ func run() error {
 		Logger:   logger,
 	})
 
+	// 计划视图是只读聚合模块：它不依赖 projects/tasks 模块，而是直接读同一批表，
+	// 并调用 domain 的同一个权限函数做逐对象判定（见 planviews 包注释）。
+	planViewsService := planviews.NewService(planviews.Options{
+		Store:     planviews.NewRepository(postgres.Pool),
+		Timezones: usersService,
+		Clock:     clk,
+		Logger:    logger,
+	})
+
 	engine := httpapi.Router(httpapi.Dependencies{
 		Config: cfg,
 		Logger: logger,
@@ -181,6 +191,7 @@ func run() error {
 			groups.NewHandler(groupsService, authHandler, logger),
 			projects.NewHandler(projectsService, authHandler, logger),
 			tasks.NewHandler(tasksService, authHandler, logger),
+			planviews.NewHandler(planViewsService, authHandler, logger),
 		},
 	})
 

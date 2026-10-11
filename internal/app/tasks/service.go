@@ -19,7 +19,7 @@ type Store interface {
 	CountTasks(ctx context.Context, filter ListFilter) (int, error)
 	CreateTaskInTx(ctx context.Context, params CreateTaskParams) (TaskRecord, error)
 	UpdateTask(ctx context.Context, params TaskUpdateParams) (TaskRecord, error)
-	SoftDeleteTask(ctx context.Context, taskID string, expectedUpdated, deletedAt time.Time) (TaskRecord, error)
+	SoftDeleteTask(ctx context.Context, taskID, actorID string, expectedUpdated, deletedAt time.Time) (TaskRecord, error)
 	ListAncestors(ctx context.Context, taskID string) ([]TaskRecord, error)
 
 	FindMember(ctx context.Context, taskID, userID string) (MemberRecord, error)
@@ -467,6 +467,8 @@ func (s *Service) Update(ctx context.Context, in UpdateInput) (TaskRecord, error
 		ParentID:        normalized.ParentID,
 		ParentIDSet:     in.ParentIDSet,
 		ExpectedUpdated: in.ExpectedUpdated,
+		// 最后修改人必须由写路径显式提供：漏传不会报错，字段只会停在旧值上。
+		ActorID: in.ActorID,
 	})
 	if err != nil {
 		return TaskRecord{}, err
@@ -529,6 +531,8 @@ func (s *Service) UpdateDates(ctx context.Context, in UpdateDatesInput) (TaskRec
 		StartDate:       &in.StartDate,
 		EndDate:         &in.EndDate,
 		ExpectedUpdated: in.ExpectedUpdated,
+		// 甘特图拖拽改日期也是一次修改，同样要记录最后修改人。
+		ActorID: in.ActorID,
 	})
 	if err != nil {
 		return TaskRecord{}, err
@@ -568,7 +572,7 @@ func (s *Service) Delete(ctx context.Context, in DeleteInput) (TaskRecord, error
 		return TaskRecord{}, domain.ErrPermissionDenied
 	}
 
-	deleted, err := s.repo.SoftDeleteTask(ctx, in.TaskID, in.ExpectedUpdated, s.clk.Now())
+	deleted, err := s.repo.SoftDeleteTask(ctx, in.TaskID, in.ActorID, in.ExpectedUpdated, s.clk.Now())
 	if err != nil {
 		return TaskRecord{}, err
 	}

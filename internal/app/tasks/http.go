@@ -170,6 +170,13 @@ type taskResponse struct {
 	// MembershipRole 是当前用户在本任务的成员角色；非任务成员时为 null。
 	MembershipRole *string `json:"membership_role"`
 
+	// UpdatedBy 是最近一次修改本任务的用户（需求文档 5.6）。
+	//
+	// 与 updated_at 一起推进：两者描述同一个事件。这里只给出 ID；
+	// 展示用的显示名由计划视图（plan-views）在列表查询里一并 JOIN 出来，
+	// 因为那是一次查询返回整个视图，而单任务响应没有必要为此多查一次用户表。
+	UpdatedBy string `json:"updated_by"`
+
 	UpdatedAt string `json:"updated_at"`
 }
 
@@ -211,6 +218,7 @@ func newTaskResponse(record TaskRecord, today time.Time) taskResponse {
 		IsShared:    record.IsShared,
 		IsOverdue:   domain.IsOverdue(record.EndDate, record.Status, today),
 		DeletedAt:   deletedAt,
+		UpdatedBy:   record.UpdatedBy,
 		UpdatedAt:   domain.FormatTimestamp(record.UpdatedAt),
 	}
 	if record.Membership != nil {

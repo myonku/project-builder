@@ -672,6 +672,64 @@ if ($afterCopy.Body.pagination.total -eq 2) {
     $script:Failures++
 }
 
+# ---------------------------------------------------------------------------
+Write-Step "Plan Views：个人 / 组内 / 甘特图"
+# ---------------------------------------------------------------------------
+
+$personal = Invoke-Api -Method GET -Path '/api/v1/plan-views/personal'
+Assert-Equal $personal.Status 200 'GET /api/v1/plan-views/personal'
+
+$personalProjects = @($personal.Body.data.projects | Where-Object { $_.id -eq $projectId }).Count
+Assert-Equal $personalProjects 1 '个人视图包含刚创建的项目'
+$personalTasks = @($personal.Body.data.tasks | Where-Object { $_.id -eq $taskId }).Count
+Assert-Equal $personalTasks 1 '个人视图包含刚创建的任务'
+
+# 汇总统计必须与返回的条目一致（同一套数据算出，不允许各算一套）。
+Assert-Equal $personal.Body.data.summary.project_count (@($personal.Body.data.projects).Count) 'summary.project_count 与项目条目一致'
+Assert-Equal $personal.Body.data.summary.task_count (@($personal.Body.data.tasks).Count) 'summary.task_count 与任务条目一致'
+
+$groupView = Invoke-Api -Method GET -Path "/api/v1/plan-views/groups/$groupId"
+Assert-Equal $groupView.Status 200 'GET /api/v1/plan-views/groups/{id}'
+Assert-Equal $groupView.Body.data.group_id $groupId 'group_id 回显正确'
+
+$gantt = Invoke-Api -Method GET -Path "/api/v1/plan-views/projects/$projectId/gantt"
+Assert-Equal $gantt.Status 200 'GET /api/v1/plan-views/projects/{id}/gantt'
+Assert-Equal $gantt.Body.data.project.id $projectId 'project.id 与请求一致'
+Assert-Equal $gantt.Body.data.can_edit_tasks $true '项目持有者可编辑任务'
+$ganttTasks = @($gantt.Body.data.tasks | Where-Object { $_.id -eq $taskId }).Count
+Assert-Equal $ganttTasks 1 '甘特图包含该任务'
+
+# 最后修改人（需求文档 5.6）。
+$ganttTask = $gantt.Body.data.tasks | Where-Object { $_.id -eq $taskId }
+Assert-Equal $ganttTask.updated_by $userId '任务的最后修改人为创建者'
+
+# 逐任务的 can_edit 与项目侧一致。
+Assert-Equal $ganttTask.can_edit $true '持有者对任务 can_edit = true'
+
+# 参数校验：未知查询参数必须被拒绝，而不是静默忽略。
+$unknownParam = Invoke-Api -Method GET -Path '/api/v1/plan-views/personal?status=completed'
+Assert-Equal $unknownParam.Status 400 '未知查询参数应 400'
+Assert-Equal $unknownParam.Body.error.code 'invalid_request' 'error.code'
+
+# 甘特图不接受任何筛选参数。
+$ganttFiltered = Invoke-Api -Method GET -Path "/api/v1/plan-views/projects/$projectId/gantt?task_status=completed"
+Assert-Equal $ganttFiltered.Status 400 '甘特图携带筛选参数应 400'
+
+# 时间范围倒置：400 invalid_date_range。
+$invertedRange = Invoke-Api -Method GET -Path '/api/v1/plan-views/personal?due_from=2026-10-31&due_to=2026-10-01'
+Assert-Equal $invertedRange.Status 400 '时间范围倒置应 400'
+Assert-Equal $invertedRange.Body.error.code 'invalid_date_range' 'error.code'
+
+# 不存在的项目：404 project_not_found。
+$missingGantt = Invoke-Api -Method GET -Path '/api/v1/plan-views/projects/00000000-0000-7000-8000-000000000000/gantt'
+Assert-Equal $missingGantt.Status 404 '不存在的项目应 404'
+Assert-Equal $missingGantt.Body.error.code 'project_not_found' 'error.code'
+
+# 非法 UUID 路径：400，而不是 500。
+$badGanttPath = Invoke-Api -Method GET -Path '/api/v1/plan-views/projects/not-a-uuid/gantt'
+Assert-Equal $badGanttPath.Status 400 '非法 project_id 应 400'
+
+# ---------------------------------------------------------------------------
 # 归档项目只读
 $projectDetail = Invoke-Api -Method GET -Path "/api/v1/projects/$projectId"
 $archived = Invoke-Api -Method POST -Path "/api/v1/projects/$projectId/archive" -Body @{

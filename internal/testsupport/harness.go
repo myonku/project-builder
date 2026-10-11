@@ -27,6 +27,7 @@ import (
 
 	"github.com/myonku/project-builder/internal/app/auth"
 	"github.com/myonku/project-builder/internal/app/groups"
+	"github.com/myonku/project-builder/internal/app/planviews"
 	"github.com/myonku/project-builder/internal/app/projects"
 	"github.com/myonku/project-builder/internal/app/tasks"
 	"github.com/myonku/project-builder/internal/app/users"
@@ -373,11 +374,12 @@ type Harness struct {
 	Hasher *platform.PasswordHasher
 
 	// 各域服务，供测试直接调用（绕过 HTTP）或在断言中复用。
-	Auth     *auth.Service
-	Profiles *users.Service
-	Groups   *groups.Service
-	Projects *projects.Service
-	Tasks    *tasks.Service
+	Auth      *auth.Service
+	Profiles  *users.Service
+	Groups    *groups.Service
+	Projects  *projects.Service
+	Tasks     *tasks.Service
+	PlanViews *planviews.Service
 
 	// AuthHandler 同时是 ActorLoader，供调试与断言使用。
 	AuthHandler *auth.Handler
@@ -447,6 +449,12 @@ func NewHarness(t *testing.T) *Harness {
 		Clock:    clk,
 		Logger:   logger,
 	})
+	planViewsService := planviews.NewService(planviews.Options{
+		Store:     planviews.NewRepository(pool),
+		Timezones: usersService,
+		Clock:     clk,
+		Logger:    logger,
+	})
 
 	engine := httpapi.Router(httpapi.Dependencies{
 		Config: cfg,
@@ -463,6 +471,7 @@ func NewHarness(t *testing.T) *Harness {
 			groups.NewHandler(groupsService, authHandler, logger),
 			projects.NewHandler(projectsService, authHandler, logger),
 			tasks.NewHandler(tasksService, authHandler, logger),
+			planviews.NewHandler(planViewsService, authHandler, logger),
 		},
 	})
 
@@ -479,6 +488,7 @@ func NewHarness(t *testing.T) *Harness {
 		Groups:      groupsService,
 		Projects:    projectsService,
 		Tasks:       tasksService,
+		PlanViews:   planViewsService,
 		AuthHandler: authHandler,
 		Router:      engine,
 		Logger:      logger,
