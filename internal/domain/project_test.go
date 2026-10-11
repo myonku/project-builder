@@ -368,7 +368,7 @@ func TestProjectPermission(t *testing.T) {
 
 // TestCanEditProjectTasksHonoursArchive 覆盖归档项目只读。
 //
-// 这是 Python 版本的实测缺陷：归档后仍可修改任务。
+// 这是早期实现的实测缺陷：归档后仍可修改任务。
 func TestCanEditProjectTasksHonoursArchive(t *testing.T) {
 	t.Parallel()
 

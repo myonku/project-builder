@@ -1,7 +1,7 @@
 // Package testsupport 为集成测试提供真实 PostgreSQL / Redis 的装配与清理工具。
 //
 // 设计立场（docs/01-Go服务端架构设计.md 8）：
-// Python 版本的 45 个单元测试全部通过，却没有发现"所有更新/删除端点 500"，
+// 早期实现的 45 个单元测试全部通过，却没有发现"所有更新/删除端点 500"，
 // 因为测试用替身替换掉了真正出错的那一层。因此 Go 版本把集成测试作为常规测试的一部分：
 // 每一条 SQL 查询、每一个数据库约束都必须在真实数据库上被验证过。
 //
@@ -44,7 +44,7 @@ import (
 
 // 默认连接参数与 docker/compose.test.yml 保持一致。
 //
-// 复用的是 Python 版本已在跑的测试依赖栈（PostgreSQL 16 / Redis 7 / Mailpit），
+// 复用的是 早期实现已在跑的测试依赖栈（PostgreSQL 16 / Redis 7 / Mailpit），
 // 因此 Go 版本从第一阶段就具备真实依赖验证能力。
 const (
 	defaultDatabaseDSN = "postgres://project_builder_test:project_builder_test_password@127.0.0.1:15432/project_builder_test?sslmode=disable"

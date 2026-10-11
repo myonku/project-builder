@@ -666,7 +666,7 @@ func (r *Repository) CreateJoinRequest(ctx context.Context, id, groupID, userID 
 
 	if _, err := r.pool.Exec(ctx, insert, id, groupID, userID); err != nil {
 		// group_join_request_identity 冲突：说明已存在一条申请记录。
-		// 这里必须翻译为 409 而不是 500（Python 版本漏掉了这个捕获）。
+		// 这里必须翻译为 409 而不是 500（早期实现漏掉了这个捕获）。
 		return JoinRequestRecord{}, apperr.Translate(err, constraintMap)
 	}
 	return r.FindJoinRequest(ctx, groupID, userID)

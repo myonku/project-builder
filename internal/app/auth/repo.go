@@ -86,7 +86,7 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 
 // CreateUser 插入用户并回读数据库生成的列。
 //
-// 历史缺陷对照：Python 版本在 UPDATE/INSERT 刷新后读取被标记为过期的 ORM 属性，
+// 历史缺陷对照：早期实现在 UPDATE/INSERT 刷新后读取被标记为过期的 ORM 属性，
 // 触发隐式同步 IO 并抛 MissingGreenlet，导致所有写端点 500。
 // 这里统一使用 INSERT ... RETURNING，让 updated_at 由数据库真实生成并被显式回读
 // （见 docs/01-Go服务端架构设计.md 5.1）。

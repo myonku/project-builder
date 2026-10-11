@@ -91,7 +91,7 @@ func Router(deps Dependencies) *gin.Engine {
 	})
 	api.Use(gateway.Middleware())
 
-	// 健康检查是契约端点，挂在版本前缀之下（与 Python 版本路径一致）。
+	// 健康检查是契约端点，挂在版本前缀之下（与既有路径约定一致）。
 	registerHealth(api, deps.Health)
 
 	for _, module := range deps.Modules {
@@ -113,7 +113,7 @@ func registerHealth(api *gin.RouterGroup, health Health) {
 	group := api.Group("/health")
 
 	// /health/check 要求 arg 请求头，是最初的传输层冒烟检查。
-	// 语义与 Python 版本保持一致（缺头返回 422/400 而不是 200）。
+	// 语义与既有约定保持一致（缺头返回 422/400 而不是 200）。
 	group.GET("/check", func(c *gin.Context) {
 		if strings.TrimSpace(c.GetHeader("arg")) == "" {
 			Abort(c, domain.ErrValidation.WithField("arg", "缺少必需的 arg 请求头"))

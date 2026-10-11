@@ -284,7 +284,7 @@ func visibleCondition(userParam int) string {
 // ownerCondition 生成"持有者筛选"条件。
 //
 // 关键点：与"当前用户可见性"无关，必须单独 EXISTS。
-// Python 版本把 owner_id 与当前用户 ID 挤进同一个 JOIN 谓词，
+// 早期实现把 owner_id 与当前用户 ID 挤进同一个 JOIN 谓词，
 // 导致"按持有者筛选"与"可见性"互相污染；这里用独立子查询彻底分开。
 func ownerCondition(paramIndex int) string {
 	return fmt.Sprintf(`EXISTS (SELECT 1 FROM project_members pm_owner
@@ -857,7 +857,7 @@ func (u UserRecord) IsActive() bool { return u.Status == domain.UserStatusActive
 //
 // 每个筛选条件都用独立 EXISTS 子查询，绝不共用同一个 JOIN：
 // 共用 JOIN 会让多个条件落在同一行上，产生"单条件有结果、组合条件恒为空"的缺陷
-// （Python 版本的实测缺陷，见 docs/01 5.3）。
+// （早期实现的实测缺陷，见 docs/01 5.3）。
 func appendProjectFilters(query string, args []any, filter ListFilter) (string, []any) {
 	if filter.GroupID != nil {
 		args = append(args, *filter.GroupID)

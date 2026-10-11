@@ -53,7 +53,7 @@ func TestResolvePageComputesLimitOffset(t *testing.T) {
 
 // TestResolvePageRejectsOutOfRange 是本包最重要的用例之一。
 //
-// Python 版本实测：page_size=500 被接受并原样回显，page=0 返回 200。
+// 早期实现实测：page_size=500 被接受并原样回显，page=0 返回 200。
 // 服务端必须显式拒绝，而不是静默夹取——静默纠正会让客户端
 // 以为自己设置的参数生效了。
 func TestResolvePageRejectsOutOfRange(t *testing.T) {
@@ -168,7 +168,7 @@ func TestSortSpecResolveDirections(t *testing.T) {
 
 // TestSortSpecRejectsUnknownField 覆盖"未知排序字段返回 400"。
 //
-// Python 版本实测 sort 校验后被丢弃、SQL 硬编码 ORDER BY。
+// 早期实现实测 sort 校验后被丢弃、SQL 硬编码 ORDER BY。
 func TestSortSpecRejectsUnknownField(t *testing.T) {
 	t.Parallel()
 

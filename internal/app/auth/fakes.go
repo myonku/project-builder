@@ -10,7 +10,7 @@ import (
 
 // 本文件提供测试替身。放在普通源文件（而非 _test.go）是为了让集成测试与
 // 其他包的测试都能复用。替身刻意实现与真实仓储相同的错误语义，
-// 避免"测试通过但真实实现出错"——这正是 Python 版本的结构性盲区。
+// 避免"测试通过但真实实现出错"——这正是 早期实现的结构性盲区。
 
 // FakeUserRepository 是内存版 UserRepository。
 type FakeUserRepository struct {

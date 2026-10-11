@@ -82,7 +82,7 @@ type RegisterResult struct {
 // Register 执行注册用例。
 //
 // 处理顺序（接口文档 5）：字段校验 → 唯一性检查 → 领域规则 → 事务写入。
-// 注意：注册不自动登录，与 Python 版本行为一致（接口文档 4.2 成功 201）。
+// 注意：注册不自动登录，与 早期实现行为一致（接口文档 4.2 成功 201）。
 func (s *Service) Register(ctx context.Context, in domain.RegistrationInput) (RegisterResult, error) {
 	normalized, fields := domain.NormalizeRegistration(in, s.security.PasswordMinLength)
 	if len(fields) > 0 {

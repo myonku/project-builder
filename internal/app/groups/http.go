@@ -69,7 +69,7 @@ type createRequest struct {
 // updateRequest 对应接口契约 4.4 PATCH /groups/{group_id}。
 //
 // expected_updated_at 为**必填**：契约 2.6 要求更新核心对象必须提交版本。
-// Python 版本把它设为可选，省略即跳过校验，使版本协议静默退化为
+// 早期实现把它设为可选，省略即跳过校验，使版本协议静默退化为
 // last-write-wins（见 docs/06 5.3 的防回归对照）。
 type updateRequest struct {
 	Name            *string            `json:"name"`

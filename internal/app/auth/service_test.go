@@ -382,7 +382,7 @@ func TestLoginRejectsDisabledUser(t *testing.T) {
 
 // TestLoginFailsWhenSessionBackendUnavailable 覆盖 Redis 禁用场景。
 //
-// 历史缺陷对照：Python 版本在关闭 Redis 时 session_store 硬依赖导致全站 500。
+// 历史缺陷对照：早期实现在关闭 Redis 时 session_store 硬依赖导致全站 500。
 // Go 版本要求给出明确错误而不是崩溃。
 func TestLoginFailsWhenSessionBackendUnavailable(t *testing.T) {
 	t.Parallel()

@@ -1,7 +1,6 @@
 package domain
 
 import (
-	"errors"
 	"testing"
 	"time"
 )
@@ -52,7 +51,7 @@ func MustTimestamp(raw string) time.Time {
 }
 
 // requireDomainError 断言 err 是指定错误码的领域错误，并返回该错误以便进一步断言字段明细。
-func requireDomainError(t *testing.T, err error, code ErrorCode) *Error {
+/* func requireDomainError(t *testing.T, err error, code ErrorCode) *Error {
 	t.Helper()
 
 	var domainErr *Error
@@ -63,4 +62,4 @@ func requireDomainError(t *testing.T, err error, code ErrorCode) *Error {
 		t.Fatalf("错误码 = %q，期望 %q（完整错误：%v）", domainErr.Code, code, domainErr)
 	}
 	return domainErr
-}
+} */

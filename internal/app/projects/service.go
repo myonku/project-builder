@@ -300,7 +300,7 @@ type UpdateInput struct {
 // 权限：仅项目持有者可改（需求文档 4.3：组内可编辑允许修改共享任务，
 // 但**不能**修改项目共享权限）。系统管理员可改。
 //
-// 归档项目只读：Python 版本此处有缺陷，可继续修改归档项目。
+// 归档项目只读：早期实现此处有缺陷，可继续修改归档项目。
 func (s *Service) Update(ctx context.Context, actor domain.User, in UpdateInput) (ProjectRecord, error) {
 	normalized, fields := domain.NormalizeProjectUpdate(domain.ProjectUpdateInput{
 		Name:        in.Name,

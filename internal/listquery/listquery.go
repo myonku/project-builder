@@ -1,6 +1,6 @@
 // Package listquery 集中实现列表接口的分页与排序规则。
 //
-// 为什么必须集中：Python 版本在这两处各犯过一次错——
+// 为什么必须集中：早期实现在这两处各犯过一次错——
 //   - page_size=500 被原样接受并回显，page=0 返回 200；
 //   - sort 校验后被丢弃，SQL 硬编码 ORDER BY start_date, id，且没有分页下推。
 //

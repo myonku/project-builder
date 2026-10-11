@@ -17,7 +17,7 @@ import (
 
 // Postgres 包装 pgxpool 连接池。
 //
-// 选择显式 SQL 而非 ORM：Python 版本最严重的缺陷正是 ORM 隐式 IO
+// 选择显式 SQL 而非 ORM：早期实现最严重的缺陷正是 ORM 隐式 IO
 // （更新后读取过期属性触发同步重载 → MissingGreenlet，所有更新/删除端点 500）。
 // Go 版本用 UPDATE ... RETURNING 显式回读，见 docs/01-Go服务端架构设计.md 5.1。
 type Postgres struct {

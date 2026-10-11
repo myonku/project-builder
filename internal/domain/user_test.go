@@ -290,7 +290,7 @@ func TestAsErrorNormalizesUnknownErrors(t *testing.T) {
 	t.Parallel()
 
 	// 未识别的错误必须归一化为 internal_error，否则 HTTP 层会输出裸 500 文本
-	// （Python 版本的实际缺陷，见 docs/01-Go服务端架构设计.md 5.7）。
+	// （早期实现的实际缺陷，见 docs/01-Go服务端架构设计.md 5.7）。
 	cause := errors.New(`pq: relation "users" does not exist`)
 	got := AsError(cause)
 

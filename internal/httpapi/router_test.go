@@ -118,7 +118,7 @@ func requireErrorEnvelope(t *testing.T, recorder *httptest.ResponseRecorder, wan
 // TestErrorCodesAllHaveStatusAndMessage 是本包最重要的用例：
 // 每个领域错误码都必须同时登记状态码与对外文案。
 //
-// 历史缺陷对照：Python 版本只为 500 注册了求解器，其余领域错误全部退化为 500。
+// 历史缺陷对照：早期实现只为 500 注册了求解器，其余领域错误全部退化为 500。
 // 这里用显式断言保证新增错误码时不会漏配映射。
 func TestErrorCodesAllHaveStatusAndMessage(t *testing.T) {
 	t.Parallel()

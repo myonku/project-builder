@@ -78,7 +78,7 @@ func run() error {
 	}()
 
 	// Redis 客户端的 *redis.Client 在未启用时为 nil，会话存储据此报告不可用，
-	// 而不是让整个应用启动失败（历史缺陷对照：Python 版本此处在关闭 Redis 时全站 500）。
+	// 而不是让整个应用启动失败（历史缺陷对照：早期实现此处在关闭 Redis 时全站 500）。
 	var redisRaw = redisClient.Client
 
 	sessionStore := auth.NewRedisSessionStore(redisRaw, redisClient.Enabled, clk)

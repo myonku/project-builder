@@ -170,7 +170,7 @@ func (r *Repository) Pool() *pgxpool.Pool { return r.pool }
 //   - 归档项目仍然可见（只读），因此不在此处排除。
 //
 // 全部使用独立 EXISTS 子查询，绝不与筛选条件共用 JOIN
-// （共用 JOIN 正是 Python 版本组合筛选恒为空的根因，见 docs/01 5.3）。
+// （共用 JOIN 正是 早期实现组合筛选恒为空的根因，见 docs/01 5.3）。
 func visibilityCondition(userParam int) string {
 	user := fmt.Sprintf("$%d", userParam)
 	return fmt.Sprintf(`(
@@ -247,7 +247,7 @@ func (r *Repository) CreateTaskInTx(ctx context.Context, params CreateTaskParams
 // FindTaskForUser 查询任务并附带当前用户的任务成员关系。
 //
 // includeDeleted 为 false 时排除已逻辑删除的任务。
-// **单查与列表必须使用同一套过滤条件**：Python 版本列表过滤了 deleted_at，
+// **单查与列表必须使用同一套过滤条件**：早期实现列表过滤了 deleted_at，
 // 单查没有，导致已删除任务仍可被读取（见 docs/01 5.5）。
 func (r *Repository) FindTaskForUser(ctx context.Context, taskID, userID string, includeDeleted bool) (TaskRecord, error) {
 	query := `
@@ -341,7 +341,7 @@ func (r *Repository) CountTasks(ctx context.Context, filter ListFilter) (int, er
 //
 // 每一位成员条件各用**独立的 EXISTS 子查询**：
 //
-// 反例（Python 版本实测缺陷，docs/01 5.3）：
+// 反例（早期实现实测缺陷，docs/01 5.3）：
 //
 //	JOIN task_members tm ON tm.task_id = t.id
 //	WHERE tm.role = 'owner' AND tm.user_id = $owner AND tm.user_id = $assignee
@@ -374,7 +374,7 @@ func appendMemberFilters(query string, args []any, filter ListFilter) (string, [
 //
 // 组合筛选的正确做法（docs/01 5.3）：每位成员条件各用一个**别名 JOIN**。
 //
-// 反例（Python 版本实测缺陷）：
+// 反例（早期实现实测缺陷）：
 //
 //	JOIN task_members tm ON tm.task_id = t.id
 //	WHERE tm.role = 'owner' AND tm.user_id = $owner AND tm.user_id = $assignee

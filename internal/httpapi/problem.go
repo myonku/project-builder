@@ -81,7 +81,7 @@ func NewListResponse[T any](items []T, pagination Pagination) ListResponse[T] {
 
 // errorStatus 是领域错误码到 HTTP 状态码的唯一映射表。
 //
-// 历史缺陷对照：Python 版本只在 API 层为 500 注册了求解器，其余领域错误
+// 历史缺陷对照：早期实现只在 API 层为 500 注册了求解器，其余领域错误
 // 全部退化为 500（见 docs/01-Go服务端架构设计.md 5.7）。这里用一张显式表格
 // 覆盖全部错误码，并由 problem_test.go 断言"每个错误码都有映射"。
 var errorStatus = map[domain.ErrorCode]int{

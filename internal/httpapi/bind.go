@@ -17,7 +17,7 @@ import (
 
 // BindJSON 解析并校验 JSON 请求体，把框架绑定错误统一转换为领域错误。
 //
-// 历史缺陷对照：Python 版本使用 lihil/msgspec，校验元数据对 JSON body 静默失效
+// 历史缺陷对照：早期实现使用 lihil/msgspec，校验元数据对 JSON body 静默失效
 // （page_size=9999 与 page=0 均通过），且未注册求解器的异常直接以纯文本 500 返回。
 // 这里把三类失败分别映射到契约规定的错误码：
 //   - 请求体不是合法 JSON / 类型不符 → 400 invalid_request；

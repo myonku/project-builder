@@ -209,7 +209,7 @@ func TestGroupJoinRequestLifecycle(t *testing.T) {
 	})
 
 	t.Run("重复审核返回 409", func(t *testing.T) {
-		// Python 版本此处漏捕 IntegrityError，实测返回 500。
+		// 早期实现此处漏捕 IntegrityError，实测返回 500。
 		response := owner.Client.Post(
 			URL("/groups/"+groupID+"/join-requests/"+applicant.UserID+"/review"),
 			map[string]any{"status": "approved"})
@@ -351,7 +351,7 @@ func TestGroupUpdateUsesVersionConflict(t *testing.T) {
 	}
 
 	t.Run("省略 expected_updated_at 被拒绝", func(t *testing.T) {
-		// Python 版本把该字段设为可选，省略即跳过校验，使版本协议静默退化。
+		// 早期实现把该字段设为可选，省略即跳过校验，使版本协议静默退化。
 		response := owner.Client.Patch(URL("/groups/"+groupID), map[string]any{"name": "新名字"})
 		response.RequireStatus(t, http.StatusUnprocessableEntity)
 		response.RequireCode(t, "validation_error")
@@ -429,7 +429,7 @@ func TestGroupListPaginationAndSorting(t *testing.T) {
 	})
 
 	t.Run("page_size 超限被拒绝", func(t *testing.T) {
-		// Python 版本实测 page_size=500 被接受并原样回显。
+		// 早期实现实测 page_size=500 被接受并原样回显。
 		response := owner.Client.Post(URL("/groups/query"), map[string]any{"page_size": 500})
 		response.RequireStatus(t, http.StatusBadRequest)
 		response.RequireCode(t, "invalid_request")
@@ -437,7 +437,7 @@ func TestGroupListPaginationAndSorting(t *testing.T) {
 	})
 
 	t.Run("page 为 0 被拒绝", func(t *testing.T) {
-		// Python 版本实测 page=0 返回 200。
+		// 早期实现实测 page=0 返回 200。
 		response := owner.Client.Post(URL("/groups/query"), map[string]any{"page": 0})
 		response.RequireStatus(t, http.StatusBadRequest)
 		response.RequireCode(t, "invalid_request")
@@ -445,7 +445,7 @@ func TestGroupListPaginationAndSorting(t *testing.T) {
 	})
 
 	t.Run("未知排序字段被拒绝", func(t *testing.T) {
-		// Python 版本实测 sort 校验后被丢弃，SQL 硬编码 ORDER BY。
+		// 早期实现实测 sort 校验后被丢弃，SQL 硬编码 ORDER BY。
 		response := owner.Client.Post(URL("/groups/query"), map[string]any{"sort": "nonsense"})
 		response.RequireStatus(t, http.StatusBadRequest)
 		response.RequireCode(t, "invalid_request")

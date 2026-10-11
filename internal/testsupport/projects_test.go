@@ -172,7 +172,7 @@ func TestProjectOverdueTaskCountIsDerived(t *testing.T) {
 
 // TestProjectArchiveMakesProjectReadOnly 验证归档项目只读。
 //
-// 这是 Python 版本的实测缺陷：`_can_manage_task` 不检查 project.status，
+// 这是早期实现的实测缺陷：`_can_manage_task` 不检查 project.status，
 // 归档项目仍可被修改。
 func TestProjectArchiveMakesProjectReadOnly(t *testing.T) {
 	harness := NewHarness(t)

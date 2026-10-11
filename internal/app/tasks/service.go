@@ -496,7 +496,7 @@ func (s *Service) Update(ctx context.Context, in UpdateInput) (TaskRecord, error
 // UpdateDatesInput 是甘特图日期编辑的用例输入。
 //
 // 接口契约 4.6：PATCH /tasks/{task_id}/dates —— 只允许改日期。
-// Python 版本该端点接受了全量任务字段，导致名称/状态/进度可被"仅日期"端点修改；
+// 早期实现该端点接受了全量任务字段，导致名称/状态/进度可被"仅日期"端点修改；
 // 这里通过独立的输入结构在类型层面收敛字段集合。
 type UpdateDatesInput struct {
 	TaskID          string
@@ -613,7 +613,7 @@ type CopyInput struct {
 // 需求文档 5.4：首期复制任务简化为复制基础字段，不复制提醒发送记录。
 //
 // 幂等（docs/01 5.6）：Idempotency-Key 必须持久化并带唯一约束。
-// Python 版本完全未实现该机制，实测同一 key 连续两次 copy 会产生两个任务。
+// 早期实现完全未实现该机制，实测同一 key 连续两次 copy 会产生两个任务。
 func (s *Service) Copy(ctx context.Context, in CopyInput) (TaskRecord, bool, error) {
 	source, err := s.repo.FindTaskForUser(ctx, in.TaskID, in.ActorID, false)
 	if err != nil {

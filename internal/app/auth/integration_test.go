@@ -21,7 +21,7 @@ import (
 // 本文件是 Auth 域的集成测试：请求经由真实的 gin 路由、真实的 PostgreSQL 仓储
 // 与真实的 Redis 会话存储，不使用任何替身。
 //
-// 这正是不足之处的对症补强：Python 版本的 45 个测试全部使用内存 fake，
+// 这正是不足之处的对症补强：早期实现的 45 个测试全部使用内存 fake，
 // 因此"所有更新端点 500"这类缺陷从未被触碰（backend/服务端推进计划.md 3.4）。
 
 func init() {
@@ -635,7 +635,7 @@ func TestMalformedJSONIs400NotInternalError(t *testing.T) {
 
 // TestUnknownFieldIsRejected 验证未知字段被显式拒绝。
 //
-// 这条规则直接对应一个历史缺陷：Python 版本因校验元数据静默失效，
+// 这条规则直接对应一个历史缺陷：早期实现因校验元数据静默失效，
 // 客户端把 expected_updated_at 拼错后会静默退化为 last-write-wins。
 // 显式拒绝未知字段让这类错误立刻暴露。
 func TestUnknownFieldIsRejected(t *testing.T) {

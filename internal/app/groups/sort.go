@@ -8,7 +8,7 @@ import (
 //
 // 每个条目都是硬编码的"客户端字段名 → 数据库列名"映射：
 // 列名永不来自用户输入，这是 SQL 注入的第一道防线，
-// 同时保证"未知排序字段返回 400"而不是被静默丢弃（Python 版本的缺陷）。
+// 同时保证"未知排序字段返回 400"而不是被静默丢弃（早期实现的缺陷）。
 var (
 	// GroupSort 用于 POST /groups/query。
 	GroupSort = listquery.NewSortSpec([]listquery.SortField{

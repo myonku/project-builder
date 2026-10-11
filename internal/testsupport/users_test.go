@@ -204,7 +204,7 @@ func TestUserProfileStatusAndRoleAreAdminOnly(t *testing.T) {
 //
 // 第二阶段实测到的最危险缺陷是"归一化丢字段"：请求返回 200、updated_at 正常推进，
 // 但目标字段静默未更新——没有错误码、没有 5xx，人工点测几乎必然漏过
-// （docs/06-迁移进度与验证.md 5.5 第 5 条）。因此这里一次性提供全部 6 个可改字段，
+// （docs/06-进度与验证记录.md 5.5 第 5 条）。因此这里一次性提供全部 6 个可改字段，
 // 并逐字段断言它们**确实生效**，而不是只看状态码。
 func TestUserProfileUpdateAppliesEveryProvidedField(t *testing.T) {
 	harness := NewHarness(t)

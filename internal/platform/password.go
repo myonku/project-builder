@@ -14,7 +14,7 @@ import (
 // Argon2 参数。默认值对齐 OWASP 对 Argon2id 的建议（19 MiB、t=2、p=1）；
 // 这里取更高的内存与并行度，作为内部系统的安全余量。
 //
-// 摘要格式与 Python 版本的 argon2-cffi 一致（PHC 字符串），
+// 摘要格式与 早期实现的 argon2-cffi 一致（PHC 字符串），
 // 便于两边在过渡期互相校验同一批摘要。
 type Argon2Params struct {
 	// Memory 单位 KiB。

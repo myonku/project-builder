@@ -94,7 +94,7 @@ type updateRequest struct {
 // updateDatesRequest 对应 PATCH /tasks/{task_id}/dates（甘特图日期编辑）。
 //
 // 只包含日期与版本，**不接受**名称/状态/进度等字段。
-// Python 版本该端点复用了全量任务更新结构，导致"仅日期"端点能改名称与状态。
+// 早期实现该端点复用了全量任务更新结构，导致"仅日期"端点能改名称与状态。
 type updateDatesRequest struct {
 	StartDate       httpapi.Date       `json:"start_date"`
 	EndDate         httpapi.Date       `json:"end_date"`

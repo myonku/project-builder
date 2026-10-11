@@ -24,7 +24,7 @@ type Redis struct {
 //
 // 当 cfg.Enabled 为 false 时返回 Enabled=false 的空对象且不报错。
 //
-// 历史缺陷对照：Python 版本在关闭 Redis 时 session_store 仍强制要求资源，
+// 历史缺陷对照：早期实现在关闭 Redis 时 session_store 仍强制要求资源，
 // 导致全站 500（见 backend/服务端推进计划.md 3.3）。
 func NewRedis(ctx context.Context, cfg config.RedisConfig, logger *slog.Logger) (*Redis, error) {
 	if !cfg.Enabled {

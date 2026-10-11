@@ -2,7 +2,7 @@
 //
 // 为什么必须集中：数据库约束是并发写入的最终保证，但它抛出的是 SQLSTATE 与约束名。
 // 如果各仓储各自判断，必然出现"同一个约束在一处翻译成 409、在另一处漏掉变成 500"。
-// Python 版本的 `review_join_request` 就漏掉了对 IntegrityError 的捕获，实测返回 500。
+// 早期实现的 `review_join_request` 就漏掉了对 IntegrityError 的捕获，实测返回 500。
 package apperr
 
 import (

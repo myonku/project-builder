@@ -218,7 +218,7 @@ func (u UserProfileUpdate) HasChanges() bool {
 //
 //  1. nil 表示"未提供"，归一化**不得**把已提供的字段变成 nil。
 //     漏传字段会让更新被静默忽略：没有错误、没有 5xx，只有一个字段没生效
-//     （见 docs/06-迁移进度与验证.md 5.5 第 5 条）。调用方另有 assertNotDropped 断言。
+//     （见 docs/06-进度与验证记录.md 5.5 第 5 条）。调用方另有 assertNotDropped 断言。
 //  2. 只有显式提供的字符串才参与校验；未提供的字段不产生任何字段级错误。
 func NormalizeUserProfileUpdate(in UserProfileUpdate) (UserProfileUpdate, map[string]string) {
 	fields := map[string]string{}

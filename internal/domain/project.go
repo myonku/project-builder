@@ -37,7 +37,7 @@ type Project struct {
 // IsArchived 报告项目是否已归档。
 //
 // 归档语义：默认不出现在活动列表中，且项目变为**只读**
-// （需求文档 5.3；Python 版本漏掉了只读这一半，实测可继续改任务）。
+// （需求文档 5.3；早期实现漏掉了只读这一半，实测可继续改任务）。
 func (p Project) IsArchived() bool {
 	return p.Status == ProjectStatusArchived || p.ArchivedAt != nil
 }
@@ -47,7 +47,7 @@ func (p Project) IsReadOnly() bool { return p.IsArchived() }
 
 // ArchivedError 返回"归档项目只读"的统一错误。
 //
-// Python 版本在此处有缺陷：`_can_manage_task` 不检查 project.status，
+// 早期实现在此处有缺陷：`_can_manage_task` 不检查 project.status，
 // 导致归档项目仍可被修改。Go 版本把该判断收敛到领域层，用例层必须显式调用它，
 // 而不是各自写一句 if 判断。
 func ArchivedError() error {
@@ -238,7 +238,7 @@ func (m ProjectMember) IsOwner() bool { return m.Role == MemberRoleOwner }
 //     对管理员一样生效。
 //   - 由用例层传入的 actor 必须携带真实的 SystemRole。早期实现各处传
 //     domain.User{ID: actorID}，角色恒为空，于是"管理员放行"写了却没生效——
-//     本仓库把这称为同一类缺陷，见 docs/06-迁移进度与验证.md 5.12。
+//     本仓库把这称为同一类缺陷，见 docs/06-进度与验证记录.md 5.12。
 func ProjectPermission(project Project, actor User, member *ProjectMember, group Group, groupMembership *GroupMember) Permission {
 	if actor.IsAdmin() {
 		return PermManage
@@ -282,7 +282,7 @@ func CanManageProject(project Project, actor User, member *ProjectMember) bool {
 
 // CanEditProjectTasks 报告 actor 能否修改该项目下的任务。
 //
-// 归档项目只读：无论什么权限都不可编辑（Python 版本此处有缺陷）。
+// 归档项目只读：无论什么权限都不可编辑（早期实现此处有缺陷）。
 func CanEditProjectTasks(project Project, permission Permission) bool {
 	if project.IsReadOnly() {
 		return false

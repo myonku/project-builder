@@ -64,8 +64,8 @@ func TestMigrationsApplyFromEmptyDatabase(t *testing.T) {
 // TestMigrationsAreReversible 验证 down 可回退且回退后可再次 up。
 //
 // 验收要求（docs/02-数据库模型与迁移.md 6.2）：迁移 down 可回退，且回退后 up 可再次成功。
-// 这是 Go 版本相对 Python 版本新增的强制验证：Python 的 downgrade 只是"写过"，
-// 从未在 CI 中被真正执行过。
+// 这条验证是硬性要求：down 不能只"写过"，必须**在真实数据库上执行**。
+// 早期实现只保证 down 文件存在，从未真正跑过一次回退。
 func TestMigrationsAreReversible(t *testing.T) {
 	// 确认依赖可达（不可达则跳过）。
 	pool := EnsureMigrated(t)
@@ -119,7 +119,7 @@ func TestMigrationsAreReversible(t *testing.T) {
 // TestSchemaMatchesDocumentedShape 验证关键列类型与文档一致。
 //
 // 重点是历史上出过错的地方：projects.archived_at 必须是带时区类型
-// （Python 版本曾建成不带时区，靠 0004_archive_timestamp 修正）。
+// （早期实现曾建成不带时区，靠 0004_archive_timestamp 修正）。
 func TestSchemaMatchesDocumentedShape(t *testing.T) {
 	pool := EnsureMigrated(t)
 

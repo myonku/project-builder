@@ -12,7 +12,7 @@ import (
 // TestTaskCombinedMembershipFilter 是本项目最重要的防回归用例。
 //
 // 历史缺陷（docs/01 5.3）：`owner_id` 与 `assignee_id` 同时给出时，
-// Python 版本把两个谓词放在同一张成员表的同一行上，要求同一个人既是 owner
+// 早期实现把两个谓词放在同一张成员表的同一行上，要求同一个人既是 owner
 // 又是 assignee，结果恒为空——实测"单条件各返回 1 条，组合返回 0 条"。
 //
 // 正确做法是每个成员条件各用一个别名 JOIN（本实现用独立 EXISTS 子查询达成同一效果）。
@@ -78,7 +78,7 @@ func TestTaskCombinedMembershipFilter(t *testing.T) {
 
 // TestTaskSoftDeleteIsConsistentBetweenDetailAndList 验证逻辑删除在单查与列表上行为一致。
 //
-// 历史缺陷（docs/01 5.5）：Python 版本列表过滤了 deleted_at，单查没有，
+// 历史缺陷（docs/01 5.5）：早期实现列表过滤了 deleted_at，单查没有，
 // 导致已删除任务仍可被读取。
 func TestTaskSoftDeleteIsConsistentBetweenDetailAndList(t *testing.T) {
 	harness := NewHarness(t)
@@ -131,7 +131,7 @@ func TestTaskSoftDeleteIsConsistentBetweenDetailAndList(t *testing.T) {
 
 // TestTaskCopyIdempotency 验证 Idempotency-Key 真正去重。
 //
-// 历史缺陷（docs/01 5.6）：Python 版本完全未实现该机制，
+// 历史缺陷（docs/01 5.6）：早期实现完全未实现该机制，
 // 同一 key 连续两次 copy 产生两个任务。
 func TestTaskCopyIdempotency(t *testing.T) {
 	harness := NewHarness(t)
@@ -280,7 +280,7 @@ func TestTaskHierarchyLimits(t *testing.T) {
 
 // TestTaskDatesEndpointOnlyAcceptsDates 验证甘特图日期端点字段收敛。
 //
-// Python 版本该端点接受全量任务字段，导致名称/状态/进度可被"仅日期"端点修改。
+// 早期实现该端点接受全量任务字段，导致名称/状态/进度可被"仅日期"端点修改。
 func TestTaskDatesEndpointOnlyAcceptsDates(t *testing.T) {
 	harness := NewHarness(t)
 	owner := harness.RegisterAndLogin(t, "alice")
