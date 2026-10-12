@@ -1,6 +1,16 @@
 # 集成测试与本地联调配置
 #
-# 与 config.toml 的差异只在于指向测试依赖的端口与凭据。
+# 与 config.toml 的差异（不止端口与凭据）：
+#   * 指向测试依赖：PostgreSQL 15432、Redis 16379、Mailpit 11025；
+#   * storage.local_root 用 ./var/test-uploads，避免污染开发用的 ./data/uploads；
+#   * mail 指向 Mailpit 且启用，便于**观察真实投递**而不外发；
+#   * scheduler 关闭：本配置的用途是人工联调，不需要后台周期派发；
+#   * 显式启用引导管理员，使管理员端点可用。
+#
+# ⚠️ **不要用它跑 scripts/smoke.ps1**：脚本断言的是"邮件未启用 → 提醒记为 skipped"，
+#    且对"调度器已生成提醒"只轮询 30 秒。冒烟请用 `make run-test-config` + `make smoke`
+#    （见 docs/06-进度与验证记录.md 7.0.1 第 4 条坑）。
+#
 # 用法：
 #   $env:APP_CONFIG_FILE = "docker/config.test.toml"
 #   go run ./cmd/api

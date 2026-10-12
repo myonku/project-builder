@@ -1,7 +1,7 @@
 -- 001_init.up.sql
 -- 项目/计划管理系统初始 schema。
 --
--- 本迁移把 Python 版本迁移链中的 6 个 revision 合并为一组干净的初始迁移
+-- 本迁移把早期实现迁移链中的 6 个 revision 合并为一组干净的初始迁移
 -- （见 docs/02-数据库模型与迁移.md 4）：
 --   0001_persistence_base（空基线）与 0004_archive_timestamp（类型修正）只是历史演进产物，
 --   新项目从零开始直接按最终形态建表更清晰，且生产环境尚未部署，不存在迁移兼容负担。
@@ -130,7 +130,7 @@ CREATE TABLE projects (
     start_date  DATE         NOT NULL,
     end_date    DATE         NOT NULL,
     color       VARCHAR(32)  NULL,
-    -- 必须是带时区类型。Python 版本曾把它建成不带时区，靠 0004_archive_timestamp 修正。
+    -- 必须是带时区类型。早期实现曾把它建成不带时区，靠后续迁移 0004_archive_timestamp 修正。
     archived_at TIMESTAMPTZ  NULL,
     CONSTRAINT pk_projects PRIMARY KEY (id),
     CONSTRAINT ck_projects_project_status CHECK (
@@ -249,7 +249,7 @@ CREATE INDEX ix_task_members_user_id ON task_members (user_id);
 -- ---------------------------------------------------------------------------
 -- idempotency_keys
 -- ---------------------------------------------------------------------------
--- 历史缺陷对照：Python 版本完全未实现 Idempotency-Key，同一 key 连续两次
+-- 历史缺陷对照：早期实现完全未实现 Idempotency-Key，同一 key 连续两次
 -- POST /tasks/{id}/copy 会产生两个任务。本表提供持久化 + 唯一约束作为最终保证。
 CREATE TABLE idempotency_keys (
     id                  UUID         NOT NULL,

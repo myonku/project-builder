@@ -13,8 +13,10 @@ import (
 
 // Redis 包装 Redis 客户端。
 //
-// 边界（全局基线约定 9、服务端设计 2）：Redis 只保存会话、限流与短期锁，
-// 不保存核心业务唯一数据。Redis 关闭时应用仍应可启动，由调用方判断 Enabled。
+// 边界（全局基线约定 9、docs/01-Go服务端架构设计.md 3）：Redis 只保存可重建的
+// 短期状态——当前只有会话；限流是已登记但尚未实现的能力（见 docs/06 §7.4 第 4 项）。
+// 核心业务数据一律以 PostgreSQL 为唯一事实来源。Redis 关闭时应用仍应可启动，
+// 由调用方判断 Enabled。
 type Redis struct {
 	Client  *redis.Client
 	Enabled bool
@@ -25,7 +27,8 @@ type Redis struct {
 // 当 cfg.Enabled 为 false 时返回 Enabled=false 的空对象且不报错。
 //
 // 历史缺陷对照：早期实现在关闭 Redis 时 session_store 仍强制要求资源，
-// 导致全站 500（见 backend/服务端推进计划.md 3.3）。
+// 导致全站 500（见 docs/01-Go服务端架构设计.md 5 与
+// internal/app/auth/service_test.go 的 TestLoginFailsWhenSessionBackendUnavailable）。
 func NewRedis(ctx context.Context, cfg config.RedisConfig, logger *slog.Logger) (*Redis, error) {
 	if !cfg.Enabled {
 		logger.Warn("Redis 已禁用：会话功能不可用，相关端点将返回 503")

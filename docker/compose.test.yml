@@ -1,7 +1,8 @@
 # 集成测试依赖：PostgreSQL 16 / Redis 7 / Mailpit
 #
-# 本文件与 Python 版本 backend/docker/compose.test.yml 保持一致的端口与凭据，
-# 便于两个版本共用同一套已运行的测试依赖，也便于对照验证。
+# 端口与凭据集中在 docker/test.env，并被集成测试的默认 DSN
+# （internal/testsupport）与 Makefile 的测试目标复用，因此同一套依赖
+# 可以被反复重建而不必改代码或配置。
 #
 # 用法：
 #   docker compose --env-file docker/test.env -f docker/compose.test.yml up -d
@@ -48,8 +49,10 @@ services:
     networks:
       - project_builder_test
 
-  # Mailpit 供后续 Reminders 阶段的邮件集成测试使用；
-  # 当前阶段不发送邮件，但保持依赖栈完整，避免阶段切换时改基础设施。
+  # Mailpit 供 Reminders 的邮件集成测试使用：把 mail.host/port 指向它即可
+  # 在不外发的前提下观察真实投递结果（SMTP 127.0.0.1:11025，Web 127.0.0.1:18025）。
+  # 注意：scripts/smoke.ps1 断言的是"邮件未启用 → skipped"，因此冒烟不要指向 Mailpit
+  # （见 docs/06 §7.0.1 第 4 条坑）。
   mailpit:
     image: axllent/mailpit:v1.27.8
     ports:

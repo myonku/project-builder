@@ -1,11 +1,14 @@
-# 端到端冒烟检查：健康检查 + 注册 / 登录 / 当前用户 / 登出。
+# 端到端冒烟检查：健康检查、认证、用户/工作组/项目/任务、计划视图、附件、提醒。
 #
-# 用途：在真实依赖上验证"服务能启动且 Auth 链路可用"，作为端到端验收的最小证据。
-# 前提：服务已启动（make run-test-config 或 make run）。
+# 用途：在真实依赖上验证"服务能启动且各域链路可用"，作为端到端验收的最小证据。
+# 前提：服务已按 make run-test-config 启动（127.0.0.1:8000）——它同时注入
+#       引导管理员凭据与 SCHEDULER_INTERVAL_SECONDS=5，后者是本脚本"提醒"小节的前提。
+#       换用其他配置（例如 docker/config.test.toml）会在提醒小节稳定失败，见 docs/06 §7.0.1。
 #
 # 用法：
+#   make smoke
 #   pwsh -File ./scripts/smoke.ps1
-#   pwsh -File ./scripts/smoke.ps1 -BaseUrl http://127.0.0.1:8001
+#   pwsh -File ./scripts/smoke.ps1 -BaseUrl http://127.0.0.1:8000
 
 [CmdletBinding()]
 param(
@@ -13,7 +16,7 @@ param(
     # 每次运行使用唯一用户名，避免重复注册导致 409。
     [string]$Username = "smoke_$([DateTime]::UtcNow.ToString('yyyyMMddHHmmss'))",
     # 引导管理员凭据：默认值对应 make run-test-config 注入的测试配置
-    # （docker/config.test.toml 与 Makefile 中的 TEST_BOOTSTRAP_ADMIN_*）。
+    # （Makefile 中的 TEST_BOOTSTRAP_ADMIN_*）。
     # 管理员端点的成功路径需要它；缺失时该小节会给出可操作的失败提示。
     [string]$AdminUsername = "bootstrap_admin",
     [string]$AdminPassword = "bootstrap_admin_test_password"

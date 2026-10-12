@@ -8,10 +8,10 @@
 - 业务需求以[《需求文档》](./00-需求文档.md)为准。
 - 数据库与配置基线见《02-数据库模型与迁移.md》《03-配置与运行.md》。
 - 本文档是**对外行为的唯一权威描述**：端点、字段、错误码与校验顺序均以本文档为准。
-  两者的公共约定（2.x 节）逐条一致；本文档额外记录**已实现端点的实测响应**，
-  并对开发过程中的契约加强项给出明确标记。
+  已实现端点的实测响应直接记录在对应小节里，容易做错的契约加强项在 §6 汇总。
 
-对应实现：`internal/httpapi/`、`internal/app/*/http.go`。
+对应实现：`internal/httpapi/`（router、middleware、problem、session、cors）、
+`internal/app/*/http.go`（各域路由与绑定）、`internal/app/reminders/dispatcher.go`（后台派发循环）。
 
 ## 2. 公共约定
 
@@ -140,14 +140,14 @@
 | `401` | `invalid_credentials` | 凭据错误。**不区分**账号不存在与密码错误 |
 | `403` | `permission_denied` | 已登录但无权操作；也用于停用用户登录 |
 | `404` | `resource_not_found` | 对象不存在或不可见 |
-| `404` | `user_not_found` / `group_not_found` / `project_not_found` / `task_not_found` | 域内精确不存在 |
+| `404` | `user_not_found` / `group_not_found` / `project_not_found` / `task_not_found` / `attachment_not_found` / `reminder_not_found` | 域内精确不存在 |
 | `409` | `conflict` | 状态、重复或并发冲突 |
 | `409` | `duplicate_member` | 重复成员关系 |
 | `409` | `version_conflict` | `expected_updated_at` 不匹配 |
 | `413` | `file_too_large` | 文件超过限制 |
 | `415` | `unsupported_media_type` | 媒体类型不支持 |
 | `422` | `validation_error` | 字段校验失败，带 `fields` |
-| `429` | `rate_limited` | 超出限流 |
+| `429` | `rate_limited` | 超出限流。**已登记但尚无实现**：全仓库没有限流中间件，也没有产生点；补实现或从本表降级，已登记为待决策（见《06》7.4 第 4 项） |
 | `500` | `internal_error` | 未预期服务端错误 |
 
 错误不得暴露密码、令牌、数据库语句、内部堆栈或物理路径。
@@ -156,6 +156,9 @@
 > 并由 `TestEveryDomainErrorConstantIsMapped` 与 `TestErrorCodesAllHaveStatusAndMessage`
 > 断言"每个错误码都已登记状态码与对外文案"。新增错误码时若漏配，测试立即失败。
 > 未识别的错误统一兜底为 500 `internal_error`。
+>
+> 本表与 `domain/errors.go` 的常量**逐条对应**（`CodeAttachmentNotFound`、
+> `CodeReminderNotFound` 于 Attachments / Reminders 阶段加入，2026-10-12 补登本表）。
 
 ### 2.5 分页、筛选和排序
 
@@ -324,10 +327,10 @@ RETURNING id, updated_at;
 
 ## 4. API 域和端点
 
-**已实现**：Health、Auth、Users、Groups、Projects、Tasks、Plan Views。以下未标注"✅ 已实现"的端点属于规划范围。
+**已实现**：Health、Auth、Users、Groups、Projects、Tasks、Plan Views、Attachments、Reminders（共 58 个端点，清单见《06》第 2 节）。以下未标注"✅ 已实现"的端点属于规划范围。
 
-> 第二阶段（Groups / Projects / Tasks）与第三阶段的 Users / Plan Views 已完成，
-> 并经真实 PostgreSQL 16 + Redis 7 验证。实现状态与验证证据见《06-进度与验证记录.md》。
+> 第一至第三阶段的全部模块除 **Audit**（§4.10）外均已完成，并经真实 PostgreSQL 16 + Redis 7 验证。
+> 实现状态与验证证据见《06-进度与验证记录.md》。
 
 ### 4.1 Health ✅ 已实现
 
@@ -869,13 +872,13 @@ RETURNING id, updated_at;
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| `POST` | `/projects/{project_id}/attachments` | 上传项目附件（`multipart/form-data`，字段名 `file`） |
-| `POST` | `/projects/{project_id}/attachments/query` | 项目附件列表（分页、排序、逻辑删除视角） |
-| `POST` | `/tasks/{task_id}/attachments` | 上传任务附件（同上） |
-| `POST` | `/tasks/{task_id}/attachments/query` | 任务附件列表 |
-| `GET` | `/attachments/{attachment_id}/download` | 下载；**重新校验权限** |
-| `DELETE` | `/attachments/{attachment_id}` | 逻辑删除 |
-| `POST` | `/attachments/{attachment_id}/purge` | 彻底删除（仅限**已逻辑删除**的附件） |
+| `POST` | `/api/v1/projects/{project_id}/attachments` | 上传项目附件（`multipart/form-data`，字段名 `file`） |
+| `POST` | `/api/v1/projects/{project_id}/attachments/query` | 项目附件列表（分页、排序、逻辑删除视角） |
+| `POST` | `/api/v1/tasks/{task_id}/attachments` | 上传任务附件（同上） |
+| `POST` | `/api/v1/tasks/{task_id}/attachments/query` | 任务附件列表 |
+| `GET` | `/api/v1/attachments/{attachment_id}/download` | 下载；**重新校验权限** |
+| `DELETE` | `/api/v1/attachments/{attachment_id}` | 逻辑删除 |
+| `POST` | `/api/v1/attachments/{attachment_id}/purge` | 彻底删除（仅限**已逻辑删除**的附件） |
 
 **附件对象**
 
@@ -934,9 +937,9 @@ RETURNING id, updated_at;
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| `GET` | `/reminders` | 提醒列表；查询参数 `kind`、`task_id`、`page`、`page_size`、`sort` |
-| `GET` | `/reminders/{reminder_id}` | 提醒详情 |
-| `POST` | `/reminders/{reminder_id}/retry` | 重新排入待发送（仅 `failed` / `skipped`） |
+| `GET` | `/api/v1/reminders` | 提醒列表；查询参数 `kind`、`task_id`、`page`、`page_size`、`sort` |
+| `GET` | `/api/v1/reminders/{reminder_id}` | 提醒详情 |
+| `POST` | `/api/v1/reminders/{reminder_id}/retry` | 重新排入待发送（仅 `failed` / `skipped`） |
 
 **提醒对象**
 
@@ -1050,3 +1053,5 @@ API 层只负责请求解析、响应序列化与错误映射，不直接查询�
 | 2026-10-11 | 4.5 / 4.6 修正**持有者转移**语义：`role: owner` 表示同事务内先降现任、再升目标的转移；补记转移目标必须是有效用户、已被拒绝的情形与回滚保证 | 修复"持有者永远无法变更"（`promote` 恒被拒绝、`demote` 恒被拒绝，而文案却让用户先转移）：需求文档 5.4 明确把"修改持有者"列为任务支持的编辑项 |
 | 2026-10-11 | 4.8 Attachments 由规划改为**已实现**：7 个端点的完整字段表、删除视角参数、权限继承规则、上传错误码表、配额口径与存储约定；新增 3 条契约加强项；原 4.8 中的 Reminders/Audit 顺延为 4.9 | 第三阶段 Attachments 落地。其中"逻辑删除后的可见性"（上传者/持有者/管理员）与"彻底删除"是人工确认的规则 |
 | 2026-10-11 | 4.4 新增**工作组所有权转移**（`PATCH /groups/{id}` 的 `owner_id`，同事务改写 manager 投影）；4.4–4.6 补齐**系统管理员放行**及其边界；新增 2 条契约加强项 | 落实"业务中的权限校验逻辑都允许对管理员放行"这一规则（见 docs/01 §5.9），并把工作组所有权也纳入可转移范围 |
+| 2026-10-11 | 4.9 Reminders 由规划改为**已实现**：三个端点的字段表、`skipped` / `failed` / `pending` / `sent` 状态语义与重试规则、生成规则（周期扫描、工作日、收件人范围、事件型提醒）、邮件内容要求 | 第三阶段 Reminders 落地（**补记**：本行原缺，2026-10-12 对齐轮补上） |
+| 2026-10-12 | **对齐轮**：§2.4 错误码表补 `attachment_not_found` / `reminder_not_found` 并标注 `429` 尚无实现；§4 已实现清单补 Attachments / Reminders 与端点总数；§4.8 / §4.9 路径补全 `/api/v1` 前缀；§1 修正残缺句子与实现位置说明 | 契约表与 `domain/errors.go` 不再"逐条对应"、状态基线与 §4.8/4.9 自相矛盾、同一文档内路径写法不一致；按"先改契约再改代码"的约定先对齐 |

@@ -6,7 +6,7 @@
 SHELL := pwsh
 .DEFAULT_GOAL := help
 
-# 集成测试依赖（与 Python 版本共用的测试栈，见 docker/compose.test.yml）。
+# 集成测试依赖（PostgreSQL / Redis / Mailpit，见 docker/compose.test.yml）。
 TEST_COMPOSE := docker/compose.test.yml
 TEST_ENV     := docker/test.env
 TEST_DATABASE_URL := postgres://project_builder_test:project_builder_test_password@127.0.0.1:15432/project_builder_test?sslmode=disable
@@ -73,12 +73,13 @@ test: ## 运行全部测试（单元 + 集成）
 test-unit: ## 只运行不需要外部依赖的单元测试
 	go test $$(go list ./... | Where-Object { $$_ -notmatch 'testsupport' }) -count=1 -short
 
+# 注意：下面两条 recipe 必须是**单个物理行**。本 Makefile 没有 .ONESHELL，
+# GNU make 会为每条 recipe 行单独启动一个 shell，因此用行尾反引号拼出来的多行
+# `$env:` 赋值不会存活到 `go run` / `go test` 那一行（实测：行尾反引号让
+# `pwsh -Command` 以 1 退出）。需要新增变量时继续接在同一行里。
 .PHONY: test-integration
 test-integration: ## 只运行需要真实 PostgreSQL / Redis 的集成测试
-	$$env:TEST_DATABASE_DSN = "$(TEST_DATABASE_URL)"; `
-	$$env:TEST_REDIS_ADDR = "$(TEST_REDIS_ADDR)"; `
-	$$env:TEST_REDIS_PASSWORD = "$(TEST_REDIS_PASSWORD)"; `
-	go test ./internal/testsupport/... ./internal/app/auth/... -count=1 -v -p 1
+	$$env:TEST_DATABASE_DSN = "$(TEST_DATABASE_URL)"; $$env:TEST_REDIS_ADDR = "$(TEST_REDIS_ADDR)"; $$env:TEST_REDIS_PASSWORD = "$(TEST_REDIS_PASSWORD)"; go test ./internal/testsupport/... ./internal/app/auth/... -count=1 -v -p 1
 
 .PHONY: test-race
 test-race: ## 以竞态检测器运行测试
@@ -142,21 +143,16 @@ migrate-test-down: ## 对测试库回退全部迁移
 run: ## 以本地开发配置启动 HTTP 服务
 	go run ./cmd/api
 
+# SCHEDULER_INTERVAL_SECONDS=5 是 `make smoke` 能通过的前提：冒烟对
+# "调度器已生成提醒"只轮询 30 秒，而 config.toml 的 interval 是 60 秒
+# （见 docs/06-进度与验证记录.md 7.0.1 第 4 条坑）。
 .PHONY: run-test-config
-run-test-config: ## 以测试依赖启动 HTTP 服务（PostgreSQL 15432 / Redis 16379）
-	$$env:DATABASE_URL = "$(TEST_DATABASE_URL)"; `
-	$$env:REDIS_HOST = "127.0.0.1"; `
-	$$env:REDIS_PORT = "16379"; `
-	$$env:REDIS_PASSWORD = "$(TEST_REDIS_PASSWORD)"; `
-	$$env:SECURITY_SESSION_SECRET = "local-dev-session-secret-change-me"; `
-	$$env:SECURITY_BOOTSTRAP_ADMIN_USERNAME = "$(TEST_BOOTSTRAP_ADMIN_USERNAME)"; `
-	$$env:SECURITY_BOOTSTRAP_ADMIN_EMAIL = "$(TEST_BOOTSTRAP_ADMIN_EMAIL)"; `
-	$$env:SECURITY_BOOTSTRAP_ADMIN_PASSWORD = "$(TEST_BOOTSTRAP_ADMIN_PASSWORD)"; `
-	go run ./cmd/api
+run-test-config: ## 以测试依赖启动 HTTP 服务（PostgreSQL 15432 / Redis 16379，监听 127.0.0.1:8000）
+	$$env:DATABASE_URL = "$(TEST_DATABASE_URL)"; $$env:REDIS_HOST = "127.0.0.1"; $$env:REDIS_PORT = "16379"; $$env:REDIS_PASSWORD = "$(TEST_REDIS_PASSWORD)"; $$env:SECURITY_SESSION_SECRET = "local-dev-session-secret-change-me"; $$env:SECURITY_BOOTSTRAP_ADMIN_USERNAME = "$(TEST_BOOTSTRAP_ADMIN_USERNAME)"; $$env:SECURITY_BOOTSTRAP_ADMIN_EMAIL = "$(TEST_BOOTSTRAP_ADMIN_EMAIL)"; $$env:SECURITY_BOOTSTRAP_ADMIN_PASSWORD = "$(TEST_BOOTSTRAP_ADMIN_PASSWORD)"; $$env:SCHEDULER_INTERVAL_SECONDS = "5"; go run ./cmd/api
 
 .PHONY: smoke
-smoke: ## 对已启动的服务做一次冒烟检查（健康检查 + 注册/登录/登出）
-	pwsh -File ./scripts/smoke.ps1
+smoke: ## 对已启动的服务做一次冒烟检查（默认 http://127.0.0.1:8000，即 run-test-config 的地址）
+	pwsh -File ./scripts/smoke.ps1 -BaseUrl http://127.0.0.1:8000
 
 .PHONY: clean
 clean: ## 删除构建产物

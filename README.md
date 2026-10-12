@@ -6,25 +6,30 @@
 
 ## 当前状态
 
-**第一至第三阶段已完成并经真实依赖验证：地基 + Auth、Groups / Projects / Tasks、Users。**
+**第一至第三阶段已完成并经真实依赖验证：地基 + Auth、Groups / Projects / Tasks、Users、Plan Views、Attachments、Reminders。第三阶段只剩 Audit。**
 
 | 能力 | 状态 |
 | --- | --- |
 | 工程骨架、配置加载、结构化日志、优雅关闭 | ✅ 已实现 |
-| `platform`：PostgreSQL(pgxpool)、Redis、可注入时钟、UUIDv7/安全令牌、Argon2id | ✅ 已实现 |
+| `platform`：PostgreSQL(pgxpool)、Redis、可注入时钟、UUIDv7/安全令牌、Argon2id、对象存储、SMTP | ✅ 已实现 |
 | `domain`：错误类型体系、用户规则、时间与逾期规则、权限基线 | ✅ 已实现 |
 | `httpapi`：requestID、访问日志、panic 恢复、CORS、会话网关、统一信封、错误映射、健康检查 | ✅ 已实现 |
-| 迁移 `000001_init`（9 张表、CHECK、部分唯一索引、外键删除行为、up/down 可逆）+ `000002_tasks_updated_by` | ✅ 已实现 |
+| 迁移 `000001_init`（9 张表、CHECK、部分唯一索引、外键删除行为）+ `000002`–`000004`（均 up/down 可逆） | ✅ 已实现（head `4`） |
 | Auth：注册、登录、登出、当前用户（Argon2id + Redis 会话 + HttpOnly Cookie） | ✅ 已实现 |
 | Groups / Projects / Tasks | ✅ 已实现（第二阶段） |
 | Users：资料查询/更新、管理员停用、管理员创建/列表/重置密码、按用户时区计算"今天" | ✅ 已实现（第三阶段） |
 | Plan Views：个人计划、组内共享计划、项目甘特图（含"任务最后修改人"） | ✅ 已实现（第三阶段） |
-| Attachments / Reminders / Audit | ⬜ 第三阶段剩余 |
+| Attachments：上传/列表/下载/逻辑删除/彻底删除（7 个端点） | ✅ 已实现（第三阶段） |
+| Reminders：五种提醒、周期派发、幂等去重、失败原因与重试（3 个端点） | ✅ 已实现（第三阶段） |
+| Audit：操作记录查询 | ⬜ 未实现（第三阶段最后一块，见 [docs/06 §7.0.2](docs/06-进度与验证记录.md)） |
 
-真实依赖验证结果（PostgreSQL 16.15 + Redis 7）：
+已注册端点共 **58 个**（Health 4 / Auth 4 / Users 6 / Groups 11 / Projects 9 / Tasks 11 / Plan Views 3 / Attachments 7 / Reminders 3）。
 
-- `go test ./...` **顶层 293 项通过、0 失败、0 跳过**（含子用例共 820 项），覆盖真实数据库上的迁移可逆性、约束生效性、单一 owner 不变式，以及 Auth/Users/Groups/Projects/Tasks 的端到端用例。
+真实依赖验证结果（PostgreSQL 16 + Redis 7，2026-10-12 复跑）：
+
+- `go test ./... -count=1 -p 1` **顶层 293 项通过、0 失败、0 跳过**（含子用例共 820 项），覆盖真实数据库上的迁移可逆性、约束生效性、单一 owner 不变式，以及 Auth/Users/Groups/Projects/Tasks/Plan Views/Attachments/Reminders 的端到端用例。
 - `scripts/smoke.ps1` 对运行中的服务执行 **182 项断言全部通过**（健康检查、认证全链路、用户资料与管理员端点（含成功路径）、计划视图三端点、持有者与工作组所有权转移、管理员兜底、附件全链路（含 multipart 与两步删除）、提醒生成与派发、三域 CRUD、分页边界、排序白名单、版本冲突、组合筛选、幂等复制、归档只读）。
+  **前提是服务用 `make run-test-config` 启动**（其中含 `SCHEDULER_INTERVAL_SECONDS=5`）：换用别的配置会得到 176 通过 / 1 失败，原因见 [docs/06 §7.0.1](docs/06-进度与验证记录.md) 第 4 条坑。
 - 关键实现经**变异验证**：逐条注入缺陷并确认对应用例确实失败，见 [docs/06](docs/06-进度与验证记录.md) 5.7。
 - **首个管理员**在系统初始化时按 `security.bootstrap_admin_*` 录入（幂等、绝不覆盖既有密码）；本系统面向内部小组，不做管理员分发。见 [docs/03](docs/03-配置与运行.md) 3.6.1。
 
@@ -47,15 +52,15 @@
 本仓库是需求、契约、数据模型与代码的**唯一权威来源**，不需要回查任何外部仓库。
 文档编号与各自的更新时机见 [docs/05](docs/05-设计偏离与差异登记.md) 第 7 节。
 
-## 当前状态（2026-10-11）
+## 当前状态（2026-10-12）
 
 | 阶段 | 范围 | 状态 |
 | --- | --- | --- |
 | 第一阶段 | 基础设施 + Auth | ✅ |
 | 第二阶段 | Groups / Projects / Tasks | ✅ |
 | 第三阶段 | Users / Plan Views / Attachments / Reminders | ✅ |
-| 第三阶段 | **Audit** | ⬜ 未开始（下一步，见 docs/06 §7.0.2） |
-| 第四阶段 | 交付收口（备份恢复等） | ⬜ |
+| 第三阶段 | **Audit** | ⬜ 未开始（下一步，见 docs/06 §7.0.2：先补契约 §4.10，再迁移 + 模块） |
+| 第四阶段 | 交付收口（备份恢复、端到端验收、部署核对） | ⬜ |
 
 **未打通的一项**：真实邮件投递。发送通道已实现并验证（STARTTLS、会话流程、三种认证机制），
 但 `smtp-mail.outlook.com` 拒绝了提供的应用密码（`535 5.7.3`）——该邮箱要求 OAuth2。
@@ -66,6 +71,11 @@
 当前证据基线（测试/冒烟/迁移 head 的期望值）与三条最容易踩的坑。
 
 ## 快速开始
+
+> **前置**：Go 工具链需可用（本机未在 PATH 中，位于 `D:\Dev\go\root\bin`）；
+> 若默认 `proxy.golang.org` 不可达，先设 `$env:GOPROXY="https://goproxy.cn,direct"`；
+> 下面的 `make` 命令需要本机安装 make，未安装时用 [docs/06 §7.0.1](docs/06-进度与验证记录.md) 的等价命令。
+> 这些都属于环境问题，见 [docs/06 §3](docs/06-进度与验证记录.md)。
 
 ### 1. 启动测试依赖
 
@@ -90,14 +100,21 @@ go run ./cmd/migrate version
 
 ```powershell
 make run-test-config
-# 等价于：设置 DATABASE_URL / REDIS_* / SECURITY_SESSION_SECRET 后 go run ./cmd/api
+# 等价于：设置 DATABASE_URL / REDIS_* / SECURITY_SESSION_SECRET / SECURITY_BOOTSTRAP_ADMIN_*
+# 以及 SCHEDULER_INTERVAL_SECONDS=5 后 go run ./cmd/api
+# 监听 127.0.0.1:8000（端口来自 config.toml，可用 SERVER_PORT 覆盖）
 ```
 
 ### 4. 冒烟验证
 
 ```powershell
-pwsh -File ./scripts/smoke.ps1 -BaseUrl http://127.0.0.1:8001
+pwsh -File ./scripts/smoke.ps1 -BaseUrl http://127.0.0.1:8000
 ```
+
+> **必须与服务同配方**：脚本对"调度器已生成提醒"只轮询 30 秒，因此服务侧的
+> `SCHEDULER_INTERVAL_SECONDS` 必须是 5（`make run-test-config` 已包含）。
+> 用 `docker/config.test.toml` 启动会得到 176 通过 / 1 失败——它的 scheduler 是关闭的、
+> mail 指向 Mailpit，而脚本断言的是"邮件未启用 → skipped"（见 docs/06 §7.0.1）。
 
 ### 5. 运行测试
 
@@ -123,19 +140,23 @@ project-builder/
 ├── cmd/migrate/main.go             # 迁移入口：up / down / steps / version / force
 ├── internal/
 │   ├── config/                     # 启动时读取一次，返回不可变配置
-│   ├── platform/                   # 基础设施：postgres、redis、时钟、ID、密码
+│   ├── platform/                   # 基础设施：postgres、redis、时钟、ID、密码、邮件、对象存储
 │   │   ├── clock/                  # 可注入时钟（测试固定时间）
-│   │   └── idgen/                  # UUIDv7 / UUIDv4 / 安全令牌
+│   │   ├── idgen/                  # UUIDv7 / UUIDv4 / 安全令牌
+│   │   ├── mail/                   # Sender 接口 + SMTP 实现 + 未启用实现（+ 显式 tag 的联调程序）
+│   │   └── storage/                # 对象存储四方法（Put/Open/Delete/Exists）+ 本地实现
 │   ├── domain/                     # 纯业务规则：无 IO、无 SQL、无 HTTP
 │   ├── listquery/                  # 列表分页与排序的唯一实现（SQL 层 LIMIT/OFFSET、白名单、限定 id 次级键）
 │   ├── app/                        # 业务模块：每域 repo.go + service.go + http.go(+ sort.go)
 │   │   ├── apperr/                 # PostgreSQL 错误 → 领域错误的统一翻译 + 事务抽象
 │   │   ├── auth/                   # 注册/登录/登出/当前用户（额外含 session.go）
 │   │   ├── users/                  # 用户资料与管理端点、可见性、按用户查时区
-│   │   ├── groups/                 # 工作组、成员、加入申请
+│   │   ├── groups/                 # 工作组、成员、加入申请、所有权转移
 │   │   ├── projects/               # 项目、成员、归档、派生统计
 │   │   ├── tasks/                  # 任务、成员、层级、幂等复制
-│   │   └── planviews/              # 计划视图：个人 / 组内 / 甘特图（只读）
+│   │   ├── planviews/              # 计划视图：个人 / 组内 / 甘特图（只读）
+│   │   ├── attachments/            # 附件：上传/列表/下载/逻辑删除/彻底删除
+│   │   └── reminders/              # 提醒：生成、周期派发、三端点（额外含 dispatcher.go）
 │   ├── httpapi/                    # 跨模块 HTTP：router、middleware、problem、bind、session、cors、types
 │   ├── database/migrations/        # 版本化 SQL 迁移（embed 进二进制）
 │   └── testsupport/                # 集成测试装配、清理与 HTTP 客户端辅助

@@ -22,7 +22,7 @@ import (
 // 与真实的 Redis 会话存储，不使用任何替身。
 //
 // 这正是不足之处的对症补强：早期实现的 45 个测试全部使用内存 fake，
-// 因此"所有更新端点 500"这类缺陷从未被触碰（backend/服务端推进计划.md 3.4）。
+// 因此"所有更新端点 500"这类缺陷从未被触碰（见 docs/01-Go服务端架构设计.md 5、8）。
 
 func init() {
 	gin.SetMode(gin.TestMode)
@@ -195,7 +195,7 @@ func TestRegisterPersistsUserWithArgon2Digest(t *testing.T) {
 	}
 }
 
-// TestRegisterDoesNotCreateSession 验证注册不自动登录（与 Python 行为及契约一致）。
+// TestRegisterDoesNotCreateSession 验证注册不自动登录（契约 4.2 的明确要求）。
 func TestRegisterDoesNotCreateSession(t *testing.T) {
 	harness := testsupport.NewHarness(t)
 
