@@ -13,7 +13,7 @@ import (
 
 // createProjectWithVisibility 在指定工作组下创建一个指定共享级别的项目。
 func createProjectWithVisibility(
-	t *testing.T, harness *Harness, actor Authenticated, groupID, name, visibility string,
+	t *testing.T, _ *Harness, actor Authenticated, groupID, name, visibility string,
 ) string {
 	t.Helper()
 
@@ -29,7 +29,7 @@ func createProjectWithVisibility(
 }
 
 // shareTask 把任务设为"已共享"，使其可以进入组内视图。
-func shareTask(t *testing.T, harness *Harness, actor Authenticated, taskID string) {
+func shareTask(t *testing.T, _ *Harness, actor Authenticated, taskID string) {
 	t.Helper()
 
 	current := actor.Client.Get(URL("/tasks/"+taskID)).RequireStatus(t, 200)

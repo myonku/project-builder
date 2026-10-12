@@ -264,7 +264,7 @@ func (r *Repository) MarkFailed(ctx context.Context, reminderID, reason string) 
 // 已发送的（sent）不允许重试：重试就等于重复发送，
 // 而"同一提醒不重复发送"是需求里的硬要求。
 func (r *Repository) ResetForRetry(
-	ctx context.Context, reminderID string, scheduledFor time.Time,
+	ctx context.Context, reminderID string, scheduledFor time.Time, audit *apperr.AuditWrite,
 ) (Record, error) {
 	const query = `
 		UPDATE reminders
@@ -273,12 +273,20 @@ func (r *Repository) ResetForRetry(
 		 WHERE id = $1 AND status IN ('failed', 'skipped')
 		RETURNING ` + reminderReturningColumns
 
-	record, err := scan(r.pool.QueryRow(ctx, query, reminderID, scheduledFor))
+	var record Record
+	err := apperr.InTx(ctx, r.pool, func(ctx context.Context, tx apperr.Querier) error {
+		updated, err := scan(tx.QueryRow(ctx, query, reminderID, scheduledFor))
+		if err != nil {
+			return apperr.Translate(err, constraintMap)
+		}
+		record = updated
+		return audit.Flush(ctx, tx)
+	})
 	if err != nil {
 		if apperr.IsNoRows(err) {
 			return Record{}, r.distinguishRetryable(ctx, reminderID)
 		}
-		return Record{}, apperr.Translate(err, constraintMap)
+		return Record{}, err
 	}
 	return record, nil
 }

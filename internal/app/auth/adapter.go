@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/myonku/project-builder/internal/app/apperr"
 	"github.com/myonku/project-builder/internal/domain"
 )
 
@@ -25,10 +26,14 @@ import (
 // 存在的唯一理由：让"管理员代建账号"与"自助注册"共用同一套实现。
 // 两者若各自实现，密码强度、用户名归一化与唯一性检查迟早会分叉，
 // 而这三项都属于安全边界。
+//
+// actorID 为空表示自助注册（操作人就是新账号本身）；非空表示管理员代建，
+// 该 ID 会作为操作人写进操作记录。**操作记录由本方法构造**：新账号的 id
+// 只有在这里才知道，调用方拿不到它。
 func (s *Service) CreateAccount(
-	ctx context.Context, in domain.RegistrationInput,
+	ctx context.Context, in domain.RegistrationInput, actorID string,
 ) (domain.User, error) {
-	result, err := s.Register(ctx, in)
+	result, err := s.register(ctx, in, actorID)
 	if err != nil {
 		return domain.User{}, err
 	}
@@ -37,16 +42,16 @@ func (s *Service) CreateAccount(
 
 // ResetPassword 重置指定用户的密码，要求提交当前版本。
 //
-// 为什么不在这里记日志：日志需要同时记录"哪个管理员重置了哪个用户"，
+// audit 由调用方提供：日志与操作记录都需要同时记录"哪个管理员重置了哪个用户"，
 // 而本方法拿不到操作者——调用方（users 端点）才持有当前用户。
-// 让调用方记录完整的一条，比在这里记一条缺胳膊少腿的更有价值。
 //
 // 注意：本方法**不**使该用户已有的会话失效。这是**已确认的决策**（2026-10-11）：
 // 本系统面向少数人员的内部小组，安全性要求不高，重置后由用户重新登录即可；
 // 若确需立即踢下线，可先停用再启用该账号（停用会让既有会话在下一次请求时立即失效）。
-// 详见 docs/06-迁移进度与验证.md 7.3。
+// 详见 docs/06-进度与验证记录.md 7.3。
 func (s *Service) ResetPassword(
 	ctx context.Context, userID, newPassword string, expectedUpdated time.Time,
+	audit *apperr.AuditWrite,
 ) (domain.User, error) {
 	if _, fields := domain.NormalizeNewPassword(newPassword, s.security.PasswordMinLength); len(fields) > 0 {
 		return domain.User{}, domain.ErrValidation.WithFields(fields)
@@ -57,7 +62,7 @@ func (s *Service) ResetPassword(
 		return domain.User{}, domain.ErrInternal.WithCause(err)
 	}
 
-	record, err := s.users.UpdatePasswordWithCAS(ctx, userID, hash, expectedUpdated)
+	record, err := s.users.UpdatePasswordWithCAS(ctx, userID, hash, expectedUpdated, audit)
 	if err != nil {
 		return domain.User{}, err
 	}
@@ -179,7 +184,7 @@ func (s *Service) createBootstrapAdmin(
 		Status:          domain.UserStatusActive,
 		SystemRole:      domain.UserSystemRoleAdmin,
 		ReminderEnabled: true,
-	})
+	}, nil)
 	if err != nil {
 		return BootstrapAdminResult{}, err
 	}

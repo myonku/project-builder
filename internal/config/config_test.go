@@ -250,6 +250,16 @@ func TestLoadRejectsInvalidValues(t *testing.T) {
 			wantWord: "scheduler.interval_seconds",
 		},
 		{
+			name:     "限流速率非正",
+			env:      map[string]string{"RATELIMIT_REQUESTS_PER_MINUTE": "0"},
+			wantWord: "ratelimit.requests_per_minute",
+		},
+		{
+			name:     "限流突发非正",
+			toml:     "[ratelimit]\nenabled = true\nrequests_per_minute = 600\nburst = 0\n",
+			wantWord: "ratelimit.burst",
+		},
+		{
 			name:     "布尔值非法",
 			env:      map[string]string{"REDIS_ENABLED": "maybe"},
 			wantWord: "REDIS_ENABLED",

@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/myonku/project-builder/internal/app/apperr"
 	"github.com/myonku/project-builder/internal/domain"
 )
 
@@ -90,7 +91,9 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 // 触发隐式同步 IO 并抛 MissingGreenlet，导致所有写端点 500。
 // 这里统一使用 INSERT ... RETURNING，让 updated_at 由数据库真实生成并被显式回读
 // （见 docs/01-Go服务端架构设计.md 5.1）。
-func (r *Repository) CreateUser(ctx context.Context, in NewUser) (UserRecord, error) {
+func (r *Repository) CreateUser(
+	ctx context.Context, in NewUser, audit *apperr.AuditWrite,
+) (UserRecord, error) {
 	const query = `
 		INSERT INTO users (
 			id, username, email, display_name, password_hash,
@@ -98,14 +101,21 @@ func (r *Repository) CreateUser(ctx context.Context, in NewUser) (UserRecord, er
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		RETURNING ` + userColumns
 
-	row := r.pool.QueryRow(ctx, query,
-		in.ID, in.Username, in.Email, in.DisplayName, in.PasswordHash,
-		in.Status, in.SystemRole, in.Timezone, in.ReminderEnabled,
-	)
-
-	record, err := scanUser(row)
+	// 审计与插入同事务（docs/04 §4.10）：插入失败时不会留下"用户已创建"的记录。
+	var record UserRecord
+	err := apperr.InTx(ctx, r.pool, func(ctx context.Context, tx apperr.Querier) error {
+		created, err := scanUser(tx.QueryRow(ctx, query,
+			in.ID, in.Username, in.Email, in.DisplayName, in.PasswordHash,
+			in.Status, in.SystemRole, in.Timezone, in.ReminderEnabled,
+		))
+		if err != nil {
+			return translateUserWriteError(err)
+		}
+		record = created
+		return audit.Flush(ctx, tx)
+	})
 	if err != nil {
-		return UserRecord{}, translateUserWriteError(err)
+		return UserRecord{}, err
 	}
 	return record, nil
 }
@@ -217,7 +227,7 @@ func (r *Repository) UpdatePasswordHash(ctx context.Context, id, hash string) er
 // （见 docs/01-Go服务端架构设计.md 5.2）——先读后写在并发下会让两个重置请求
 // 都"成功"，此时后写入的那个静默覆盖前一个，而两边都认为自己的版本是最新的。
 func (r *Repository) UpdatePasswordWithCAS(
-	ctx context.Context, id, hash string, expectedUpdated time.Time,
+	ctx context.Context, id, hash string, expectedUpdated time.Time, audit *apperr.AuditWrite,
 ) (UserRecord, error) {
 	const query = `
 		UPDATE users
@@ -226,12 +236,20 @@ func (r *Repository) UpdatePasswordWithCAS(
 		 WHERE id = $1 AND updated_at = $3
 		RETURNING ` + userColumns
 
-	record, err := scanUser(r.pool.QueryRow(ctx, query, id, hash, expectedUpdated))
+	var record UserRecord
+	err := apperr.InTx(ctx, r.pool, func(ctx context.Context, tx apperr.Querier) error {
+		updated, err := scanUser(tx.QueryRow(ctx, query, id, hash, expectedUpdated))
+		if err != nil {
+			return translateUserWriteError(err)
+		}
+		record = updated
+		return audit.Flush(ctx, tx)
+	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return UserRecord{}, r.distinguishMissing(ctx, id)
 		}
-		return UserRecord{}, fmt.Errorf("更新密码摘要失败: %w", err)
+		return UserRecord{}, err
 	}
 	return record, nil
 }

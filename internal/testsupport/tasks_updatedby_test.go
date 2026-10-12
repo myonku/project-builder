@@ -13,7 +13,7 @@ import (
 // 字段只是停在旧值上——而"最后修改人"显示的是别人，恰恰是排查问题时最误导的信息。
 
 // taskUpdatedBy 读取任务当前的 updated_by 与 updated_at。
-func taskUpdatedBy(t *testing.T, harness *Harness, actor Authenticated, taskID string) (string, string) {
+func taskUpdatedBy(t *testing.T, _ *Harness, actor Authenticated, taskID string) (string, string) {
 	t.Helper()
 
 	data := actor.Client.Get(URL("/tasks/"+taskID)).RequireStatus(t, 200).Data(t)

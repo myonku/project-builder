@@ -50,12 +50,16 @@ func (h *Handler) Register(group *gin.RouterGroup) {
 //
 // 用 GET + 查询参数而不是 POST + 请求体：契约 4.9 把提醒列表定义为 GET，
 // 因此筛选参数走查询串，未知参数一律 400（契约 2.7 的既有约定）。
+//
+// Page/Size 用**指针**：nil 表示客户端没提供，交给 listquery 用默认值（1 / 20）。
+// 用 int 会把"没提供"解析成 0，从而被当成显式的非法页码拒绝——
+// 而契约 2.5 明确要求这两个参数有默认值（2026-10-12 实测到该缺陷并修正）。
 type listRequest struct {
 	Kind *string `form:"kind"`
 	// TaskID 用于"这条任务的提醒都发给谁了"这类排查。
 	TaskID *string `form:"task_id"`
-	Page   int     `form:"page"`
-	Size   int     `form:"page_size"`
+	Page   *int    `form:"page"`
+	Size   *int    `form:"page_size"`
 	Sort   string  `form:"sort"`
 }
 
@@ -81,7 +85,7 @@ func (h *Handler) list(c *gin.Context) {
 		Actor:  actor,
 		Kind:   request.Kind,
 		TaskID: request.TaskID,
-		Page:   listquery.PageRequest{Page: &request.Page, PageSize: &request.Size},
+		Page:   listquery.PageRequest{Page: request.Page, PageSize: request.Size},
 		Sort:   request.Sort,
 	}
 	page, err := h.service.List(c.Request.Context(), in)

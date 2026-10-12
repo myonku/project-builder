@@ -27,7 +27,7 @@ type ReminderRecorder interface {
 // 集中一处做 nil 判断：未注入时（例如单元测试装配）静默跳过，
 // 而不是让每个调用点各写一遍判空。
 func (s *Service) recordReminder(
-	ctx context.Context, record func(ReminderRecorder),
+	_ context.Context, record func(ReminderRecorder),
 ) {
 	if s.reminders == nil {
 		return

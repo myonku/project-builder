@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/myonku/project-builder/internal/app/apperr"
 	"github.com/myonku/project-builder/internal/config"
 	"github.com/myonku/project-builder/internal/domain"
 	"github.com/myonku/project-builder/internal/platform"
@@ -16,14 +17,16 @@ import (
 // UserRepository 是本模块对用户的持久化需求。
 //
 // 定义在消费方，由 internal/app/auth/repo.go 的实现满足，测试用替身实现。
+// 写方法都带一个 *apperr.AuditWrite：审计与写入必须在同一个事务里
+// （docs/04 §4.10），因此它的落点只能是仓储。
 type UserRepository interface {
-	CreateUser(ctx context.Context, in NewUser) (UserRecord, error)
+	CreateUser(ctx context.Context, in NewUser, audit *apperr.AuditWrite) (UserRecord, error)
 	FindByID(ctx context.Context, id string) (UserRecord, error)
 	FindByIdentifier(ctx context.Context, identifier string) (UserRecord, error)
 	FindByUsername(ctx context.Context, username string) (UserRecord, error)
 	TouchLastLogin(ctx context.Context, id string, at time.Time) (UserRecord, error)
 	UpdatePasswordHash(ctx context.Context, id, hash string) error
-	UpdatePasswordWithCAS(ctx context.Context, id, hash string, expectedUpdated time.Time) (UserRecord, error)
+	UpdatePasswordWithCAS(ctx context.Context, id, hash string, expectedUpdated time.Time, audit *apperr.AuditWrite) (UserRecord, error)
 	UpdateSystemRole(ctx context.Context, id, role string) (UserRecord, error)
 }
 
@@ -36,6 +39,9 @@ type Service struct {
 	clk      clock.Clock
 	logger   *slog.Logger
 	security config.SecurityConfig
+	// audit 用于"自助注册"这条路径：操作人就是新建的账号本身。
+	// 管理员代建与重置密码由调用方（users 端点）提供操作人，见 adapter.go。
+	audit apperr.AuditWriter
 }
 
 // Options 是 Service 的构造参数。
@@ -47,6 +53,8 @@ type Options struct {
 	Clock    clock.Clock
 	Logger   *slog.Logger
 	Security config.SecurityConfig
+	// Audit 为 nil 时不记操作记录（单元测试装配）。
+	Audit apperr.AuditWriter
 }
 
 // NewService 构造认证用例服务。
@@ -71,7 +79,27 @@ func NewService(opts Options) *Service {
 		clk:      clk,
 		logger:   logger,
 		security: opts.Security,
+		audit:    opts.Audit,
 	}
+}
+
+// auditUserCreated 构造"账号被创建"的操作记录。
+//
+// actorID 与 newUserID 分开传：自助注册时两者相同（操作人就是新账号），
+// 管理员代建时 actorID 是管理员、newUserID 是新账号。
+// changes 只记标识信息，绝不记密码或摘要。
+func (s *Service) auditUserCreated(actorID, newUserID, username, email string, extra map[string]string) *apperr.AuditWrite {
+	changes := map[string]string{"username": username, "email": email}
+	for key, value := range extra {
+		changes[key] = value
+	}
+	return apperr.NewAuditWrite(s.audit, domain.AuditEntry{
+		ActorID:    actorID,
+		Action:     domain.AuditActionCreated,
+		ObjectType: domain.AuditObjectUser,
+		ObjectID:   newUserID,
+		Changes:    changes,
+	})
 }
 
 // RegisterResult 是注册成功的结果。
@@ -82,8 +110,19 @@ type RegisterResult struct {
 // Register 执行注册用例。
 //
 // 处理顺序（接口文档 5）：字段校验 → 唯一性检查 → 领域规则 → 事务写入。
-// 注意：注册不自动登录，与 早期实现行为一致（接口文档 4.2 成功 201）。
+// 注意：注册不自动登录，与契约 4.2 一致（成功 201）。
 func (s *Service) Register(ctx context.Context, in domain.RegistrationInput) (RegisterResult, error) {
+	return s.register(ctx, in, "")
+}
+
+// register 是注册的实际实现。
+//
+// actorID 为空表示自助注册（操作人就是新账号本身）；非空表示管理员代建，
+// 此时它是操作人，并在 changes 里标注来源——两种入口的归一化、密码强度与
+// 唯一性检查完全共用，唯一的差别就是"谁在操作"。
+func (s *Service) register(
+	ctx context.Context, in domain.RegistrationInput, actorID string,
+) (RegisterResult, error) {
 	normalized, fields := domain.NormalizeRegistration(in, s.security.PasswordMinLength)
 	if len(fields) > 0 {
 		return RegisterResult{}, domain.ErrValidation.WithFields(fields)
@@ -106,6 +145,17 @@ func (s *Service) Register(ctx context.Context, in domain.RegistrationInput) (Re
 		return RegisterResult{}, domain.ErrInternal.WithCause(err)
 	}
 
+	// 操作记录在**这里**构造：新账号的 id 是本方法生成的，调用方拿不到。
+	// 自助注册时操作人就是新账号本身。
+	actor := actorID
+	extra := map[string]string(nil)
+	if actor == "" {
+		actor = id
+	} else {
+		extra = map[string]string{"source": "admin_created"}
+	}
+	audit := s.auditUserCreated(actor, id, normalized.Username, normalized.Email, extra)
+
 	record, err := s.users.CreateUser(ctx, NewUser{
 		ID:              id,
 		Username:        normalized.Username,
@@ -116,7 +166,7 @@ func (s *Service) Register(ctx context.Context, in domain.RegistrationInput) (Re
 		Status:          domain.UserStatusActive,
 		SystemRole:      domain.UserSystemRoleMember,
 		ReminderEnabled: true,
-	})
+	}, audit)
 	if err != nil {
 		return RegisterResult{}, err
 	}

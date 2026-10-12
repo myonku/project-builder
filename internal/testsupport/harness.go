@@ -26,6 +26,7 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"github.com/myonku/project-builder/internal/app/attachments"
+	"github.com/myonku/project-builder/internal/app/audit"
 	"github.com/myonku/project-builder/internal/app/auth"
 	"github.com/myonku/project-builder/internal/app/groups"
 	"github.com/myonku/project-builder/internal/app/planviews"
@@ -249,8 +250,10 @@ func resetSchema(t *testing.T) {
 func TruncateAll(t *testing.T, pool *pgxpool.Pool) {
 	t.Helper()
 
+	// activity_logs 也显式列出：它虽然会被 users 的 CASCADE 一起清掉，
+	// 但"审计表从空开始"是每个用例的硬前提，不该依赖级联的传递性。
 	const query = `TRUNCATE TABLE
-		idempotency_keys, task_members, tasks, project_members, projects,
+		activity_logs, idempotency_keys, task_members, tasks, project_members, projects,
 		group_join_requests, group_members, groups, users
 		RESTART IDENTITY CASCADE`
 
@@ -401,6 +404,8 @@ type Harness struct {
 	Reminders *reminders.Service
 	// Mail 是假发送器，供断言"邮件内容与收件人"使用。
 	Mail *FakeSender
+	// Audit 是审计服务：写入方由各业务模块在事务里调用，查询端点只有管理员可见。
+	Audit *audit.Service
 
 	// AuthHandler 同时是 ActorLoader，供调试与断言使用。
 	AuthHandler *auth.Handler
@@ -432,6 +437,16 @@ func NewHarness(t *testing.T) *Harness {
 
 	authUsers := auth.NewRepository(pool)
 	store := auth.NewRedisSessionStore(redisHarness.Client, true, clk)
+
+	// 审计：与 cmd/api 的装配保持一致——写入方注入到各业务模块的事务里，
+	// 查询方只有系统管理员。测试必须走与生产同一条路径，否则"审计有没有写进去"
+	// 就不是在验证生产行为。
+	auditService := audit.NewService(audit.Options{
+		Store:  audit.NewRepository(pool),
+		IDs:    ids,
+		Logger: logger,
+	})
+
 	authService := auth.NewService(auth.Options{
 		Users:    authUsers,
 		Sessions: store,
@@ -440,6 +455,7 @@ func NewHarness(t *testing.T) *Harness {
 		Clock:    clk,
 		Logger:   logger,
 		Security: cfg.Security,
+		Audit:    auditService,
 	})
 	authHandler := auth.NewHandler(authService, logger)
 
@@ -448,6 +464,7 @@ func NewHarness(t *testing.T) *Harness {
 		IDs:    ids,
 		Clock:  clk,
 		Logger: logger,
+		Audit:  auditService,
 	})
 	// usersService 兼作 projects 的时区来源：与 cmd/api 的装配保持一致，
 	// 否则测试验证的就不是生产行为（见 testsupport/adapter.go 的同类说明）。
@@ -455,6 +472,7 @@ func NewHarness(t *testing.T) *Harness {
 		Store:    users.NewRepository(pool),
 		Accounts: authService,
 		Logger:   logger,
+		Audit:    auditService,
 	})
 	// 提醒服务：注入**假发送器**，于是全部提醒逻辑都能在没有 SMTP 的情况下验证。
 	fakeSender := &FakeSender{}
@@ -466,6 +484,7 @@ func NewHarness(t *testing.T) *Harness {
 		Logger:          logger,
 		TaskURLTemplate: "https://example.test/tasks/{task_id}",
 		BatchSize:       100,
+		Audit:           auditService,
 	})
 	projectsService := projects.NewService(projects.Options{
 		Store:     projects.NewRepository(pool),
@@ -473,6 +492,8 @@ func NewHarness(t *testing.T) *Harness {
 		IDs:       ids,
 		Clock:     clk,
 		Logger:    logger,
+		// 与 cmd/api 一致：测试必须验证"生产装配下审计真的写进去了"。
+		Audit: auditService,
 	})
 	tasksService := tasks.NewService(tasks.Options{
 		Store:     tasks.NewRepository(pool),
@@ -481,6 +502,7 @@ func NewHarness(t *testing.T) *Harness {
 		IDs:       ids,
 		Clock:     clk,
 		Logger:    logger,
+		Audit:     auditService,
 	})
 	planViewsService := planviews.NewService(planviews.Options{
 		Store:     planviews.NewRepository(pool),
@@ -502,6 +524,7 @@ func NewHarness(t *testing.T) *Harness {
 		Clock:    clk,
 		Logger:   logger,
 		Config:   cfg.Storage,
+		Audit:    auditService,
 	})
 
 	engine := httpapi.Router(httpapi.Dependencies{
@@ -522,6 +545,7 @@ func NewHarness(t *testing.T) *Harness {
 			planviews.NewHandler(planViewsService, authHandler, logger),
 			attachments.NewHandler(attachmentsService, authHandler),
 			reminders.NewHandler(remindersService, authHandler),
+			audit.NewHandler(auditService, authHandler),
 		},
 	})
 
@@ -542,6 +566,7 @@ func NewHarness(t *testing.T) *Harness {
 		Attachments: attachmentsService,
 		Reminders:   remindersService,
 		Mail:        fakeSender,
+		Audit:       auditService,
 		Storage:     attachmentStore,
 		AuthHandler: authHandler,
 		Router:      engine,

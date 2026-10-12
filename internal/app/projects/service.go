@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/myonku/project-builder/internal/app/apperr"
 	"github.com/myonku/project-builder/internal/domain"
 	"github.com/myonku/project-builder/internal/listquery"
 	"github.com/myonku/project-builder/internal/platform/clock"
@@ -19,17 +20,17 @@ type Store interface {
 	CountProjects(ctx context.Context, filter ListFilter) (int, error)
 	CreateProjectInTx(ctx context.Context, params CreateProjectParams) (ProjectRecord, error)
 	UpdateProject(ctx context.Context, params ProjectUpdateParams) (ProjectRecord, error)
-	ArchiveProject(ctx context.Context, projectID string, expectedUpdated, archivedAt time.Time) (ProjectRecord, error)
+	ArchiveProject(ctx context.Context, projectID string, expectedUpdated, archivedAt time.Time, audit *apperr.AuditWrite) (ProjectRecord, error)
 
 	FindMember(ctx context.Context, projectID, userID string) (MemberRecord, error)
 	ListMembers(ctx context.Context, filter MemberFilter, orderBy string, limit, offset int) ([]MemberRecord, error)
 	CountMembers(ctx context.Context, filter MemberFilter) (int, error)
 	CountOwners(ctx context.Context, projectID string) (int, error)
-	AddMember(ctx context.Context, id, projectID, userID, role string) (MemberRecord, error)
-	UpdateMemberRole(ctx context.Context, projectID, userID, role string) (MemberRecord, error)
+	AddMember(ctx context.Context, id, projectID, userID, role string, audit *apperr.AuditWrite) (MemberRecord, error)
+	UpdateMemberRole(ctx context.Context, projectID, userID, role string, audit *apperr.AuditWrite) (MemberRecord, error)
 	// TransferOwnership 在同一事务内先降现任持有者、再升目标，保证"至多一个"与"至少一个"。
-	TransferOwnership(ctx context.Context, projectID, targetUserID string) (MemberRecord, error)
-	RemoveMember(ctx context.Context, projectID, userID string) error
+	TransferOwnership(ctx context.Context, projectID, targetUserID string, audit *apperr.AuditWrite) (MemberRecord, error)
+	RemoveMember(ctx context.Context, projectID, userID string, audit *apperr.AuditWrite) error
 
 	FindUser(ctx context.Context, userID string) (UserRecord, error)
 	FindGroupForUser(ctx context.Context, groupID, userID string) (GroupRecord, error)
@@ -58,6 +59,8 @@ type Service struct {
 	ids       *idgen.Generator
 	clk       clock.Clock
 	logger    *slog.Logger
+	// audit 是操作记录的写入方：**由仓储在业务事务里调用**（见 apperr.AuditWrite）。
+	audit apperr.AuditWriter
 }
 
 // Options 是 Service 的构造参数。
@@ -68,6 +71,8 @@ type Options struct {
 	IDs       *idgen.Generator
 	Clock     clock.Clock
 	Logger    *slog.Logger
+	// Audit 为 nil 时不记操作记录（单元测试或不需要审计的装配）。
+	Audit apperr.AuditWriter
 }
 
 // NewService 构造项目用例服务。
@@ -86,7 +91,64 @@ func NewService(opts Options) *Service {
 		ids:       opts.IDs,
 		clk:       clk,
 		logger:    logger,
+		audit:     opts.Audit,
 	}
+}
+
+// auditWith 构造一条项目操作记录。
+//
+// 集中一处构造有三个好处：对象类型不会写错（都是 project）、
+// 动作与对象 id 不会各写一遍、changes 的组装有统一入口。
+// request id 由 context 提供（RequestIDMiddleware 写入），这里不重复传递。
+func (s *Service) auditWith(
+	actorID string, action domain.AuditAction, projectID string, changes map[string]string,
+) *apperr.AuditWrite {
+	return apperr.NewAuditWrite(s.audit, domain.AuditEntry{
+		ActorID:    actorID,
+		Action:     action,
+		ObjectType: domain.AuditObjectProject,
+		ObjectID:   projectID,
+		Changes:    changes,
+	})
+}
+
+// shareAudit 在本次更新包含共享级别时构造一条 shared 记录，否则返回 nil。
+func (s *Service) shareAudit(in UpdateInput) *apperr.AuditWrite {
+	if in.Visibility == nil {
+		return nil
+	}
+	return s.auditWith(in.ActorID, domain.AuditActionShared, in.ProjectID,
+		map[string]string{"visibility": *in.Visibility})
+}
+
+// projectChanges 汇总本次更新**实际提供**的字段（未提供的字段不出现）。
+//
+// 只记新值：需求要求"关键变更内容"，不要求完整前后对照；
+// 完整前后值会把更多内容留在只增不删的表里。
+func projectChanges(in UpdateInput) map[string]string {
+	changes := map[string]string{}
+	if in.Name != nil {
+		changes["name"] = *in.Name
+	}
+	if in.DescriptionSet {
+		changes["description"] = "<由请求提供>"
+	}
+	if in.Status != nil {
+		changes["status"] = *in.Status
+	}
+	if in.Visibility != nil {
+		changes["visibility"] = *in.Visibility
+	}
+	if in.StartDate != nil {
+		changes["start_date"] = in.StartDate.Format(domain.DateLayout)
+	}
+	if in.EndDate != nil {
+		changes["end_date"] = in.EndDate.Format(domain.DateLayout)
+	}
+	if in.ColorSet {
+		changes["color"] = "<由请求提供>"
+	}
+	return changes
 }
 
 // CreateInput 是创建项目的用例输入。
@@ -166,6 +228,11 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (ProjectRecord, er
 		EndDate:     normalized.EndDate,
 		Color:       normalized.Color,
 		MemberID:    memberID,
+		Audit: s.auditWith(in.CreatorID, domain.AuditActionCreated, projectID, map[string]string{
+			"name":       normalized.Name,
+			"group_id":   normalized.GroupID,
+			"visibility": visibility,
+		}),
 	})
 	if err != nil {
 		return ProjectRecord{}, err
@@ -253,9 +320,6 @@ func (s *Service) List(ctx context.Context, in ListInput) (Page[ProjectRecord], 
 		return Page[ProjectRecord]{}, err
 	}
 	orderClause := ProjectSort.OrderBy(order)
-	if err != nil {
-		return Page[ProjectRecord]{}, err
-	}
 
 	filter := ListFilter{
 		UserID:          in.ActorID,
@@ -366,6 +430,10 @@ func (s *Service) Update(ctx context.Context, actor domain.User, in UpdateInput)
 		Color:           normalized.Color,
 		ColorSet:        in.ColorSet,
 		ExpectedUpdated: in.ExpectedUpdated,
+		Audit:           s.auditWith(in.ActorID, domain.AuditActionUpdated, in.ProjectID, projectChanges(in)),
+		// 共享级别变更单独记一条（契约 4.10 的 shared 动作）：排查
+		// "为什么这个项目突然对全组可见"时应当一眼看到，而不是在 updated 里翻 changes。
+		ShareAudit: s.shareAudit(in),
 	})
 	if err != nil {
 		return ProjectRecord{}, err
@@ -402,7 +470,8 @@ func (s *Service) Archive(ctx context.Context, actor domain.User, in ArchiveInpu
 			WithField("project_id", "项目已归档")
 	}
 
-	archived, err := s.repo.ArchiveProject(ctx, in.ProjectID, in.ExpectedUpdated, s.clk.Now())
+	archived, err := s.repo.ArchiveProject(ctx, in.ProjectID, in.ExpectedUpdated, s.clk.Now(),
+		s.auditWith(in.ActorID, domain.AuditActionArchived, in.ProjectID, nil))
 	if err != nil {
 		return ProjectRecord{}, err
 	}
@@ -443,9 +512,6 @@ func (s *Service) ListMembers(ctx context.Context, in MemberListInput) (Page[Mem
 		return Page[MemberRecord]{}, err
 	}
 	orderClause := MemberSort.OrderBy(order)
-	if err != nil {
-		return Page[MemberRecord]{}, err
-	}
 
 	filter := MemberFilter{ProjectID: in.ProjectID, Role: in.Role}
 	total, err := s.repo.CountMembers(ctx, filter)
@@ -496,7 +562,11 @@ func (s *Service) AddMember(ctx context.Context, in AddMemberInput) (MemberRecor
 
 	// 新成员默认是 member；持有者通过 PATCH 单独提升，
 	// 避免"添加即持有者"与部分唯一索引冲突。
-	member, err := s.repo.AddMember(ctx, memberID, project.ID, in.UserID, domain.MemberRoleMember)
+	member, err := s.repo.AddMember(ctx, memberID, project.ID, in.UserID, domain.MemberRoleMember,
+		s.auditWith(in.ActorID, domain.AuditActionMemberAdded, project.ID, map[string]string{
+			"user_id": in.UserID,
+			"role":    domain.MemberRoleMember,
+		}))
 	if err != nil {
 		return MemberRecord{}, err
 	}
@@ -568,9 +638,17 @@ func (s *Service) ChangeMemberRole(ctx context.Context, in ChangeMemberInput) (M
 
 	var updated MemberRecord
 	if action == domain.GroupMemberActionTransfer {
-		updated, err = s.repo.TransferOwnership(ctx, project.ID, in.UserID)
+		updated, err = s.repo.TransferOwnership(ctx, project.ID, in.UserID,
+			s.auditWith(in.ActorID, domain.AuditActionOwnerTransferred, project.ID, map[string]string{
+				"user_id": in.UserID,
+				"role":    domain.MemberRoleOwner,
+			}))
 	} else {
-		updated, err = s.repo.UpdateMemberRole(ctx, project.ID, in.UserID, in.Role)
+		updated, err = s.repo.UpdateMemberRole(ctx, project.ID, in.UserID, in.Role,
+			s.auditWith(in.ActorID, domain.AuditActionMemberRoleChanged, project.ID, map[string]string{
+				"user_id": in.UserID,
+				"role":    in.Role,
+			}))
 	}
 	if err != nil {
 		return MemberRecord{}, err
@@ -612,7 +690,9 @@ func (s *Service) RemoveMember(ctx context.Context, projectID, actorID, userID s
 		return err
 	}
 
-	if err := s.repo.RemoveMember(ctx, project.ID, userID); err != nil {
+	if err := s.repo.RemoveMember(ctx, project.ID, userID,
+		s.auditWith(actorID, domain.AuditActionMemberRemoved, project.ID,
+			map[string]string{"user_id": userID})); err != nil {
 		return err
 	}
 

@@ -39,6 +39,7 @@ type Config struct {
 	Mail       MailConfig      `toml:"mail"`
 	Storage    StorageConfig   `toml:"storage"`
 	Security   SecurityConfig  `toml:"security"`
+	RateLimit  RateLimitConfig `toml:"ratelimit"`
 	Scheduler  SchedulerConfig `toml:"scheduler"`
 
 	// Env 与 ConfigFile 记录配置来源，便于启动日志定位问题（不含敏感值）。
@@ -172,6 +173,27 @@ func (c SecurityConfig) BootstrapAdminEnabled() bool {
 	return strings.TrimSpace(c.BootstrapAdminUsername) != ""
 }
 
+// RateLimitConfig 描述全局 HTTP 限流（单实例、按来源地址分桶的令牌桶）。
+//
+// 定位是"封顶"而不是精确配额（人工决策 2026-10-12）：
+//   - 只做**全局中间件**，不做用户/会话级限流——按会话限流在登录之前就失效，
+//     而那正是最需要挡的场景（登录口令尝试）；
+//   - 默认值刻意宽松：内部工具的正常使用（含 182 项端到端冒烟）不应被限流，
+//     它挡的是脚本化的高频刷取；
+//   - 单实例内存态：本系统是单进程部署（与 scheduler 同理），不做分布式限流。
+type RateLimitConfig struct {
+	Enabled bool `toml:"enabled"`
+	// RequestsPerMinute 是稳态速率（令牌桶的补充速率）。
+	RequestsPerMinute int `toml:"requests_per_minute"`
+	// Burst 是桶容量，也是"瞬时允许多少个请求"的上限。
+	Burst int `toml:"burst"`
+}
+
+// Rate 返回每秒补充的令牌数。
+func (c RateLimitConfig) Rate() float64 {
+	return float64(c.RequestsPerMinute) / 60
+}
+
 // SchedulerConfig 描述单实例应用内调度参数。
 type SchedulerConfig struct {
 	Enabled           bool `toml:"enabled"`
@@ -299,12 +321,15 @@ func defaultConfig() Config {
 			// 否则"启动成功但每封都发不出去"是最难排查的一种状态。
 			// 因此启用邮件是一次显式动作（见 docs/03 §3.5.1）。
 			Enabled: false,
-			// 与 Outlook 官方说明一致：SMTP 走 smtp-mail.outlook.com:587 + STARTTLS。
-			Host:       "smtp-mail.outlook.com",
-			Port:       587,
-			FromName:   "项目计划管理系统",
-			UseTLS:     true,
-			AuthMethod: "login",
+			// 目标服务商为阿里邮箱：SMTP 走 smtp.qiye.aliyun.com:465 + 直接 TLS。
+			// 阿里邮箱未开放 587/80（非加密只有 25），因此这里是 implicit TLS 而不是 STARTTLS；
+			// 凭据必须通过环境变量注入（见 docs/03 §3.5.1）。
+			Host:        "smtp.qiye.aliyun.com",
+			Port:        465,
+			FromName:    "项目计划管理系统",
+			UseTLS:      false,
+			ImplicitTLS: true,
+			AuthMethod:  "login",
 			// 邮件里的"任务链接"需要一个外部可达的地址，因此必须可配置。
 			TaskURLTemplate: "http://localhost:8080/tasks/{task_id}",
 		},
@@ -320,6 +345,14 @@ func defaultConfig() Config {
 			PasswordMinLength: 8,
 			SecureCookies:     false,
 			SessionCookieName: "pb_session",
+		},
+		RateLimit: RateLimitConfig{
+			// 默认开启：限流是"没配就是关着"最容易在交付时被漏掉的一类保护。
+			// 速率与突发都放得很宽（见 RateLimitConfig 的注释），
+			// 目的是挡住脚本化高频刷取，而不是给正常使用制造 429。
+			Enabled:           true,
+			RequestsPerMinute: 3000,
+			Burst:             300,
 		},
 		Scheduler: SchedulerConfig{
 			Enabled:           true,
@@ -480,6 +513,10 @@ func envBindings() []envBinding {
 		{"SCHEDULER_INTERVAL_SECONDS", intSetter(func(c *Config) *int { return &c.Scheduler.IntervalSeconds })},
 		{"SCHEDULER_REMINDER_BATCH_SIZE", intSetter(func(c *Config) *int { return &c.Scheduler.ReminderBatchSize })},
 		{"SCHEDULER_MAX_RETRIES", intSetter(func(c *Config) *int { return &c.Scheduler.MaxRetries })},
+
+		{"RATELIMIT_ENABLED", boolSetter(func(c *Config) *bool { return &c.RateLimit.Enabled })},
+		{"RATELIMIT_REQUESTS_PER_MINUTE", intSetter(func(c *Config) *int { return &c.RateLimit.RequestsPerMinute })},
+		{"RATELIMIT_BURST", intSetter(func(c *Config) *int { return &c.RateLimit.Burst })},
 	}
 }
 
@@ -774,6 +811,20 @@ func (c Config) validate() error {
 		add("scheduler.interval_seconds 必须为正数，实际为 %d", c.Scheduler.IntervalSeconds)
 	}
 
+	// 限流：关闭时不校验取值（允许用 0 表示"不关心"），开启时两项都必须为正。
+	//
+	// 为什么不给 burst 设一个"最小合理值"：默认值已经足够宽松，
+	// 而把测试环境调成 burst=2 是验证 429 路径的正当做法
+	// （集成 harness 用零值配置显式关闭限流，见 internal/testsupport/harness.go）。
+	if c.RateLimit.Enabled {
+		if c.RateLimit.RequestsPerMinute <= 0 {
+			add("ratelimit.requests_per_minute 在启用限流时必须为正数，实际为 %d", c.RateLimit.RequestsPerMinute)
+		}
+		if c.RateLimit.Burst <= 0 {
+			add("ratelimit.burst 在启用限流时必须为正数，实际为 %d", c.RateLimit.Burst)
+		}
+	}
+
 	if c.Env == EnvProduction {
 		// 生产环境的安全基线：不得沿用开发占位值或通配来源。
 		if c.Security.SessionSecret == devSessionSecretPlaceholder {
@@ -822,6 +873,9 @@ func (c Config) Summary() []any {
 		slog.String("bootstrap_admin_username", c.Security.BootstrapAdminUsername),
 		slog.String("bootstrap_admin_password", describeSecret(c.Security.BootstrapAdminPassword)),
 		slog.Bool("scheduler_enabled", c.Scheduler.Enabled),
+		slog.Bool("ratelimit_enabled", c.RateLimit.Enabled),
+		slog.Int("ratelimit_requests_per_minute", c.RateLimit.RequestsPerMinute),
+		slog.Int("ratelimit_burst", c.RateLimit.Burst),
 	}
 }
 

@@ -178,3 +178,11 @@ func SelfPermission(actorID, targetUserID string) Permission {
 
 // CanAdministerUsers 报告主体是否可以执行用户管理动作（停用、改系统角色）。
 func CanAdministerUsers(actor User) bool { return actor.IsAdmin() }
+
+// CanReadAuditLog 报告主体是否可以查看全局操作记录。
+//
+// 只有系统管理员：需求文档 §4.1 把"查看全局操作记录"列为系统管理员的职责，
+// 组管理员不扩权（人工决策 2026-10-12，见 docs/06 7.3 第 7 项）。
+// 与其它"管理员放行"一样，这里的判定必须由用例层显式调用，
+// 不得在 handler 里复制（docs/01 §5.9）。
+func CanReadAuditLog(actor User) bool { return actor.IsAdmin() }

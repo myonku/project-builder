@@ -66,6 +66,8 @@ type CreateParams struct {
 	Extension    string
 	SizeBytes    int64
 	MimeType     string
+	// Audit 是要与插入同事务落库的一条操作记录；nil 表示不记。
+	Audit *apperr.AuditWrite
 }
 
 // ListFilter 是附件列表的筛选条件。
@@ -97,6 +99,8 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 }
 
 // Create 插入附件并回读数据库生成的列。
+//
+// audit 非 nil 时与插入同事务写入（docs/04 §4.10）。
 func (r *Repository) Create(ctx context.Context, params CreateParams) (Record, error) {
 	const query = `
 		INSERT INTO attachments (
@@ -105,13 +109,21 @@ func (r *Repository) Create(ctx context.Context, params CreateParams) (Record, e
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		RETURNING ` + attachmentReturningColumns
 
-	record, err := scan(r.pool.QueryRow(ctx, query,
-		params.ID, params.ProjectID, params.TaskID, params.UploaderID,
-		params.OriginalName, params.StoredKey, params.Extension,
-		params.SizeBytes, params.MimeType,
-	))
+	var record Record
+	err := apperr.InTx(ctx, r.pool, func(ctx context.Context, tx apperr.Querier) error {
+		created, err := scan(tx.QueryRow(ctx, query,
+			params.ID, params.ProjectID, params.TaskID, params.UploaderID,
+			params.OriginalName, params.StoredKey, params.Extension,
+			params.SizeBytes, params.MimeType,
+		))
+		if err != nil {
+			return apperr.Translate(err, constraintMap)
+		}
+		record = created
+		return params.Audit.Flush(ctx, tx)
+	})
 	if err != nil {
-		return Record{}, apperr.Translate(err, constraintMap)
+		return Record{}, err
 	}
 	return record, nil
 }
@@ -245,19 +257,29 @@ func (r *Repository) List(
 //
 // 条件 `deleted_at IS NULL` 让"重复删除"落到 0 行，从而能被区分出来，
 // 而不是把一次无变化的请求报成成功。
-func (r *Repository) SoftDelete(ctx context.Context, attachmentID string, at time.Time) (Record, error) {
+func (r *Repository) SoftDelete(
+	ctx context.Context, attachmentID string, at time.Time, audit *apperr.AuditWrite,
+) (Record, error) {
 	const query = `
 		UPDATE attachments
 		   SET deleted_at = $2, updated_at = now()
 		 WHERE id = $1 AND deleted_at IS NULL
 		RETURNING ` + attachmentReturningColumns
 
-	record, err := scan(r.pool.QueryRow(ctx, query, attachmentID, at))
+	var record Record
+	err := apperr.InTx(ctx, r.pool, func(ctx context.Context, tx apperr.Querier) error {
+		deleted, err := scan(tx.QueryRow(ctx, query, attachmentID, at))
+		if err != nil {
+			return apperr.Translate(err, constraintMap)
+		}
+		record = deleted
+		return audit.Flush(ctx, tx)
+	})
 	if err != nil {
 		if apperr.IsNoRows(err) {
 			return Record{}, r.distinguishMissing(ctx, attachmentID)
 		}
-		return Record{}, apperr.Translate(err, constraintMap)
+		return Record{}, err
 	}
 	return record, nil
 }
@@ -266,17 +288,19 @@ func (r *Repository) SoftDelete(ctx context.Context, attachmentID string, at tim
 //
 // 只删行：对象存储里的字节由用例层负责清理，因为"先删字节还是先删行"
 // 需要与存储的错误语义一起考虑（见 service.Purge 的说明）。
-func (r *Repository) Purge(ctx context.Context, attachmentID string) error {
+func (r *Repository) Purge(ctx context.Context, attachmentID string, audit *apperr.AuditWrite) error {
 	const query = `DELETE FROM attachments WHERE id = $1`
 
-	tag, err := r.pool.Exec(ctx, query, attachmentID)
-	if err != nil {
-		return apperr.Translate(err, constraintMap)
-	}
-	if tag.RowsAffected() == 0 {
-		return notFound()
-	}
-	return nil
+	return apperr.InTx(ctx, r.pool, func(ctx context.Context, tx apperr.Querier) error {
+		tag, err := tx.Exec(ctx, query, attachmentID)
+		if err != nil {
+			return apperr.Translate(err, constraintMap)
+		}
+		if tag.RowsAffected() == 0 {
+			return notFound()
+		}
+		return audit.Flush(ctx, tx)
+	})
 }
 
 // distinguishMissing 区分"附件不存在"与"状态冲突"。

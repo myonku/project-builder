@@ -28,8 +28,9 @@ type Store interface {
 	FindMember(ctx context.Context, groupID, userID string) (MemberRecord, error)
 	ListMembers(ctx context.Context, filter MemberFilter, orderBy string, limit, offset int) ([]MemberRecord, error)
 	CountMembers(ctx context.Context, filter MemberFilter) (int, error)
-	AddMember(ctx context.Context, id, groupID, userID, role string) (MemberRecord, error)
-	UpdateMember(ctx context.Context, groupID, userID string, role, status *string) (MemberRecord, error)
+	// AddMember/UpdateMember 的 audit 由用例层构造，在同一事务内落库（docs/04 §4.10）。
+	AddMember(ctx context.Context, id, groupID, userID, role string, audit *apperr.AuditWrite) (MemberRecord, error)
+	UpdateMember(ctx context.Context, groupID, userID string, role, status *string, audit *apperr.AuditWrite) (MemberRecord, error)
 	CountManagers(ctx context.Context, groupID string) (int, error)
 
 	FindUser(ctx context.Context, userID string) (UserRecord, error)
@@ -37,9 +38,9 @@ type Store interface {
 	FindJoinRequest(ctx context.Context, groupID, userID string) (JoinRequestRecord, error)
 	ListJoinRequests(ctx context.Context, groupID string, status *string, orderBy string, limit, offset int) ([]JoinRequestRecord, error)
 	CountJoinRequests(ctx context.Context, groupID string, status *string) (int, error)
-	CreateJoinRequest(ctx context.Context, id, groupID, userID string) (JoinRequestRecord, error)
-	ReopenJoinRequest(ctx context.Context, groupID, userID string) (JoinRequestRecord, error)
-	ReviewJoinRequestInTx(ctx context.Context, groupID, userID, reviewerID, decision, memberID string) (JoinRequestRecord, error)
+	CreateJoinRequest(ctx context.Context, id, groupID, userID string, audit *apperr.AuditWrite) (JoinRequestRecord, error)
+	ReopenJoinRequest(ctx context.Context, groupID, userID string, audit *apperr.AuditWrite) (JoinRequestRecord, error)
+	ReviewJoinRequestInTx(ctx context.Context, groupID, userID, reviewerID, decision, memberID string, audit *apperr.AuditWrite) (JoinRequestRecord, error)
 }
 
 // Page 是列表查询结果。
@@ -63,6 +64,8 @@ type Service struct {
 	ids    *idgen.Generator
 	clk    clock.Clock
 	logger *slog.Logger
+	// audit 是操作记录的写入方：**由仓储在业务事务里调用**（见 apperr.AuditWrite）。
+	audit apperr.AuditWriter
 }
 
 // Options 是 Service 的构造参数。
@@ -71,6 +74,8 @@ type Options struct {
 	IDs    *idgen.Generator
 	Clock  clock.Clock
 	Logger *slog.Logger
+	// Audit 为 nil 时不记操作记录（单元测试或不需要审计的装配）。
+	Audit apperr.AuditWriter
 }
 
 // NewService 构造工作组用例服务。
@@ -83,7 +88,73 @@ func NewService(opts Options) *Service {
 	if clk == nil {
 		clk = clock.NewSystem()
 	}
-	return &Service{repo: opts.Store, ids: opts.IDs, clk: clk, logger: logger}
+	return &Service{
+		repo:   opts.Store,
+		ids:    opts.IDs,
+		clk:    clk,
+		logger: logger,
+		audit:  opts.Audit,
+	}
+}
+
+// auditWith 构造一条工作组操作记录。
+//
+// 集中一处构造有三个好处：对象类型不会写错（都是 group）、动作与对象 id 不会各写一遍、
+// changes 的组装有统一入口。成员变更也记在**容器**（工作组）上，而不是成员行 id
+// （docs/04 §4.10）。request id 由 context 提供，这里不重复传递。
+func (s *Service) auditWith(
+	actorID string, action domain.AuditAction, groupID string, changes map[string]string,
+) *apperr.AuditWrite {
+	return apperr.NewAuditWrite(s.audit, domain.AuditEntry{
+		ActorID:    actorID,
+		Action:     action,
+		ObjectType: domain.AuditObjectGroup,
+		ObjectID:   groupID,
+		Changes:    changes,
+	})
+}
+
+// groupChanges 汇总本次更新**实际提供**的字段（未提供的字段不出现）。
+//
+// 只记新值：契约要求"关键变更内容"，不要求完整前后对照；
+// 完整前后值会把更多内容留在只增不删的表里。描述不进审计正文，只留"变过"这一事实。
+func groupChanges(in UpdateInput) map[string]string {
+	changes := map[string]string{}
+	if in.Name != nil {
+		changes["name"] = *in.Name
+	}
+	if in.DescriptionSet {
+		changes["description"] = "<由请求提供>"
+	}
+	if in.Status != nil {
+		changes["status"] = *in.Status
+	}
+	return changes
+}
+
+// memberChangeAudit 按领域动作选择要记的动作。
+//
+// "置为 removed" 与 DELETE 端点都是软移除，统一记 member_removed；
+// 恢复活跃没有独立动作，记 member_added（成员关系再次生效）。
+func (s *Service) memberChangeAudit(
+	in MemberChangeInput, action, currentRole string,
+) *apperr.AuditWrite {
+	switch action {
+	case domain.GroupMemberActionRemove:
+		return s.auditWith(in.ActorID, domain.AuditActionMemberRemoved, in.GroupID,
+			map[string]string{"user_id": in.UserID})
+	case domain.GroupMemberActionRestore:
+		return s.auditWith(in.ActorID, domain.AuditActionMemberAdded, in.GroupID,
+			map[string]string{"user_id": in.UserID, "role": currentRole})
+	default:
+		// 提升/降级：此时 in.Role 必定非 nil（见 resolveMemberAction）。
+		role := currentRole
+		if in.Role != nil {
+			role = *in.Role
+		}
+		return s.auditWith(in.ActorID, domain.AuditActionMemberRoleChanged, in.GroupID,
+			map[string]string{"user_id": in.UserID, "role": role})
+	}
 }
 
 // CreateInput 是创建工作组的用例输入。
@@ -122,6 +193,8 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (GroupRecord, erro
 		Description: normalized.Description,
 		MemberID:    memberID,
 		OwnerID:     in.OwnerID,
+		Audit: s.auditWith(in.OwnerID, domain.AuditActionCreated, groupID,
+			map[string]string{"name": normalized.Name}),
 	})
 	if err != nil {
 		return GroupRecord{}, err
@@ -255,6 +328,8 @@ func (s *Service) Update(ctx context.Context, actor domain.User, in UpdateInput)
 		DescriptionSet:  in.DescriptionSet,
 		Status:          normalized.Status,
 		ExpectedUpdated: in.ExpectedUpdated,
+		// 只记本次实际提供的字段，避免把"没改的字段"写进只增不删的表。
+		Audit: s.auditWith(in.ActorID, domain.AuditActionUpdated, in.GroupID, groupChanges(in)),
 	})
 	if err != nil {
 		return GroupRecord{}, err
@@ -321,6 +396,9 @@ func (s *Service) transferOwnership(
 		NewOwnerID:      target,
 		PreviousOwnerID: current.OwnerID,
 		ExpectedUpdated: in.ExpectedUpdated,
+		// 所有权转移同时改变两个人，因此把前任也记进 changes（契约 4.10）。
+		Audit: s.auditWith(in.ActorID, domain.AuditActionOwnerTransferred, current.ID,
+			map[string]string{"user_id": target, "previous_owner_id": current.OwnerID}),
 	})
 	if err != nil {
 		return GroupRecord{}, err
@@ -425,7 +503,11 @@ func (s *Service) AddMember(ctx context.Context, in AddMemberInput) (MemberRecor
 		return MemberRecord{}, domain.ErrInternal.WithCause(err)
 	}
 
-	member, err := s.repo.AddMember(ctx, memberID, group.ID, in.UserID, role)
+	member, err := s.repo.AddMember(ctx, memberID, group.ID, in.UserID, role,
+		s.auditWith(in.ActorID, domain.AuditActionMemberAdded, group.ID, map[string]string{
+			"user_id": in.UserID,
+			"role":    role,
+		}))
 	if err != nil {
 		return MemberRecord{}, err
 	}
@@ -487,7 +569,8 @@ func (s *Service) ChangeMember(ctx context.Context, in MemberChangeInput) (Membe
 		}
 	}
 
-	updated, err := s.repo.UpdateMember(ctx, group.ID, in.UserID, in.Role, in.Status)
+	updated, err := s.repo.UpdateMember(ctx, group.ID, in.UserID, in.Role, in.Status,
+		s.memberChangeAudit(in, action, target.Role))
 	if err != nil {
 		return MemberRecord{}, err
 	}
@@ -520,7 +603,9 @@ func (s *Service) RemoveMember(ctx context.Context, groupID, actorID, userID str
 	}
 
 	removed := domain.MemberStatusRemoved
-	updated, err := s.repo.UpdateMember(ctx, group.ID, userID, nil, &removed)
+	updated, err := s.repo.UpdateMember(ctx, group.ID, userID, nil, &removed,
+		s.auditWith(actorID, domain.AuditActionMemberRemoved, group.ID,
+			map[string]string{"user_id": userID}))
 	if err != nil {
 		return MemberRecord{}, err
 	}
@@ -582,7 +667,11 @@ func (s *Service) RequestJoin(ctx context.Context, in JoinRequestInput) (JoinReq
 		return JoinRequestRecord{}, domain.ErrInternal.WithCause(err)
 	}
 
-	created, err := s.repo.CreateJoinRequest(ctx, requestID, group.ID, in.ActorID)
+	created, err := s.repo.CreateJoinRequest(ctx, requestID, group.ID, in.ActorID,
+		s.auditWith(in.ActorID, domain.AuditActionCreated, group.ID, map[string]string{
+			"user_id":         in.ActorID,
+			"join_request_id": requestID,
+		}))
 	if err != nil {
 		return JoinRequestRecord{}, err
 	}
@@ -670,7 +759,11 @@ func (s *Service) ReviewJoinRequest(ctx context.Context, actor domain.User, in R
 	}
 
 	reviewed, err := s.repo.ReviewJoinRequestInTx(ctx,
-		group.ID, in.TargetUser, in.ActorID, in.Decision, memberID)
+		group.ID, in.TargetUser, in.ActorID, in.Decision, memberID,
+		s.auditWith(in.ActorID, domain.AuditActionJoinRequestReviewed, group.ID, map[string]string{
+			"user_id":  in.TargetUser,
+			"decision": in.Decision,
+		}))
 	if err != nil {
 		return JoinRequestRecord{}, err
 	}
@@ -689,7 +782,10 @@ func (s *Service) ReviewJoinRequest(ctx context.Context, actor domain.User, in R
 // 为什么不是插入新行：group_join_request_identity 对 (group_id, user_id) 唯一，
 // 保留单行并翻转状态既满足"可重新申请"，又不破坏审计所需的唯一性。
 func (s *Service) reopenJoinRequest(ctx context.Context, groupID, userID string) (JoinRequestRecord, error) {
-	reopened, err := s.repo.ReopenJoinRequest(ctx, groupID, userID)
+	// 重新开启也是一次"申请已提交"，因此与首次提交记同一动作。
+	reopened, err := s.repo.ReopenJoinRequest(ctx, groupID, userID,
+		s.auditWith(userID, domain.AuditActionCreated, groupID,
+			map[string]string{"user_id": userID}))
 	if err != nil {
 		return JoinRequestRecord{}, err
 	}

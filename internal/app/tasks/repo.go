@@ -107,6 +107,9 @@ type CreateTaskParams struct {
 	IsMilestone bool
 	IsShared    bool
 	MemberID    string
+	// Audit 是要在同一事务里写下的一条操作记录；nil 表示不记。
+	// 由用例层构造（见 apperr.AuditWrite）。
+	Audit *apperr.AuditWrite
 }
 
 // TaskUpdateParams 是更新任务的字段。
@@ -130,6 +133,8 @@ type TaskUpdateParams struct {
 	// 它不是"可选元数据"：写路径必须提供，否则"最后修改人"会停在旧值上，
 	// 而这种错误不会有任何报错——字段只是静静地不再更新。
 	ActorID string
+	// Audit 见 CreateTaskParams 的说明。
+	Audit *apperr.AuditWrite
 }
 
 // ListFilter 是任务列表筛选条件。
@@ -236,7 +241,8 @@ func (r *Repository) CreateTaskInTx(ctx context.Context, params CreateTaskParams
 		if _, err := tx.Exec(ctx, insertOwner, params.MemberID, params.ID, params.CreatedBy); err != nil {
 			return apperr.Translate(err, constraintMap)
 		}
-		return nil
+		// 审计与业务在同一个事务里：业务回滚则记录也不存在。
+		return params.Audit.Flush(ctx, tx)
 	})
 	if err != nil {
 		return TaskRecord{}, err
@@ -500,6 +506,9 @@ func (r *Repository) ListAncestors(ctx context.Context, taskID string) ([]TaskRe
 //
 // updated_by 与 updated_at **在同一条语句里一起推进**：这是本表的一条不变式，
 // 由集成测试 `TestTaskUpdatedByAdvancesWithUpdatedAt` 锁住。
+//
+// 单语句写入也显式开事务：审计必须与业务同事务（docs/04 §4.10），
+// 而"业务成功但审计缺失"是本次实现里最需要结构性排除的失败模式。
 func (r *Repository) UpdateTask(ctx context.Context, params TaskUpdateParams) (TaskRecord, error) {
 	const query = `
 		UPDATE tasks
@@ -519,26 +528,36 @@ func (r *Repository) UpdateTask(ctx context.Context, params TaskUpdateParams) (T
 		RETURNING ` + taskReturningColumns
 
 	var record TaskRecord
-	err := r.pool.QueryRow(ctx, query,
-		params.ID, params.ExpectedUpdated,
-		params.Name, params.DescriptionSet, params.Description,
-		params.Status, params.Progress, params.Priority,
-		params.StartDate, params.EndDate,
-		params.IsMilestone, params.IsShared,
-		params.ParentIDSet, params.ParentID,
-		params.ActorID,
-	).Scan(
-		&record.ID, &record.ProjectID, &record.ParentID, &record.CreatedBy,
-		&record.Name, &record.Description, &record.Status, &record.Progress,
-		&record.Priority, &record.StartDate, &record.EndDate,
-		&record.IsMilestone, &record.IsShared, &record.DeletedAt,
-		&record.CreatedAt, &record.UpdatedAt, &record.UpdatedBy,
-	)
+	err := apperr.InTx(ctx, r.pool, func(ctx context.Context, tx apperr.Querier) error {
+		if err := tx.QueryRow(ctx, query,
+			params.ID, params.ExpectedUpdated,
+			params.Name, params.DescriptionSet, params.Description,
+			params.Status, params.Progress, params.Priority,
+			params.StartDate, params.EndDate,
+			params.IsMilestone, params.IsShared,
+			params.ParentIDSet, params.ParentID,
+			params.ActorID,
+		).Scan(
+			&record.ID, &record.ProjectID, &record.ParentID, &record.CreatedBy,
+			&record.Name, &record.Description, &record.Status, &record.Progress,
+			&record.Priority, &record.StartDate, &record.EndDate,
+			&record.IsMilestone, &record.IsShared, &record.DeletedAt,
+			&record.CreatedAt, &record.UpdatedAt, &record.UpdatedBy,
+		); err != nil {
+			// 不在这里做存在性查询：那会在事务开着的时候再借一条连接。
+			// 把"没有匹配行"原样上抛，由事务之外的 distinguishMissing 区分 404 与 409。
+			if apperr.IsNoRows(err) {
+				return err
+			}
+			return apperr.Translate(err, constraintMap)
+		}
+		return params.Audit.Flush(ctx, tx)
+	})
 	if err != nil {
 		if apperr.IsNoRows(err) {
 			return TaskRecord{}, r.distinguishMissing(ctx, params.ID)
 		}
-		return TaskRecord{}, apperr.Translate(err, constraintMap)
+		return TaskRecord{}, err
 	}
 	return record, nil
 }
@@ -550,6 +569,7 @@ func (r *Repository) UpdateTask(ctx context.Context, params TaskUpdateParams) (T
 // 谁删的这件事必须能被回答（需求文档 5.8 把删除列为关键操作）。
 func (r *Repository) SoftDeleteTask(
 	ctx context.Context, taskID, actorID string, expectedUpdated, deletedAt time.Time,
+	audit *apperr.AuditWrite,
 ) (TaskRecord, error) {
 	const query = `
 		UPDATE tasks
@@ -558,18 +578,27 @@ func (r *Repository) SoftDeleteTask(
 		RETURNING ` + taskReturningColumns
 
 	var record TaskRecord
-	err := r.pool.QueryRow(ctx, query, taskID, expectedUpdated, deletedAt, actorID).Scan(
-		&record.ID, &record.ProjectID, &record.ParentID, &record.CreatedBy,
-		&record.Name, &record.Description, &record.Status, &record.Progress,
-		&record.Priority, &record.StartDate, &record.EndDate,
-		&record.IsMilestone, &record.IsShared, &record.DeletedAt,
-		&record.CreatedAt, &record.UpdatedAt, &record.UpdatedBy,
-	)
+	err := apperr.InTx(ctx, r.pool, func(ctx context.Context, tx apperr.Querier) error {
+		if err := tx.QueryRow(ctx, query, taskID, expectedUpdated, deletedAt, actorID).Scan(
+			&record.ID, &record.ProjectID, &record.ParentID, &record.CreatedBy,
+			&record.Name, &record.Description, &record.Status, &record.Progress,
+			&record.Priority, &record.StartDate, &record.EndDate,
+			&record.IsMilestone, &record.IsShared, &record.DeletedAt,
+			&record.CreatedAt, &record.UpdatedAt, &record.UpdatedBy,
+		); err != nil {
+			// 同 UpdateTask：把"没有匹配行"原样上抛，由事务外区分 404 与 409。
+			if apperr.IsNoRows(err) {
+				return err
+			}
+			return apperr.Translate(err, constraintMap)
+		}
+		return audit.Flush(ctx, tx)
+	})
 	if err != nil {
 		if apperr.IsNoRows(err) {
 			return TaskRecord{}, r.distinguishMissing(ctx, taskID)
 		}
-		return TaskRecord{}, apperr.Translate(err, constraintMap)
+		return TaskRecord{}, err
 	}
 	return record, nil
 }
@@ -683,24 +712,33 @@ func (r *Repository) ListMembers(ctx context.Context, filter MemberFilter, order
 }
 
 // AddMember 添加任务成员。
-func (r *Repository) AddMember(ctx context.Context, id, taskID, userID, role string) (MemberRecord, error) {
+func (r *Repository) AddMember(
+	ctx context.Context, id, taskID, userID, role string, audit *apperr.AuditWrite,
+) (MemberRecord, error) {
 	const query = `
 		INSERT INTO task_members (id, task_id, user_id, role)
 		VALUES ($1, $2, $3, $4)
 		RETURNING id, task_id, user_id, role, created_at`
 
 	var member MemberRecord
-	err := r.pool.QueryRow(ctx, query, id, taskID, userID, role).Scan(
-		&member.ID, &member.TaskID, &member.UserID, &member.Role, &member.CreatedAt,
-	)
+	err := apperr.InTx(ctx, r.pool, func(ctx context.Context, tx apperr.Querier) error {
+		if err := tx.QueryRow(ctx, query, id, taskID, userID, role).Scan(
+			&member.ID, &member.TaskID, &member.UserID, &member.Role, &member.CreatedAt,
+		); err != nil {
+			return apperr.Translate(err, constraintMap)
+		}
+		return audit.Flush(ctx, tx)
+	})
 	if err != nil {
-		return MemberRecord{}, apperr.Translate(err, constraintMap)
+		return MemberRecord{}, err
 	}
 	return member, nil
 }
 
 // UpdateMemberRole 修改任务成员角色并回读。
-func (r *Repository) UpdateMemberRole(ctx context.Context, taskID, userID, role string) (MemberRecord, error) {
+func (r *Repository) UpdateMemberRole(
+	ctx context.Context, taskID, userID, role string, audit *apperr.AuditWrite,
+) (MemberRecord, error) {
 	const query = `
 		UPDATE task_members
 		   SET role = $3, updated_at = now()
@@ -708,31 +746,40 @@ func (r *Repository) UpdateMemberRole(ctx context.Context, taskID, userID, role 
 		RETURNING id, task_id, user_id, role, created_at`
 
 	var member MemberRecord
-	err := r.pool.QueryRow(ctx, query, taskID, userID, role).Scan(
-		&member.ID, &member.TaskID, &member.UserID, &member.Role, &member.CreatedAt,
-	)
-	if err != nil {
-		if apperr.IsNoRows(err) {
-			return MemberRecord{}, domain.ErrResourceNotFound.
-				WithField("user_id", "该用户不是任务成员")
+	err := apperr.InTx(ctx, r.pool, func(ctx context.Context, tx apperr.Querier) error {
+		if err := tx.QueryRow(ctx, query, taskID, userID, role).Scan(
+			&member.ID, &member.TaskID, &member.UserID, &member.Role, &member.CreatedAt,
+		); err != nil {
+			if apperr.IsNoRows(err) {
+				return domain.ErrResourceNotFound.
+					WithField("user_id", "该用户不是任务成员")
+			}
+			return apperr.Translate(err, constraintMap)
 		}
-		return MemberRecord{}, apperr.Translate(err, constraintMap)
+		return audit.Flush(ctx, tx)
+	})
+	if err != nil {
+		return MemberRecord{}, err
 	}
 	return member, nil
 }
 
 // RemoveMember 删除任务成员关系。
-func (r *Repository) RemoveMember(ctx context.Context, taskID, userID string) error {
+func (r *Repository) RemoveMember(
+	ctx context.Context, taskID, userID string, audit *apperr.AuditWrite,
+) error {
 	const query = `DELETE FROM task_members WHERE task_id = $1 AND user_id = $2`
 
-	tag, err := r.pool.Exec(ctx, query, taskID, userID)
-	if err != nil {
-		return apperr.Translate(err, constraintMap)
-	}
-	if tag.RowsAffected() == 0 {
-		return domain.ErrResourceNotFound.WithField("user_id", "该用户不是任务成员")
-	}
-	return nil
+	return apperr.InTx(ctx, r.pool, func(ctx context.Context, tx apperr.Querier) error {
+		tag, err := tx.Exec(ctx, query, taskID, userID)
+		if err != nil {
+			return apperr.Translate(err, constraintMap)
+		}
+		if tag.RowsAffected() == 0 {
+			return domain.ErrResourceNotFound.WithField("user_id", "该用户不是任务成员")
+		}
+		return audit.Flush(ctx, tx)
+	})
 }
 
 // FindProjectMember 报告用户是否为项目成员。
@@ -758,7 +805,7 @@ func (r *Repository) FindProjectMember(ctx context.Context, projectID, userID st
 // 部分唯一索引 `task_single_owner` 在语句边界检查，顺序反过来会立刻撞上"第二个 owner"，
 // 而先降现任的中间态是"没有 owner"，绝不能提交。
 func (r *Repository) TransferOwnership(
-	ctx context.Context, taskID, targetUserID string,
+	ctx context.Context, taskID, targetUserID string, audit *apperr.AuditWrite,
 ) (MemberRecord, error) {
 	var updated MemberRecord
 
@@ -790,7 +837,7 @@ func (r *Repository) TransferOwnership(
 			return apperr.Translate(err, constraintMap)
 		}
 		updated = member
-		return nil
+		return audit.Flush(ctx, tx)
 	})
 	if err != nil {
 		return MemberRecord{}, err

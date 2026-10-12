@@ -84,6 +84,9 @@ type UpdateProfileParams struct {
 	// 该复查必须与写入同事务：先读后写在并发下两个请求都能通过，
 	// 结果就是两个管理员互相降级、系统失去全部管理入口。
 	GuardLastAdmin bool
+
+	// Audit 是要与写入同事务落库的一条操作记录；nil 表示不记。
+	Audit *apperr.AuditWrite
 }
 
 // Repository 是本模块的 SQL 访问层。
@@ -208,22 +211,21 @@ func (r *Repository) SharesWorkspace(ctx context.Context, viewerID, targetID str
 // 列全部用 COALESCE：这些列在数据库中都是 NOT NULL，因此"未提供（NULL）"
 // 与"提供了合法取值"可以被 SQL 无歧义地区分，不需要为"是否提供"再传一个布尔参数。
 func (r *Repository) UpdateProfile(ctx context.Context, params UpdateProfileParams) (ProfileRecord, error) {
-	if !params.GuardLastAdmin {
-		return r.updateProfile(ctx, r.pool, params)
-	}
-
-	// 需要守住"至少一个启用中管理员"时，复查与写入必须在同一事务内完成。
+	// 无论是否需要守管理员不变式，写入与审计都必须在一个事务里
+	// （docs/04 §4.10）。守卫为真时还要在同一事务内复查。
 	var record ProfileRecord
 	err := apperr.InTx(ctx, r.pool, func(ctx context.Context, tx apperr.Querier) error {
-		if err := r.ensureAdminRetained(ctx, tx, params); err != nil {
-			return err
+		if params.GuardLastAdmin {
+			if err := r.ensureAdminRetained(ctx, tx, params); err != nil {
+				return err
+			}
 		}
 		updated, err := r.updateProfile(ctx, tx, params)
 		if err != nil {
 			return err
 		}
 		record = updated
-		return nil
+		return params.Audit.Flush(ctx, tx)
 	})
 	if err != nil {
 		return ProfileRecord{}, err

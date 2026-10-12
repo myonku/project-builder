@@ -67,6 +67,13 @@ func Router(deps Dependencies) *gin.Engine {
 	// ErrorHandler 必须在业务中间件之前注册，才能在 c.Next() 返回后统一收口错误。
 	engine.Use(ErrorHandler(logger))
 
+	// 全局限流挂在 ErrorHandler **之后**：限流拒绝走 Abort + ErrorHandler 的统一信封，
+	// 而不是自己拼 429 响应体。它同时覆盖未登录端点（登录口令尝试是主要目标）。
+	//
+	// 只挂在 engine 上、不挂在 /api/v1 组里，是为了让根级 /healthz 也被覆盖；
+	// 未命中路由的 404/405 同样受限，这是刻意的（否则可以用无效路径刷请求）。
+	engine.Use(RateLimitMiddleware(NewRateLimiter(cfg.RateLimit, deps.Clock)))
+
 	apiPrefix := "/api/v" + cfg.APIVersion
 
 	// 根级存活探针：不依赖任何外部资源，也不带版本前缀，

@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/myonku/project-builder/internal/app/apperr"
 	"github.com/myonku/project-builder/internal/domain"
 )
 
@@ -37,7 +38,10 @@ func NewFakeUserRepository(now func() time.Time) *FakeUserRepository {
 }
 
 // CreateUser 实现 UserRepository，并模拟唯一约束冲突。
-func (r *FakeUserRepository) CreateUser(_ context.Context, in NewUser) (UserRecord, error) {
+//
+// 替身忽略 audit：审计的落库语义（同事务、失败回滚）由真实仓储上的集成测试验证
+// （见 internal/testsupport/audit_test.go）。
+func (r *FakeUserRepository) CreateUser(_ context.Context, in NewUser, _ *apperr.AuditWrite) (UserRecord, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -174,7 +178,7 @@ func (r *FakeUserRepository) UpdatePasswordHash(_ context.Context, id, hash stri
 // 替身必须与真实实现保持同样的错误分野（不存在 → user_not_found，
 // 版本不匹配 → version_conflict），否则用例无法代表真实行为。
 func (r *FakeUserRepository) UpdatePasswordWithCAS(
-	_ context.Context, id, hash string, expectedUpdated time.Time,
+	_ context.Context, id, hash string, expectedUpdated time.Time, _ *apperr.AuditWrite,
 ) (UserRecord, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()

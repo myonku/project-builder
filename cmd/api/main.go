@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/myonku/project-builder/internal/app/attachments"
+	"github.com/myonku/project-builder/internal/app/audit"
 	"github.com/myonku/project-builder/internal/app/auth"
 	"github.com/myonku/project-builder/internal/app/groups"
 	"github.com/myonku/project-builder/internal/app/planviews"
@@ -86,6 +87,15 @@ func run() error {
 		logger.Warn("会话后端不可用：认证相关端点将返回错误，服务其余部分仍可运行")
 	}
 
+	// 审计：写入方由各业务模块在自己的事务里调用（apperr.AuditWriter），
+	// 查询方只有系统管理员（契约 4.10）。它不依赖任何业务模块，
+	// 因此必须在业务模块之前构造并注入。
+	auditService := audit.NewService(audit.Options{
+		Store:  audit.NewRepository(postgres.Pool),
+		IDs:    ids,
+		Logger: logger,
+	})
+
 	authService := auth.NewService(auth.Options{
 		Users:    auth.NewRepository(postgres.Pool),
 		Sessions: sessionStore,
@@ -94,6 +104,8 @@ func run() error {
 		Clock:    clk,
 		Logger:   logger,
 		Security: cfg.Security,
+		// 自助注册的操作记录：操作人就是新建的账号本身。
+		Audit: auditService,
 	})
 
 	// authHandler 同时承担两个角色：注册自身端点，以及为其他模块解析当前用户。
@@ -124,11 +136,14 @@ func run() error {
 		}
 	}
 
+	// 审计服务已在 auth 之前构造（见上）。
+
 	groupsService := groups.NewService(groups.Options{
 		Store:  groups.NewRepository(postgres.Pool),
 		IDs:    ids,
 		Clock:  clk,
 		Logger: logger,
+		Audit:  auditService,
 	})
 
 	// usersService 同时承担三个角色：注册自身端点、为其他模块提供
@@ -140,6 +155,7 @@ func run() error {
 		Store:    users.NewRepository(postgres.Pool),
 		Accounts: authService,
 		Logger:   logger,
+		Audit:    auditService,
 	})
 
 	// 邮件发送器：未启用时注入 Disabled（它返回错误而不是假装成功，
@@ -175,6 +191,8 @@ func run() error {
 		Logger:          logger,
 		TaskURLTemplate: cfg.Mail.TaskURLTemplate,
 		BatchSize:       cfg.Scheduler.ReminderBatchSize,
+		// 只有人工重试会写审计（后台派发没有操作人，见 reminders.auditWith）。
+		Audit: auditService,
 	})
 
 	projectsService := projects.NewService(projects.Options{
@@ -183,6 +201,8 @@ func run() error {
 		IDs:       ids,
 		Clock:     clk,
 		Logger:    logger,
+		// 审计写入方：项目域的关键写操作在同事务里记一条（docs/04 §4.10）。
+		Audit: auditService,
 	})
 
 	tasksService := tasks.NewService(tasks.Options{
@@ -196,6 +216,7 @@ func run() error {
 		// 提醒的消费者接口：任务在事务提交后只插入一行提醒，
 		// 发送交给后台派发循环（需求文档 §9：邮件发送不得阻塞用户操作）。
 		Reminders: remindersRecorder{service: remindersService, logger: logger},
+		Audit:     auditService,
 	})
 
 	// 附件：对象存储适配器由装配点构造（业务模块不依赖具体存储实现）。
@@ -214,6 +235,7 @@ func run() error {
 		Clock:    clk,
 		Logger:   logger,
 		Config:   cfg.Storage,
+		Audit:    auditService,
 	})
 
 	// 计划视图是只读聚合模块：它不依赖 projects/tasks 模块，而是直接读同一批表，
@@ -254,6 +276,7 @@ func run() error {
 			planviews.NewHandler(planViewsService, authHandler, logger),
 			attachments.NewHandler(attachmentsService, authHandler),
 			reminders.NewHandler(remindersService, authHandler),
+			audit.NewHandler(auditService, authHandler),
 		},
 	})
 

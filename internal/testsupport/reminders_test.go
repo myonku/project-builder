@@ -574,3 +574,25 @@ func countRemindersForUser(t *testing.T, harness *Harness, taskID, userID, kind 
 	}
 	return count
 }
+
+// TestReminderListAppliesDefaultPagination 锁定"未提供分页参数时用默认值"。
+//
+// 2026-10-12 实测到的缺陷：GET 列表端点的 Page/Size 用了 int，
+// 未提供时被解析成 0，于是 listquery 把"没传"当成"显式的非法页码"返回 400。
+// 契约 2.5 明确要求 page 默认 1、page_size 默认 20，因此这里显式锁住默认行为
+// （实现上必须用 *int：nil = 未提供）。
+func TestReminderListAppliesDefaultPagination(t *testing.T) {
+	harness := NewHarness(t)
+
+	actor := harness.RegisterAndLogin(t, "reminder_default_page")
+
+	response := actor.Client.Get(URL("/reminders")).RequireStatus(t, 200)
+	pagination := response.Pagination(t)
+
+	if got := Int(pagination, "page"); got != 1 {
+		t.Fatalf("pagination.page = %d，期望 1（未提供时用默认值）", got)
+	}
+	if got := Int(pagination, "page_size"); got != 20 {
+		t.Fatalf("pagination.page_size = %d，期望 20（未提供时用默认值）", got)
+	}
+}

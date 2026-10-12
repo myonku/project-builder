@@ -6,6 +6,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/myonku/project-builder/internal/platform/idgen"
+	"github.com/myonku/project-builder/internal/platform/requestid"
 )
 
 // requestIDKey 是 request id 在 gin 上下文中的键名，也是响应头名称（小写形式）。
@@ -33,6 +34,7 @@ func RequestID(c *gin.Context) string {
 // 该 id 同时写入：
 //   - 响应头，便于前端在报错时反馈；
 //   - gin 上下文，供错误信封的 request_id 字段使用；
+//   - **请求的 context**，供用例层使用（审计记录的 request_id 列）；
 //   - 访问日志。
 func RequestIDMiddleware(ids *idgen.Generator) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -43,6 +45,8 @@ func RequestIDMiddleware(ids *idgen.Generator) gin.HandlerFunc {
 
 		c.Set(requestIDContextKey, requestID)
 		c.Header(RequestIDHeader, requestID)
+		// 用例层拿到的是 c.Request.Context()，因此这里必须换一个带 id 的 context。
+		c.Request = c.Request.WithContext(requestid.With(c.Request.Context(), requestID))
 
 		c.Next()
 	}

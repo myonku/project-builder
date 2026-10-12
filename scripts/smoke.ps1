@@ -672,7 +672,51 @@ $oldLogin = Invoke-Api -Method POST -Path '/api/v1/auth/login' -Body @{
 }
 Assert-Equal $oldLogin.Status 401 '重置后的旧密码应失效'
 
+# ---------------------------------------------------------------------------
+Write-Step "Audit：操作记录（仅管理员）"
+# ---------------------------------------------------------------------------
+
+# 上面的管理员动作（创建账号、重置密码）都应当在操作记录里留下条目。
+#
+# 注意：`$resetLogin` / `$oldLogin` 两次登录已经把 $session 的 Cookie 换成了
+# **被创建账号**的会话，因此这里必须重新以引导管理员身份登录一次，
+# 而不是沿用当时的 $session（实测过：沿用它会在下面得到一串 403）。
+$session = New-Object Microsoft.PowerShell.Commands.WebRequestSession
+$auditLogin = Invoke-Api -Method POST -Path '/api/v1/auth/login' -Body @{
+    identifier = $AdminUsername
+    password   = $AdminPassword
+}
+Assert-Equal $auditLogin.Status 200 '操作记录用例：引导管理员重新登录'
+$auditList = Invoke-Api -Method GET -Path '/api/v1/audit?page=1&page_size=50'
+Assert-Equal $auditList.Status 200 'GET /api/v1/audit（管理员）'
+Assert-True ($auditList.Body.pagination.total -gt 0) '操作记录非空（写路径已接入审计）'
+
+# 按对象 id 过滤：这个账号上发生过 created 与 password_reset。
+$auditForUser = Invoke-Api -Method GET -Path "/api/v1/audit?object_id=$adminCreatedId&object_type=user"
+Assert-Equal $auditForUser.Status 200 '按对象过滤应 200'
+$createdRows = @($auditForUser.Body.data | Where-Object { $_.action -eq 'created' })
+$resetRows = @($auditForUser.Body.data | Where-Object { $_.action -eq 'password_reset' })
+Assert-Equal $createdRows.Count 1 '账号创建留下 1 条 created 记录'
+Assert-Equal $resetRows.Count 1 '重置密码留下 1 条 password_reset 记录'
+Assert-True ($createdRows[0].actor_id -ne $adminCreatedId) '代建记录的操作人不是被创建的账号本身'
+Assert-Equal $createdRows[0].actor_id $resetRows[0].actor_id '两次操作的操作人一致（都是引导管理员）'
+
+# 记录里绝不允许出现密码明文。
+$auditBodyText = ($auditForUser.Body | ConvertTo-Json -Depth 10 -Compress)
+Assert-True (-not $auditBodyText.Contains('reset by smoke admin')) '操作记录不含密码明文'
+Assert-True ($resetRows[0].request_id -ne '') '记录带 request_id（可串起同一次请求）'
+
+# 参数校验与权限边界。
+$auditBadEnum = Invoke-Api -Method GET -Path '/api/v1/audit?action=unknown_action'
+Assert-Equal $auditBadEnum.Status 400 '未知动作应 400'
+Assert-Equal $auditBadEnum.Body.error.code 'invalid_request' 'error.code'
+$auditBadParam = Invoke-Api -Method GET -Path '/api/v1/audit?kinds=created'
+Assert-Equal $auditBadParam.Status 400 '未知查询参数应 400'
+
 $session = $primarySession
+$auditForbidden = Invoke-Api -Method GET -Path '/api/v1/audit'
+Assert-Equal $auditForbidden.Status 403 '普通成员访问操作记录应 403'
+Assert-Equal $auditForbidden.Body.error.code 'permission_denied' 'error.code'
 
 # ---------------------------------------------------------------------------
 Write-Step "Projects：创建 → 派生字段 → 归档只读"

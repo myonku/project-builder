@@ -40,15 +40,20 @@ dial_timeout_seconds = 5
 # 邮件默认关闭。启用需要同时提供账号、密码与发件地址，
 # 且**凭据不要写在这个文件里**（它已入库）：用环境变量注入
 #   MAIL_USERNAME / MAIL_PASSWORD / MAIL_FROM_ADDRESS
-# 认证机制默认 login（实测 smtp-mail.outlook.com 不接受 AUTH PLAIN）。
+# 目标服务商是**阿里邮箱**（2026-10-12 实测投递成功）：
+#   * SMTP 服务器 smtp.qiye.aliyun.com，**SSL 端口 465 + 直接 TLS**
+#     （阿里邮箱未开放 587/80，非加密只有 25）→ implicit_tls = true、use_tls = false；
+#   * 认证机制 login（实测可用）；密码用"三方客户端安全密码"，不是邮箱登录密码；
+#   * 详见 docs/03-配置与运行.md 3.5.1。
 enabled = false
-host = "smtp-mail.outlook.com"
-port = 587
+host = "smtp.qiye.aliyun.com"
+port = 465
 username = ""
 password = ""
 from_address = ""
 from_name = "项目计划管理系统"
-use_tls = true
+use_tls = false
+implicit_tls = true
 auth_method = "login"
 # 邮件正文里的任务链接需要一个外部可达地址。
 task_url_template = "http://localhost:8080/tasks/{task_id}"
@@ -82,6 +87,16 @@ session_cookie_name = "pb_session"
 # bootstrap_admin_email = "admin@example.com"
 # bootstrap_admin_password = ""          # 通过 SECURITY_BOOTSTRAP_ADMIN_PASSWORD 注入，不写入仓库
 # bootstrap_admin_display_name = "系统管理员"
+
+[ratelimit]
+# 全局 HTTP 限流（按来源地址分桶的令牌桶，单实例内存态）。
+#
+# 定位是"封顶"而不是精确配额：默认值刻意宽松，让正常使用（含 182 项端到端冒烟）
+# 永远不会看到 429；它挡的是脚本化的高频刷取与登录口令尝试。
+# 不做用户/会话级限流：按会话限流在登录之前就失效（见 docs/03-配置与运行.md 3.8）。
+enabled = true
+requests_per_minute = 3000
+burst = 300
 
 [scheduler]
 enabled = true

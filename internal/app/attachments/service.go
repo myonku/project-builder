@@ -6,9 +6,11 @@ import (
 	"io"
 	"log/slog"
 	"path"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/myonku/project-builder/internal/app/apperr"
 	"github.com/myonku/project-builder/internal/config"
 	"github.com/myonku/project-builder/internal/domain"
 	"github.com/myonku/project-builder/internal/listquery"
@@ -52,8 +54,8 @@ type Store interface {
 	Find(ctx context.Context, attachmentID string) (Record, error)
 	List(ctx context.Context, filter ListFilter, orderBy string, limit, offset int) ([]Record, error)
 	Count(ctx context.Context, filter ListFilter) (int, error)
-	SoftDelete(ctx context.Context, attachmentID string, at time.Time) (Record, error)
-	Purge(ctx context.Context, attachmentID string) error
+	SoftDelete(ctx context.Context, attachmentID string, at time.Time, audit *apperr.AuditWrite) (Record, error)
+	Purge(ctx context.Context, attachmentID string, audit *apperr.AuditWrite) error
 	CountByUploader(ctx context.Context, uploaderID string) (int, error)
 }
 
@@ -74,6 +76,8 @@ type Service struct {
 	clk      clock.Clock
 	logger   *slog.Logger
 	cfg      config.StorageConfig
+	// audit 是操作记录的写入方，由仓储在业务事务里调用（见 apperr.AuditWrite）。
+	audit apperr.AuditWriter
 }
 
 // Options 是 Service 的构造参数。
@@ -86,6 +90,8 @@ type Options struct {
 	Clock    clock.Clock
 	Logger   *slog.Logger
 	Config   config.StorageConfig
+	// Audit 为 nil 时不记操作记录。
+	Audit apperr.AuditWriter
 }
 
 // NewService 构造附件服务。
@@ -107,7 +113,48 @@ func NewService(opts Options) *Service {
 		clk:      clk,
 		logger:   logger,
 		cfg:      opts.Config,
+		audit:    opts.Audit,
 	}
+}
+
+// auditWith 构造一条附件操作记录。
+//
+// changes 只放元数据（原始文件名、扩展名、大小、所属容器），
+// **绝不放文件内容**：附件是用户数据，内容进审计表既无必要也无法清理。
+func (s *Service) auditWith(
+	actorID string, action domain.AuditAction, attachmentID string, changes map[string]string,
+) *apperr.AuditWrite {
+	return apperr.NewAuditWrite(s.audit, domain.AuditEntry{
+		ActorID:    actorID,
+		Action:     action,
+		ObjectType: domain.AuditObjectAttachment,
+		ObjectID:   attachmentID,
+		Changes:    changes,
+	})
+}
+
+// attachmentChanges 汇总附件的元数据。
+func attachmentChanges(record Record) map[string]string {
+	changes := map[string]string{
+		"original_name": record.OriginalName,
+		"extension":     record.Extension,
+		"size_bytes":    strconv.FormatInt(record.SizeBytes, 10),
+	}
+	if record.ProjectID != nil {
+		changes["project_id"] = *record.ProjectID
+	}
+	if record.TaskID != nil {
+		changes["task_id"] = *record.TaskID
+	}
+	return changes
+}
+
+// derefOrEmpty 把可空字符串转为审计摘要里的取值（空串表示"不属于该容器"）。
+func derefOrEmpty(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }
 
 // MaxFileSize 返回单文件大小上限，供 HTTP 层限制请求体。
@@ -191,6 +238,14 @@ func (s *Service) Upload(ctx context.Context, in UploadInput) (Record, error) {
 		Extension:    extension,
 		SizeBytes:    in.Size,
 		MimeType:     normalizeMime(in.MimeType, extension),
+		// 上传也入账：只记元数据，不记内容。
+		Audit: s.auditWith(in.ActorID, domain.AuditActionCreated, id, map[string]string{
+			"original_name": originalName,
+			"extension":     extension,
+			"size_bytes":    strconv.FormatInt(in.Size, 10),
+			"project_id":    derefOrEmpty(in.ProjectID),
+			"task_id":       derefOrEmpty(in.TaskID),
+		}),
 	})
 	if err != nil {
 		// 尽力清理刚写入的对象：失败只记录，不改变返回给客户端的错误
@@ -321,7 +376,8 @@ func (s *Service) Delete(ctx context.Context, in DeleteInput) (Record, error) {
 			WithField("attachment_id", "该附件已被逻辑删除")
 	}
 
-	deleted, err := s.repo.SoftDelete(ctx, in.AttachmentID, s.clk.Now())
+	deleted, err := s.repo.SoftDelete(ctx, in.AttachmentID, s.clk.Now(),
+		s.auditWith(in.ActorID, domain.AuditActionDeleted, in.AttachmentID, nil))
 	if err != nil {
 		return Record{}, err
 	}
@@ -350,7 +406,10 @@ func (s *Service) Purge(ctx context.Context, actor domain.User, attachmentID str
 	if err := s.storage.Delete(ctx, record.StoredKey); err != nil {
 		return domain.ErrInternal.WithCause(err)
 	}
-	if err := s.repo.Purge(ctx, attachmentID); err != nil {
+	// 彻底删除也入账：它是不可逆动作，更需要留下"谁在什么时候删了什么"。
+	if err := s.repo.Purge(ctx, attachmentID,
+		s.auditWith(actor.ID, domain.AuditActionPurged, attachmentID,
+			attachmentChanges(record))); err != nil {
 		return err
 	}
 

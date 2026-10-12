@@ -3,8 +3,10 @@ package tasks
 import (
 	"context"
 	"log/slog"
+	"strconv"
 	"time"
 
+	"github.com/myonku/project-builder/internal/app/apperr"
 	"github.com/myonku/project-builder/internal/domain"
 	"github.com/myonku/project-builder/internal/listquery"
 	"github.com/myonku/project-builder/internal/platform/clock"
@@ -12,6 +14,9 @@ import (
 )
 
 // Store 是本模块对持久化的需求。
+//
+// 写方法多一个 audit 参数：审计必须与业务写在**同一个事务**里（docs/04 §4.10），
+// 因此由用例层构造记录、仓储在提交前 Flush；nil 表示这次写不记审计。
 type Store interface {
 	FindTaskForUser(ctx context.Context, taskID, userID string, includeDeleted bool) (TaskRecord, error)
 	FindTaskByID(ctx context.Context, taskID string, includeDeleted bool) (TaskRecord, error)
@@ -19,18 +24,18 @@ type Store interface {
 	CountTasks(ctx context.Context, filter ListFilter) (int, error)
 	CreateTaskInTx(ctx context.Context, params CreateTaskParams) (TaskRecord, error)
 	UpdateTask(ctx context.Context, params TaskUpdateParams) (TaskRecord, error)
-	SoftDeleteTask(ctx context.Context, taskID, actorID string, expectedUpdated, deletedAt time.Time) (TaskRecord, error)
+	SoftDeleteTask(ctx context.Context, taskID, actorID string, expectedUpdated, deletedAt time.Time, audit *apperr.AuditWrite) (TaskRecord, error)
 	ListAncestors(ctx context.Context, taskID string) ([]TaskRecord, error)
 
 	FindMember(ctx context.Context, taskID, userID string) (MemberRecord, error)
 	ListMembers(ctx context.Context, filter MemberFilter, orderBy string, limit, offset int) ([]MemberRecord, error)
 	CountMembers(ctx context.Context, filter MemberFilter) (int, error)
 	CountOwners(ctx context.Context, taskID string) (int, error)
-	AddMember(ctx context.Context, id, taskID, userID, role string) (MemberRecord, error)
-	UpdateMemberRole(ctx context.Context, taskID, userID, role string) (MemberRecord, error)
+	AddMember(ctx context.Context, id, taskID, userID, role string, audit *apperr.AuditWrite) (MemberRecord, error)
+	UpdateMemberRole(ctx context.Context, taskID, userID, role string, audit *apperr.AuditWrite) (MemberRecord, error)
 	// TransferOwnership 在同一事务内先降现任持有者、再升目标。
-	TransferOwnership(ctx context.Context, taskID, targetUserID string) (MemberRecord, error)
-	RemoveMember(ctx context.Context, taskID, userID string) error
+	TransferOwnership(ctx context.Context, taskID, targetUserID string, audit *apperr.AuditWrite) (MemberRecord, error)
+	RemoveMember(ctx context.Context, taskID, userID string, audit *apperr.AuditWrite) error
 
 	FindProjectMember(ctx context.Context, projectID, userID string) (bool, error)
 	FindUser(ctx context.Context, userID string) (UserRecord, error)
@@ -106,6 +111,8 @@ type Service struct {
 	ids       *idgen.Generator
 	clk       clock.Clock
 	logger    *slog.Logger
+	// audit 是操作记录的写入方：**由仓储在业务事务里调用**（见 apperr.AuditWrite）。
+	audit apperr.AuditWriter
 }
 
 // Options 是 Service 的构造参数。
@@ -117,6 +124,8 @@ type Options struct {
 	IDs       *idgen.Generator
 	Clock     clock.Clock
 	Logger    *slog.Logger
+	// Audit 为 nil 时不记操作记录（单元测试或不需要审计的装配）。
+	Audit apperr.AuditWriter
 }
 
 // NewService 构造任务用例服务。
@@ -136,7 +145,69 @@ func NewService(opts Options) *Service {
 		ids:       opts.IDs,
 		clk:       clk,
 		logger:    logger,
+		audit:     opts.Audit,
 	}
+}
+
+// auditWith 构造一条任务操作记录。
+//
+// 集中一处构造：对象类型恒为 task（成员与持有者变更也记在**任务**这个容器上，
+// docs/04 §4.10），动作与对象 id 不会各写一遍，changes 的组装有统一入口。
+// request id 由 context 提供（RequestIDMiddleware 写入），这里不重复传递。
+func (s *Service) auditWith(
+	actorID string, action domain.AuditAction, taskID string, changes map[string]string,
+) *apperr.AuditWrite {
+	return apperr.NewAuditWrite(s.audit, domain.AuditEntry{
+		ActorID:    actorID,
+		Action:     action,
+		ObjectType: domain.AuditObjectTask,
+		ObjectID:   taskID,
+		Changes:    changes,
+	})
+}
+
+// taskChanges 汇总本次更新**实际提供**的字段（未提供的字段不出现）。
+//
+// 只记新值：需求要求"关键变更内容"，不要求完整前后对照；
+// 完整前后值会把更多内容留在只增不删的表里。
+func taskChanges(in UpdateInput) map[string]string {
+	changes := map[string]string{}
+	if in.Name != nil {
+		changes["name"] = *in.Name
+	}
+	if in.DescriptionSet {
+		changes["description"] = "<由请求提供>"
+	}
+	if in.Status != nil {
+		changes["status"] = *in.Status
+	}
+	if in.Progress != nil {
+		changes["progress"] = strconv.Itoa(*in.Progress)
+	}
+	if in.Priority != nil {
+		changes["priority"] = strconv.Itoa(*in.Priority)
+	}
+	if in.StartDate != nil {
+		changes["start_date"] = domain.FormatDate(*in.StartDate)
+	}
+	if in.EndDate != nil {
+		changes["end_date"] = domain.FormatDate(*in.EndDate)
+	}
+	if in.IsMilestone != nil {
+		changes["is_milestone"] = strconv.FormatBool(*in.IsMilestone)
+	}
+	if in.IsShared != nil {
+		changes["is_shared"] = strconv.FormatBool(*in.IsShared)
+	}
+	if in.ParentIDSet {
+		// 显式 null 表示"提升为顶层任务"，与"未提供"不同，因此要记一条可区分的值。
+		if in.ParentID == nil {
+			changes["parent_id"] = ""
+		} else {
+			changes["parent_id"] = *in.ParentID
+		}
+	}
+	return changes
 }
 
 // CreateInput 是创建任务的用例输入。
@@ -240,6 +311,10 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (TaskRecord, error
 		IsMilestone: isMilestone,
 		IsShared:    isShared,
 		MemberID:    memberID,
+		Audit: s.auditWith(in.CreatorID, domain.AuditActionCreated, taskID, map[string]string{
+			"name":       normalized.Name,
+			"project_id": in.ProjectID,
+		}),
 	})
 	if err != nil {
 		return TaskRecord{}, err
@@ -329,9 +404,6 @@ func (s *Service) List(ctx context.Context, in ListInput) (Page[TaskRecord], err
 		return Page[TaskRecord]{}, err
 	}
 	orderClause := TaskSort.OrderBy(order)
-	if err != nil {
-		return Page[TaskRecord]{}, err
-	}
 
 	filter := ListFilter{
 		ProjectID:      in.ProjectID,
@@ -481,6 +553,8 @@ func (s *Service) Update(ctx context.Context, in UpdateInput) (TaskRecord, error
 		ExpectedUpdated: in.ExpectedUpdated,
 		// 最后修改人必须由写路径显式提供：漏传不会报错，字段只会停在旧值上。
 		ActorID: in.ActorID,
+		// 只记本次请求**实际提供**的字段与新值（未提供的字段不出现）。
+		Audit: s.auditWith(in.ActorID, domain.AuditActionUpdated, in.TaskID, taskChanges(in)),
 	})
 	if err != nil {
 		return TaskRecord{}, err
@@ -545,6 +619,11 @@ func (s *Service) UpdateDates(ctx context.Context, in UpdateDatesInput) (TaskRec
 		ExpectedUpdated: in.ExpectedUpdated,
 		// 甘特图拖拽改日期也是一次修改，同样要记录最后修改人。
 		ActorID: in.ActorID,
+		// 该端点只能改日期，因此 changes 只有两个日期键。
+		Audit: s.auditWith(in.ActorID, domain.AuditActionUpdated, in.TaskID, map[string]string{
+			"start_date": domain.FormatDate(in.StartDate),
+			"end_date":   domain.FormatDate(in.EndDate),
+		}),
 	})
 	if err != nil {
 		return TaskRecord{}, err
@@ -584,7 +663,8 @@ func (s *Service) Delete(ctx context.Context, in DeleteInput) (TaskRecord, error
 		return TaskRecord{}, domain.ErrPermissionDenied
 	}
 
-	deleted, err := s.repo.SoftDeleteTask(ctx, in.TaskID, in.ActorID, in.ExpectedUpdated, s.clk.Now())
+	deleted, err := s.repo.SoftDeleteTask(ctx, in.TaskID, in.ActorID, in.ExpectedUpdated, s.clk.Now(),
+		s.auditWith(in.ActorID, domain.AuditActionDeleted, in.TaskID, nil))
 	if err != nil {
 		return TaskRecord{}, err
 	}
@@ -693,6 +773,12 @@ func (s *Service) Copy(ctx context.Context, in CopyInput) (TaskRecord, bool, err
 		IsMilestone: copied.IsMilestone,
 		IsShared:    copied.IsShared,
 		MemberID:    memberID,
+		// 记录的是**新任务**（object_id = 新 id）；copied_from 让"这条任务从哪来"可追溯。
+		Audit: s.auditWith(in.ActorID, domain.AuditActionCreated, taskID, map[string]string{
+			"name":        copied.Name,
+			"project_id":  source.ProjectID,
+			"copied_from": source.ID,
+		}),
 	})
 	if err != nil {
 		return TaskRecord{}, false, err
@@ -748,9 +834,6 @@ func (s *Service) ListMembers(ctx context.Context, in MemberListInput) (Page[Mem
 		return Page[MemberRecord]{}, err
 	}
 	orderClause := MemberSort.OrderBy(order)
-	if err != nil {
-		return Page[MemberRecord]{}, err
-	}
 
 	filter := MemberFilter{TaskID: in.TaskID, Role: in.Role}
 	total, err := s.repo.CountMembers(ctx, filter)
@@ -809,7 +892,11 @@ func (s *Service) AddMember(ctx context.Context, in AddMemberInput) (MemberRecor
 		return MemberRecord{}, domain.ErrInternal.WithCause(err)
 	}
 
-	member, err := s.repo.AddMember(ctx, memberID, record.ID, in.UserID, domain.MemberRoleMember)
+	member, err := s.repo.AddMember(ctx, memberID, record.ID, in.UserID, domain.MemberRoleMember,
+		s.auditWith(in.ActorID, domain.AuditActionMemberAdded, record.ID, map[string]string{
+			"user_id": in.UserID,
+			"role":    domain.MemberRoleMember,
+		}))
 	if err != nil {
 		return MemberRecord{}, err
 	}
@@ -884,9 +971,15 @@ func (s *Service) ChangeMemberRole(ctx context.Context, in ChangeMemberInput) (M
 
 	var updated MemberRecord
 	if action == domain.GroupMemberActionTransfer {
-		updated, err = s.repo.TransferOwnership(ctx, record.ID, in.UserID)
+		updated, err = s.repo.TransferOwnership(ctx, record.ID, in.UserID,
+			s.auditWith(in.ActorID, domain.AuditActionOwnerTransferred, record.ID,
+				map[string]string{"user_id": in.UserID}))
 	} else {
-		updated, err = s.repo.UpdateMemberRole(ctx, record.ID, in.UserID, in.Role)
+		updated, err = s.repo.UpdateMemberRole(ctx, record.ID, in.UserID, in.Role,
+			s.auditWith(in.ActorID, domain.AuditActionMemberRoleChanged, record.ID, map[string]string{
+				"user_id": in.UserID,
+				"role":    in.Role,
+			}))
 	}
 	if err != nil {
 		return MemberRecord{}, err
@@ -924,7 +1017,9 @@ func (s *Service) RemoveMember(ctx context.Context, taskID, actorID, userID stri
 		domain.GroupMemberActionRemove, ownerCount); err != nil {
 		return err
 	}
-	return s.repo.RemoveMember(ctx, record.ID, userID)
+	return s.repo.RemoveMember(ctx, record.ID, userID,
+		s.auditWith(actorID, domain.AuditActionMemberRemoved, record.ID,
+			map[string]string{"user_id": userID}))
 }
 
 // validateParent 校验父子关系：同项目、未删除、层级不超过 3 层、区间覆盖、无循环引用。

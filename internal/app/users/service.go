@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"strconv"
 	"time"
 
+	"github.com/myonku/project-builder/internal/app/apperr"
 	"github.com/myonku/project-builder/internal/domain"
 	"github.com/myonku/project-builder/internal/listquery"
 )
@@ -30,8 +32,10 @@ type Store interface {
 // 版本校验仍由本模块的端点负责：它是一次"对用户资源的版本化写入"，
 // 因此通过参数传给 auth，而不是让 auth 去理解 HTTP 契约。
 type Accounts interface {
-	CreateAccount(ctx context.Context, in domain.RegistrationInput) (domain.User, error)
-	ResetPassword(ctx context.Context, userID, newPassword string, expectedUpdated time.Time) (domain.User, error)
+	// CreateAccount 的 actorID 为空表示自助注册；非空表示管理员代建，
+	// 由 auth 侧把该 ID 作为操作人写入操作记录（新账号 id 只有那里知道）。
+	CreateAccount(ctx context.Context, in domain.RegistrationInput, actorID string) (domain.User, error)
+	ResetPassword(ctx context.Context, userID, newPassword string, expectedUpdated time.Time, audit *apperr.AuditWrite) (domain.User, error)
 }
 
 // Page 是列表查询结果。必须同时返回真实总数（接口契约 2.3 的 pagination.total）。
@@ -46,6 +50,8 @@ type Service struct {
 	repo     Store
 	accounts Accounts
 	logger   *slog.Logger
+	// audit 是操作记录的写入方，由仓储在业务事务里调用（见 apperr.AuditWrite）。
+	audit apperr.AuditWriter
 }
 
 // Options 是 Service 的构造参数。
@@ -54,6 +60,8 @@ type Options struct {
 	// Accounts 提供账号创建与密码重置，由装配点注入 app/auth 的服务。
 	Accounts Accounts
 	Logger   *slog.Logger
+	// Audit 为 nil 时不记操作记录。
+	Audit apperr.AuditWriter
 }
 
 // NewService 构造用户资料用例服务。
@@ -62,7 +70,28 @@ func NewService(opts Options) *Service {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Service{repo: opts.Store, accounts: opts.Accounts, logger: logger}
+	return &Service{
+		repo:     opts.Store,
+		accounts: opts.Accounts,
+		logger:   logger,
+		audit:    opts.Audit,
+	}
+}
+
+// auditWith 构造一条用户操作记录。
+//
+// object_id 是**被操作的用户**（不是操作人）：审计回答"这个账号上发生过什么"，
+// 操作人由 ActorID 单独承载。
+func (s *Service) auditWith(
+	actorID string, action domain.AuditAction, targetUserID string, changes map[string]string,
+) *apperr.AuditWrite {
+	return apperr.NewAuditWrite(s.audit, domain.AuditEntry{
+		ActorID:    actorID,
+		Action:     action,
+		ObjectType: domain.AuditObjectUser,
+		ObjectID:   targetUserID,
+		Changes:    changes,
+	})
 }
 
 // CreateInput 是"管理员代建账号"的用例输入，字段与自助注册一致。
@@ -88,7 +117,7 @@ func (s *Service) Create(ctx context.Context, actor domain.User, in CreateInput)
 		return ProfileRecord{}, domain.ErrInternal.WithCause(errNoAccounts)
 	}
 
-	created, err := s.accounts.CreateAccount(ctx, in.Registration)
+	created, err := s.accounts.CreateAccount(ctx, in.Registration, actor.ID)
 	if err != nil {
 		return ProfileRecord{}, err
 	}
@@ -172,7 +201,10 @@ func (s *Service) ResetPassword(
 		return ProfileRecord{}, err
 	}
 
-	if _, err := s.accounts.ResetPassword(ctx, in.TargetID, in.NewPassword, in.ExpectedUpdated); err != nil {
+	// 密码本身绝不进 changes：只记"哪个管理员重置了哪个账号"。
+	_, err := s.accounts.ResetPassword(ctx, in.TargetID, in.NewPassword, in.ExpectedUpdated,
+		s.auditWith(actor.ID, domain.AuditActionPasswordReset, in.TargetID, nil))
+	if err != nil {
 		return ProfileRecord{}, err
 	}
 
@@ -254,6 +286,8 @@ func (s *Service) Update(ctx context.Context, actor domain.User, in UpdateInput)
 		// 只有触及状态或角色的写入才需要守住"至少一个启用中管理员"，
 		// 避免为一次改显示名的请求加行锁。
 		GuardLastAdmin: domain.RequiresUserAdministration(normalized),
+		Audit: s.auditWith(actor.ID, domain.AuditActionUpdated, in.TargetID,
+			profileChanges(in.Update)),
 	})
 	if err != nil {
 		return ProfileRecord{}, err
@@ -305,6 +339,8 @@ func (s *Service) Disable(ctx context.Context, actor domain.User, in DisableInpu
 		ExpectedUpdated: in.ExpectedUpdated,
 		Status:          &disabled,
 		GuardLastAdmin:  true,
+		Audit: s.auditWith(actor.ID, domain.AuditActionDisabled, in.TargetID,
+			map[string]string{"status": domain.UserStatusDisabled}),
 	})
 	if err != nil {
 		return ProfileRecord{}, err
@@ -353,6 +389,33 @@ func (s *Service) requireVisible(ctx context.Context, actor domain.User, targetI
 		return ProfileRecord{}, notFound()
 	}
 	return record, nil
+}
+
+// profileChanges 汇总本次资料更新**实际提供**的字段（未提供的字段不出现）。
+//
+// 只记新值：邮箱与显示名都属于"要知道改成了什么"的字段，
+// 而密码与摘要从不经过这里（密码重置是另一条路径，且只记动作）。
+func profileChanges(update domain.UserProfileUpdate) map[string]string {
+	changes := map[string]string{}
+	if update.DisplayName != nil {
+		changes["display_name"] = *update.DisplayName
+	}
+	if update.Email != nil {
+		changes["email"] = *update.Email
+	}
+	if update.Timezone != nil {
+		changes["timezone"] = *update.Timezone
+	}
+	if update.ReminderEnabled != nil {
+		changes["reminder_enabled"] = strconv.FormatBool(*update.ReminderEnabled)
+	}
+	if update.Status != nil {
+		changes["status"] = *update.Status
+	}
+	if update.SystemRole != nil {
+		changes["system_role"] = *update.SystemRole
+	}
+	return changes
 }
 
 // adminOnlyFieldsError 构造"普通用户触碰管理员字段"的 403，并逐字段说明原因。

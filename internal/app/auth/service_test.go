@@ -426,7 +426,7 @@ func TestLoginRehashUpgradesWeakDigest(t *testing.T) {
 		DisplayName: "Alice", PasswordHash: weakHash,
 		Timezone: "UTC", Status: domain.UserStatusActive,
 		SystemRole: domain.UserSystemRoleMember, ReminderEnabled: true,
-	}); err != nil {
+	}, nil); err != nil {
 		t.Fatalf("写入用户失败: %v", err)
 	}
 

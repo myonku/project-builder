@@ -32,21 +32,22 @@ func main() {
 		log.Fatal("必须用 -to 指定收件地址")
 	}
 
-	port, err := strconv.Atoi(envOr("MAIL_PORT", "587"))
+	port, err := strconv.Atoi(envOr("MAIL_PORT", "465"))
 	if err != nil {
 		log.Fatalf("MAIL_PORT 非法: %v", err)
 	}
 
 	cfg := mail.SMTPConfig{
-		Host:        envOr("MAIL_HOST", "smtp-mail.outlook.com"),
+		Host:        envOr("MAIL_HOST", "smtp.qiye.aliyun.com"),
 		Port:        port,
 		Username:    os.Getenv("MAIL_USERNAME"),
 		Password:    os.Getenv("MAIL_PASSWORD"),
 		FromAddress: envOr("MAIL_FROM_ADDRESS", os.Getenv("MAIL_USERNAME")),
 		FromName:    envOr("MAIL_FROM_NAME", "项目计划管理系统"),
-		// 587 + STARTTLS 是官方页面给出的组合。
-		UseTLS:            envOr("MAIL_USE_TLS", "true") == "true",
-		ImplicitTLS:       os.Getenv("MAIL_IMPLICIT_TLS") == "true",
+		// 阿里邮箱（当前目标服务商）：465 + 直接 TLS；它未开放 587/80。
+		// 换回 STARTTLS 服务商时用 MAIL_USE_TLS=true、MAIL_IMPLICIT_TLS=false。
+		UseTLS:            envOr("MAIL_USE_TLS", "false") == "true",
+		ImplicitTLS:       envOr("MAIL_IMPLICIT_TLS", "true") == "true",
 		AuthMethod:        os.Getenv("MAIL_AUTH_METHOD"),
 		OAuth2AccessToken: os.Getenv("MAIL_OAUTH2_ACCESS_TOKEN"),
 		Timeout:           30 * time.Second,
@@ -69,7 +70,7 @@ func main() {
 它用于验证以下事实：
   1. SMTP 服务器 %s:%d 可达；
   2. 使用配置的账号可以通过身份验证；
-  3. STARTTLS 协商成功；
+  3. 加密通道协商成功（465 直接 TLS / 587 STARTTLS）；
   4. 中文主题（RFC 2047）与中文正文（UTF-8）在真实客户端可正常显示。
 
 发送时刻（UTC）：%s

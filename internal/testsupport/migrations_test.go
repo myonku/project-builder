@@ -34,16 +34,16 @@ func TestMigrationsApplyFromEmptyDatabase(t *testing.T) {
 	if dirty {
 		t.Fatal("schema 处于脏状态")
 	}
-	if version != 4 {
-		t.Fatalf("迁移版本 = %d，期望 4（000001 初始 schema + 000002 tasks.updated_by "+
-			"+ 000003 attachments + 000004 reminders）", version)
+	if version != 5 {
+		t.Fatalf("迁移版本 = %d，期望 5（000001 初始 schema + 000002 tasks.updated_by "+
+			"+ 000003 attachments + 000004 reminders + 000005 activity_logs）", version)
 	}
 
-	// 全部 11 张业务表必须存在。
+	// 全部 12 张业务表必须存在。
 	expected := []string{
 		"users", "groups", "group_members", "group_join_requests",
 		"projects", "project_members", "tasks", "task_members",
-		"attachments", "reminders", "idempotency_keys",
+		"attachments", "reminders", "idempotency_keys", "activity_logs",
 	}
 	for _, table := range expected {
 		var exists bool
@@ -137,6 +137,11 @@ func TestSchemaMatchesDocumentedShape(t *testing.T) {
 		{table: "tasks", column: "deleted_at", wantType: "timestamp with time zone", nullable: "YES"},
 		// 000002 新增：最后修改人（需求文档 5.6）。NOT NULL：任务总是有创建者。
 		{table: "tasks", column: "updated_by", wantType: "uuid", nullable: "NO"},
+		// 000005 新增：操作记录。changes 必须是 jsonb（查询与筛选都依赖它）。
+		{table: "activity_logs", column: "changes", wantType: "jsonb", nullable: "NO"},
+		{table: "activity_logs", column: "actor_id", wantType: "uuid", nullable: "NO"},
+		{table: "activity_logs", column: "object_id", wantType: "uuid", nullable: "NO"},
+		{table: "activity_logs", column: "created_at", wantType: "timestamp with time zone", nullable: "NO"},
 		{table: "tasks", column: "created_at", wantType: "timestamp with time zone", nullable: "NO"},
 		{table: "group_members", column: "joined_at", wantType: "timestamp with time zone", nullable: "NO"},
 		// 业务日期列必须是纯 date，不得混入时分秒。
@@ -173,7 +178,7 @@ func TestEveryBusinessTableHasAuditColumns(t *testing.T) {
 	tables := []string{
 		"users", "groups", "group_members", "group_join_requests",
 		"projects", "project_members", "tasks", "task_members",
-		"attachments", "reminders", "idempotency_keys",
+		"attachments", "reminders", "idempotency_keys", "activity_logs",
 	}
 	required := []string{"id", "created_at", "updated_at"}
 

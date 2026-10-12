@@ -200,6 +200,9 @@ type CreateProjectParams struct {
 	EndDate     time.Time
 	Color       *string
 	MemberID    string
+	// Audit 是要在同一事务里写下的一条操作记录；nil 表示不记。
+	// 由用例层构造（见 apperr.AuditWrite）。
+	Audit *apperr.AuditWrite
 }
 
 // ProjectUpdateParams 是更新项目的字段。
@@ -217,6 +220,12 @@ type ProjectUpdateParams struct {
 	ArchivedAt      *time.Time
 	ArchivedAtSet   bool
 	ExpectedUpdated time.Time
+	// Audit 见 CreateProjectParams 的说明。
+	Audit *apperr.AuditWrite
+	// ShareAudit 是"共享级别变更"这一条独立记录（契约 4.10 的 shared 动作）。
+	// 与 Audit 分开是因为它们是两个事实：项目被改了、以及共享范围被改了；
+	// 两条记录由同一个 request_id 串起来。nil 表示这次没有共享变更。
+	ShareAudit *apperr.AuditWrite
 }
 
 // ListFilter 是项目列表筛选条件。
@@ -325,7 +334,9 @@ func (r *Repository) CreateProjectInTx(ctx context.Context, params CreateProject
 		if _, err := tx.Exec(ctx, insertOwner, params.MemberID, params.ID, params.CreatedBy); err != nil {
 			return apperr.Translate(err, constraintMap)
 		}
-		return nil
+
+		// 审计与业务在同一个事务里：业务回滚则记录也不存在。
+		return params.Audit.Flush(ctx, tx)
 	})
 	if err != nil {
 		return ProjectRecord{}, err
@@ -503,29 +514,41 @@ func (r *Repository) UpdateProject(ctx context.Context, params ProjectUpdatePara
 		RETURNING ` + projectReturningColumns
 
 	var record ProjectRecord
-	err := r.pool.QueryRow(ctx, query,
-		params.ID,
-		params.ExpectedUpdated,
-		params.Name,
-		params.Status,
-		params.Visibility,
-		params.StartDate,
-		params.EndDate,
-		params.DescriptionSet,
-		params.Description,
-		params.ColorSet,
-		params.Color,
-	).Scan(
-		&record.ID, &record.Name, &record.Description, &record.CreatedBy,
-		&record.GroupID, &record.Status, &record.Visibility,
-		&record.StartDate, &record.EndDate, &record.Color, &record.ArchivedAt,
-		&record.CreatedAt, &record.UpdatedAt,
-	)
+	// 单语句写入也显式开事务：审计必须与业务同事务（docs/04 §4.10），
+	// 而"业务成功但审计缺失"是本次实现里最需要结构性排除的失败模式。
+	err := apperr.InTx(ctx, r.pool, func(ctx context.Context, tx apperr.Querier) error {
+		if err := tx.QueryRow(ctx, query,
+			params.ID,
+			params.ExpectedUpdated,
+			params.Name,
+			params.Status,
+			params.Visibility,
+			params.StartDate,
+			params.EndDate,
+			params.DescriptionSet,
+			params.Description,
+			params.ColorSet,
+			params.Color,
+		).Scan(
+			&record.ID, &record.Name, &record.Description, &record.CreatedBy,
+			&record.GroupID, &record.Status, &record.Visibility,
+			&record.StartDate, &record.EndDate, &record.Color, &record.ArchivedAt,
+			&record.CreatedAt, &record.UpdatedAt,
+		); err != nil {
+			// 不在这里做存在性查询：那会在事务开着的时候再借一条连接。
+			// 把"没有匹配行"原样上抛，由事务之外的 distinguishMissing 区分 404 与 409。
+			return apperr.Translate(err, constraintMap)
+		}
+		if err := params.Audit.Flush(ctx, tx); err != nil {
+			return err
+		}
+		return params.ShareAudit.Flush(ctx, tx)
+	})
 	if err != nil {
 		if apperr.IsNoRows(err) {
 			return ProjectRecord{}, r.distinguishMissing(ctx, params.ID)
 		}
-		return ProjectRecord{}, apperr.Translate(err, constraintMap)
+		return ProjectRecord{}, err
 	}
 	return record, nil
 }
@@ -551,7 +574,10 @@ func (r *Repository) distinguishMissing(ctx context.Context, projectID string) e
 //
 // 归档同时写入 archived_at 并把 status 置为 archived：两者任一都是
 // "项目已归档"的判据（见 domain.Project.IsArchived），保持一致可避免歧义。
-func (r *Repository) ArchiveProject(ctx context.Context, projectID string, expectedUpdated time.Time, archivedAt time.Time) (ProjectRecord, error) {
+func (r *Repository) ArchiveProject(
+	ctx context.Context, projectID string, expectedUpdated time.Time,
+	archivedAt time.Time, audit *apperr.AuditWrite,
+) (ProjectRecord, error) {
 	const query = `
 		UPDATE projects
 		   SET status = 'archived', archived_at = $3, updated_at = now()
@@ -559,17 +585,22 @@ func (r *Repository) ArchiveProject(ctx context.Context, projectID string, expec
 		RETURNING ` + projectReturningColumns
 
 	var record ProjectRecord
-	err := r.pool.QueryRow(ctx, query, projectID, expectedUpdated, archivedAt).Scan(
-		&record.ID, &record.Name, &record.Description, &record.CreatedBy,
-		&record.GroupID, &record.Status, &record.Visibility,
-		&record.StartDate, &record.EndDate, &record.Color, &record.ArchivedAt,
-		&record.CreatedAt, &record.UpdatedAt,
-	)
+	err := apperr.InTx(ctx, r.pool, func(ctx context.Context, tx apperr.Querier) error {
+		if err := tx.QueryRow(ctx, query, projectID, expectedUpdated, archivedAt).Scan(
+			&record.ID, &record.Name, &record.Description, &record.CreatedBy,
+			&record.GroupID, &record.Status, &record.Visibility,
+			&record.StartDate, &record.EndDate, &record.Color, &record.ArchivedAt,
+			&record.CreatedAt, &record.UpdatedAt,
+		); err != nil {
+			return apperr.Translate(err, constraintMap)
+		}
+		return audit.Flush(ctx, tx)
+	})
 	if err != nil {
 		if apperr.IsNoRows(err) {
 			return ProjectRecord{}, r.distinguishMissing(ctx, projectID)
 		}
-		return ProjectRecord{}, apperr.Translate(err, constraintMap)
+		return ProjectRecord{}, err
 	}
 	return record, nil
 }
@@ -673,18 +704,25 @@ func (r *Repository) ListMembers(ctx context.Context, filter MemberFilter, order
 //
 // 成员可以来自项目归属组以外的其他工作组（需求文档 5.3）；
 // 数据库层对此没有组归属复合外键，只有一个指向 users 的外键。
-func (r *Repository) AddMember(ctx context.Context, id, projectID, userID, role string) (MemberRecord, error) {
+func (r *Repository) AddMember(
+	ctx context.Context, id, projectID, userID, role string, audit *apperr.AuditWrite,
+) (MemberRecord, error) {
 	const query = `
 		INSERT INTO project_members (id, project_id, user_id, role)
 		VALUES ($1, $2, $3, $4)
 		RETURNING id, project_id, user_id, role, created_at`
 
 	var member MemberRecord
-	err := r.pool.QueryRow(ctx, query, id, projectID, userID, role).Scan(
-		&member.ID, &member.ProjectID, &member.UserID, &member.Role, &member.CreatedAt,
-	)
+	err := apperr.InTx(ctx, r.pool, func(ctx context.Context, tx apperr.Querier) error {
+		if err := tx.QueryRow(ctx, query, id, projectID, userID, role).Scan(
+			&member.ID, &member.ProjectID, &member.UserID, &member.Role, &member.CreatedAt,
+		); err != nil {
+			return apperr.Translate(err, constraintMap)
+		}
+		return audit.Flush(ctx, tx)
+	})
 	if err != nil {
-		return MemberRecord{}, apperr.Translate(err, constraintMap)
+		return MemberRecord{}, err
 	}
 	return member, nil
 }
@@ -701,7 +739,7 @@ func (r *Repository) AddMember(ctx context.Context, id, projectID, userID, role 
 //
 // 两条语句合起来保证不变式"任何时刻至多一个 owner"，事务保证"至少一个"。
 func (r *Repository) TransferOwnership(
-	ctx context.Context, projectID, targetUserID string,
+	ctx context.Context, projectID, targetUserID string, audit *apperr.AuditWrite,
 ) (MemberRecord, error) {
 	var updated MemberRecord
 
@@ -730,7 +768,7 @@ func (r *Repository) TransferOwnership(
 			return apperr.Translate(err, constraintMap)
 		}
 		updated = member
-		return nil
+		return audit.Flush(ctx, tx)
 	})
 	if err != nil {
 		return MemberRecord{}, err
@@ -749,7 +787,9 @@ func scanMember(row pgx.Row) (MemberRecord, error) {
 }
 
 // UpdateMemberRole 修改项目成员角色并回读。
-func (r *Repository) UpdateMemberRole(ctx context.Context, projectID, userID, role string) (MemberRecord, error) {
+func (r *Repository) UpdateMemberRole(
+	ctx context.Context, projectID, userID, role string, audit *apperr.AuditWrite,
+) (MemberRecord, error) {
 	const query = `
 		UPDATE project_members
 		   SET role = $3, updated_at = now()
@@ -757,15 +797,20 @@ func (r *Repository) UpdateMemberRole(ctx context.Context, projectID, userID, ro
 		RETURNING id, project_id, user_id, role, created_at`
 
 	var member MemberRecord
-	err := r.pool.QueryRow(ctx, query, projectID, userID, role).Scan(
-		&member.ID, &member.ProjectID, &member.UserID, &member.Role, &member.CreatedAt,
-	)
+	err := apperr.InTx(ctx, r.pool, func(ctx context.Context, tx apperr.Querier) error {
+		if err := tx.QueryRow(ctx, query, projectID, userID, role).Scan(
+			&member.ID, &member.ProjectID, &member.UserID, &member.Role, &member.CreatedAt,
+		); err != nil {
+			return apperr.Translate(err, constraintMap)
+		}
+		return audit.Flush(ctx, tx)
+	})
 	if err != nil {
 		if apperr.IsNoRows(err) {
 			return MemberRecord{}, domain.ErrResourceNotFound.
 				WithField("user_id", "该用户不是项目成员")
 		}
-		return MemberRecord{}, apperr.Translate(err, constraintMap)
+		return MemberRecord{}, err
 	}
 	return member, nil
 }
@@ -775,17 +820,21 @@ func (r *Repository) UpdateMemberRole(ctx context.Context, projectID, userID, ro
 // 与工作组不同：项目成员关系没有 status 列，"移除"就是删除该行。
 // 删除唯一持有者被 domain.ValidateProjectMemberChange 阻止（应用层），
 // 这里不做判断以保持仓储只负责持久化。
-func (r *Repository) RemoveMember(ctx context.Context, projectID, userID string) error {
+func (r *Repository) RemoveMember(
+	ctx context.Context, projectID, userID string, audit *apperr.AuditWrite,
+) error {
 	const query = `DELETE FROM project_members WHERE project_id = $1 AND user_id = $2`
 
-	tag, err := r.pool.Exec(ctx, query, projectID, userID)
-	if err != nil {
-		return apperr.Translate(err, constraintMap)
-	}
-	if tag.RowsAffected() == 0 {
-		return domain.ErrResourceNotFound.WithField("user_id", "该用户不是项目成员")
-	}
-	return nil
+	return apperr.InTx(ctx, r.pool, func(ctx context.Context, tx apperr.Querier) error {
+		tag, err := tx.Exec(ctx, query, projectID, userID)
+		if err != nil {
+			return apperr.Translate(err, constraintMap)
+		}
+		if tag.RowsAffected() == 0 {
+			return domain.ErrResourceNotFound.WithField("user_id", "该用户不是项目成员")
+		}
+		return audit.Flush(ctx, tx)
+	})
 }
 
 // FindUser 查询用户的最小信息。

@@ -6,30 +6,30 @@
 
 ## 当前状态
 
-**第一至第三阶段已完成并经真实依赖验证：地基 + Auth、Groups / Projects / Tasks、Users、Plan Views、Attachments、Reminders。第三阶段只剩 Audit。**
+**第一至第三阶段已全部完成并经真实依赖验证：地基 + Auth、Groups / Projects / Tasks、Users、Plan Views、Attachments、Reminders、Audit。**
 
 | 能力 | 状态 |
 | --- | --- |
 | 工程骨架、配置加载、结构化日志、优雅关闭 | ✅ 已实现 |
-| `platform`：PostgreSQL(pgxpool)、Redis、可注入时钟、UUIDv7/安全令牌、Argon2id、对象存储、SMTP | ✅ 已实现 |
-| `domain`：错误类型体系、用户规则、时间与逾期规则、权限基线 | ✅ 已实现 |
-| `httpapi`：requestID、访问日志、panic 恢复、CORS、会话网关、统一信封、错误映射、健康检查 | ✅ 已实现 |
-| 迁移 `000001_init`（9 张表、CHECK、部分唯一索引、外键删除行为）+ `000002`–`000004`（均 up/down 可逆） | ✅ 已实现（head `4`） |
+| `platform`：PostgreSQL(pgxpool)、Redis、可注入时钟、UUIDv7/安全令牌、Argon2id、对象存储、SMTP、request id 传递 | ✅ 已实现 |
+| `domain`：错误类型体系、用户规则、时间与逾期规则、权限基线、审计枚举与脱敏 | ✅ 已实现 |
+| `httpapi`：requestID、访问日志、panic 恢复、CORS、会话网关、全局限流、统一信封、错误映射、健康检查 | ✅ 已实现 |
+| 迁移 `000001_init`（9 张表、CHECK、部分唯一索引、外键删除行为）+ `000002`–`000005`（均 up/down 可逆） | ✅ 已实现（head `5`） |
 | Auth：注册、登录、登出、当前用户（Argon2id + Redis 会话 + HttpOnly Cookie） | ✅ 已实现 |
 | Groups / Projects / Tasks | ✅ 已实现（第二阶段） |
 | Users：资料查询/更新、管理员停用、管理员创建/列表/重置密码、按用户时区计算"今天" | ✅ 已实现（第三阶段） |
 | Plan Views：个人计划、组内共享计划、项目甘特图（含"任务最后修改人"） | ✅ 已实现（第三阶段） |
 | Attachments：上传/列表/下载/逻辑删除/彻底删除（7 个端点） | ✅ 已实现（第三阶段） |
 | Reminders：五种提醒、周期派发、幂等去重、失败原因与重试（3 个端点） | ✅ 已实现（第三阶段） |
-| Audit：操作记录查询 | ⬜ 未实现（第三阶段最后一块，见 [docs/06 §7.0.2](docs/06-进度与验证记录.md)） |
+| Audit：操作记录（**与业务同事务写入**，仅系统管理员可查，`GET /api/v1/audit`） | ✅ 已实现（第三阶段，2026-10-12） |
 
-已注册端点共 **58 个**（Health 4 / Auth 4 / Users 6 / Groups 11 / Projects 9 / Tasks 11 / Plan Views 3 / Attachments 7 / Reminders 3）。
+已注册端点共 **59 个**（Health 4 / Auth 4 / Users 6 / Groups 11 / Projects 9 / Tasks 11 / Plan Views 3 / Attachments 7 / Reminders 3 / Audit 1）。
 
 真实依赖验证结果（PostgreSQL 16 + Redis 7，2026-10-12 复跑）：
 
-- `go test ./... -count=1 -p 1` **顶层 293 项通过、0 失败、0 跳过**（含子用例共 820 项），覆盖真实数据库上的迁移可逆性、约束生效性、单一 owner 不变式，以及 Auth/Users/Groups/Projects/Tasks/Plan Views/Attachments/Reminders 的端到端用例。
-- `scripts/smoke.ps1` 对运行中的服务执行 **182 项断言全部通过**（健康检查、认证全链路、用户资料与管理员端点（含成功路径）、计划视图三端点、持有者与工作组所有权转移、管理员兜底、附件全链路（含 multipart 与两步删除）、提醒生成与派发、三域 CRUD、分页边界、排序白名单、版本冲突、组合筛选、幂等复制、归档只读）。
-  **前提是服务用 `make run-test-config` 启动**（其中含 `SCHEDULER_INTERVAL_SECONDS=5`）：换用别的配置会得到 176 通过 / 1 失败，原因见 [docs/06 §7.0.1](docs/06-进度与验证记录.md) 第 4 条坑。
+- `go test ./... -count=1 -p 1` **顶层 322 项通过、0 失败、0 跳过**（含子用例共 893 项），覆盖真实数据库上的迁移可逆性、约束生效性、单一 owner 不变式、审计的同事务与脱敏语义，以及八个域的端到端用例。
+- `scripts/smoke.ps1` 对运行中的服务执行 **197 项断言全部通过**（健康检查、认证全链路、用户资料与管理员端点（含成功路径）、计划视图三端点、持有者与工作组所有权转移、管理员兜底、附件全链路（含 multipart 与两步删除）、提醒生成与派发、**审计的可见性与脱敏**、三域 CRUD、分页边界、排序白名单、版本冲突、组合筛选、幂等复制、归档只读）。
+  **前提是服务用 `make run-test-config` 启动**（其中含 `SCHEDULER_INTERVAL_SECONDS=5`）：换用别的配置会得到 191 通过 / 1 失败，原因见 [docs/06 §7.0.1](docs/06-进度与验证记录.md) 第 4 条坑。
 - 关键实现经**变异验证**：逐条注入缺陷并确认对应用例确实失败，见 [docs/06](docs/06-进度与验证记录.md) 5.7。
 - **首个管理员**在系统初始化时按 `security.bootstrap_admin_*` 录入（幂等、绝不覆盖既有密码）；本系统面向内部小组，不做管理员分发。见 [docs/03](docs/03-配置与运行.md) 3.6.1。
 
@@ -59,16 +59,17 @@
 | 第一阶段 | 基础设施 + Auth | ✅ |
 | 第二阶段 | Groups / Projects / Tasks | ✅ |
 | 第三阶段 | Users / Plan Views / Attachments / Reminders | ✅ |
-| 第三阶段 | **Audit** | ⬜ 未开始（下一步，见 docs/06 §7.0.2：先补契约 §4.10，再迁移 + 模块） |
-| 第四阶段 | 交付收口（备份恢复、端到端验收、部署核对） | ⬜ |
+| 第三阶段 | **Audit** | ✅ 已完成（2026-10-12，见 docs/06 §5.17 / §6.3.7） |
+| 第四阶段 | 交付收口（备份恢复、端到端验收、部署核对） | ⬜ 下一步 |
 
-**未打通的一项**：真实邮件投递。发送通道已实现并验证（STARTTLS、会话流程、三种认证机制），
-但 `smtp-mail.outlook.com` 拒绝了提供的应用密码（`535 5.7.3`）——该邮箱要求 OAuth2。
-复测方法与判读表见 [docs/03 §3.5.1.1](docs/03-配置与运行.md)。
-在凭据就绪之前，提醒会如实记为 `skipped`（邮件未启用），不会伪装成已发送。
+**邮件通道已打通（2026-10-12）**：服务商由 Outlook 换为**阿里邮箱**
+（`smtp.qiye.aliyun.com:465` + 直接 TLS + `AUTH LOGIN`，密码用三方客户端安全密码），
+已用真实账号实测投递成功。Outlook 一侧的结论（应用密码被 `535` 拒、服务商收紧为 OAuth2）
+保留在 [docs/03 §3.5.1](docs/03-配置与运行.md) 作为教训与判读依据。
+凭据只从环境变量注入（`MAIL_USERNAME` / `MAIL_PASSWORD` / `MAIL_FROM_ADDRESS`），绝不入库。
 
 **换机后从这里开始**：[docs/06 §7.0](docs/06-进度与验证记录.md) 有完整的环境恢复步骤、
-当前证据基线（测试/冒烟/迁移 head 的期望值）与三条最容易踩的坑。
+当前证据基线（测试/冒烟/迁移 head 的期望值）与五条最容易踩的坑。
 
 ## 快速开始
 
@@ -157,12 +158,12 @@ project-builder/
 │   │   ├── planviews/              # 计划视图：个人 / 组内 / 甘特图（只读）
 │   │   ├── attachments/            # 附件：上传/列表/下载/逻辑删除/彻底删除
 │   │   └── reminders/              # 提醒：生成、周期派发、三端点（额外含 dispatcher.go）
-│   ├── httpapi/                    # 跨模块 HTTP：router、middleware、problem、bind、session、cors、types
+│   ├── httpapi/                    # 跨模块 HTTP：router、middleware、problem、bind、session、cors、ratelimit、types
 │   ├── database/migrations/        # 版本化 SQL 迁移（embed 进二进制）
 │   └── testsupport/                # 集成测试装配、清理与 HTTP 客户端辅助
 ├── docs/                           # 设计与契约文档（00 需求 → 06 进度）
 ├── docker/                         # 测试依赖 compose 与测试配置
-├── scripts/smoke.ps1               # 端到端冒烟检查（182 项断言）
+├── scripts/smoke.ps1               # 端到端冒烟检查（197 项断言）
 ├── config.toml                     # 本地开发默认配置（不含敏感值）
 ├── .env.example                    # 配置键名与占位符（不含真实值）
 └── Makefile                        # run / test / migrate / check

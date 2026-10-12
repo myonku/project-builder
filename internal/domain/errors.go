@@ -152,6 +152,11 @@ var (
 	ErrFileTooLarge = New(CodeFileTooLarge, "文件超过大小上限")
 	// ErrUnsupportedMediaType 文件扩展名不在 storage.allowed_extensions 白名单内（415）。
 	ErrUnsupportedMediaType = New(CodeUnsupportedMediaType, "不支持的文件类型")
+	// ErrRateLimited 触发了全局限流（429）。
+	//
+	// 由 httpapi 的限流中间件产生，不是任何业务用例的返回值：
+	// 它描述的是"调用方的请求频率"而不是"这次请求的内容"。
+	ErrRateLimited = New(CodeRateLimited, "请求过于频繁，请稍后重试")
 	// ErrInternal 未识别的服务端错误。
 	ErrInternal = New(CodeInternalError, "服务端内部错误")
 )

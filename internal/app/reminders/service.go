@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/myonku/project-builder/internal/app/apperr"
 	"github.com/myonku/project-builder/internal/domain"
 	"github.com/myonku/project-builder/internal/listquery"
 	"github.com/myonku/project-builder/internal/platform/clock"
@@ -23,7 +24,7 @@ type Store interface {
 	MarkSent(ctx context.Context, reminderID string, at time.Time) error
 	MarkSkipped(ctx context.Context, reminderID, reason string) error
 	MarkFailed(ctx context.Context, reminderID, reason string) error
-	ResetForRetry(ctx context.Context, reminderID string, scheduledFor time.Time) (Record, error)
+	ResetForRetry(ctx context.Context, reminderID string, scheduledFor time.Time, audit *apperr.AuditWrite) (Record, error)
 	List(ctx context.Context, filter ListFilter, orderBy string, limit, offset int) ([]Record, error)
 	Count(ctx context.Context, filter ListFilter) (int, error)
 	Candidates(ctx context.Context, today time.Time) ([]Candidate, error)
@@ -40,6 +41,8 @@ type Options struct {
 	Logger          *slog.Logger
 	TaskURLTemplate string
 	BatchSize       int
+	// Audit 为 nil 时不记操作记录（只有人工重试会写审计，见 auditWith）。
+	Audit apperr.AuditWriter
 }
 
 // Service 承载提醒用例。
@@ -51,6 +54,7 @@ type Service struct {
 	logger      *slog.Logger
 	urlTemplate string
 	batchSize   int
+	audit       apperr.AuditWriter
 }
 
 // NewService 构造提醒服务。
@@ -81,7 +85,26 @@ func NewService(opts Options) *Service {
 		logger:      logger,
 		urlTemplate: opts.TaskURLTemplate,
 		batchSize:   batchSize,
+		audit:       opts.Audit,
 	}
+}
+
+// auditWith 构造一条提醒操作记录。
+//
+// 只有**人工动作**才入账（目前只有手动重试）：后台派发循环没有操作人，
+// 而审计表的 actor_id 是必填外键——把收件人或任务持有者当成操作人会
+// 记下"一个人没做过的事"。派发结果本身记在 reminders 表里
+// （status / last_error / attempts），通过 GET /reminders 可查。
+func (s *Service) auditWith(
+	actorID string, action domain.AuditAction, reminderID string, changes map[string]string,
+) *apperr.AuditWrite {
+	return apperr.NewAuditWrite(s.audit, domain.AuditEntry{
+		ActorID:    actorID,
+		Action:     action,
+		ObjectType: domain.AuditObjectReminder,
+		ObjectID:   reminderID,
+		Changes:    changes,
+	})
 }
 
 // Page 是列表查询结果。
@@ -476,7 +499,11 @@ func (s *Service) Retry(ctx context.Context, actor domain.User, reminderID strin
 
 	// 计划时间用**注入的时钟**而不是数据库 now()：否则测试里的固定时钟
 	// 与库时间分叉，重试后的提醒会因为"计划时间在未来"而永远发不出去。
-	updated, err := s.repo.ResetForRetry(ctx, record.ID, s.clk.Now().UTC())
+	updated, err := s.repo.ResetForRetry(ctx, record.ID, s.clk.Now().UTC(),
+		s.auditWith(actor.ID, domain.AuditActionUpdated, record.ID, map[string]string{
+			"status": domain.ReminderStatusPending,
+			"reason": "manual_retry",
+		}))
 	if err != nil {
 		return Record{}, err
 	}

@@ -123,6 +123,9 @@ type CreateGroupParams struct {
 	Description *string
 	MemberID    string
 	OwnerID     string
+	// Audit 是要在同一事务里写下的一条操作记录；nil 表示不记。
+	// 由用例层构造（见 apperr.AuditWrite）。
+	Audit *apperr.AuditWrite
 }
 
 // GroupUpdateParams 是更新工作组的字段。
@@ -133,6 +136,8 @@ type GroupUpdateParams struct {
 	DescriptionSet  bool
 	Status          *string
 	ExpectedUpdated time.Time
+	// Audit 见 CreateGroupParams 的说明。
+	Audit *apperr.AuditWrite
 }
 
 // ListFilter 是工作组列表筛选条件。
@@ -209,7 +214,8 @@ func (r *Repository) CreateGroupInTx(ctx context.Context, params CreateGroupPara
 			return fmt.Errorf("回读所有者成员关系失败: %w", err)
 		}
 		created.Membership = &member
-		return nil
+		// 审计与业务在同一个事务里：业务回滚则记录也不存在。
+		return params.Audit.Flush(ctx, tx)
 	})
 	if err != nil {
 		return GroupRecord{}, err
@@ -364,6 +370,8 @@ type TransferOwnershipParams struct {
 	NewOwnerID      string
 	PreviousOwnerID string
 	ExpectedUpdated time.Time
+	// Audit 见 CreateGroupParams 的说明。
+	Audit *apperr.AuditWrite
 }
 
 // TransferOwnership 在同一事务内转移工作组所有权。
@@ -420,7 +428,8 @@ func (r *Repository) TransferOwnership(
 		if _, err := tx.Exec(ctx, demote, params.GroupID, params.PreviousOwnerID); err != nil {
 			return apperr.Translate(err, constraintMap)
 		}
-		return nil
+		// 审计与两处业务写入同事务：三者要么都成立，要么都不成立。
+		return params.Audit.Flush(ctx, tx)
 	})
 	if err != nil {
 		return GroupRecord{}, err
@@ -449,18 +458,26 @@ func (r *Repository) UpdateGroup(ctx context.Context, params GroupUpdateParams) 
 		RETURNING ` + groupReturningColumns
 
 	var record GroupRecord
-	err := r.pool.QueryRow(ctx, query,
-		params.ID, params.ExpectedUpdated,
-		params.Name, params.DescriptionSet, params.Description, params.Status,
-	).Scan(&record.ID, &record.Name, &record.Description, &record.Status,
-		&record.OwnerID, &record.CreatedAt, &record.UpdatedAt)
-
+	// 单语句写入也显式开事务：审计必须与业务同事务（docs/04 §4.10），
+	// 而"业务成功但审计缺失"是必须结构性排除的失败模式。
+	err := apperr.InTx(ctx, r.pool, func(ctx context.Context, tx apperr.Querier) error {
+		if err := tx.QueryRow(ctx, query,
+			params.ID, params.ExpectedUpdated,
+			params.Name, params.DescriptionSet, params.Description, params.Status,
+		).Scan(&record.ID, &record.Name, &record.Description, &record.Status,
+			&record.OwnerID, &record.CreatedAt, &record.UpdatedAt); err != nil {
+			// 不在这里做存在性查询：那会在事务开着的时候再借一条连接。
+			// "没有匹配行"原样上抛，由事务之外的 distinguishMissing 区分 404 与 409。
+			return apperr.Translate(err, constraintMap)
+		}
+		return params.Audit.Flush(ctx, tx)
+	})
 	if err != nil {
 		if apperr.IsNoRows(err) {
 			// 无行有两种可能：对象不存在，或版本不匹配。必须补一次存在性查询区分。
 			return GroupRecord{}, r.distinguishMissing(ctx, params.ID)
 		}
-		return GroupRecord{}, apperr.Translate(err, constraintMap)
+		return GroupRecord{}, err
 	}
 	return record, nil
 }
@@ -591,24 +608,36 @@ func (r *Repository) FindUser(ctx context.Context, userID string) (UserRecord, e
 }
 
 // AddMember 添加成员关系。
-func (r *Repository) AddMember(ctx context.Context, id, groupID, userID, role string) (MemberRecord, error) {
+func (r *Repository) AddMember(
+	ctx context.Context, id, groupID, userID, role string, audit *apperr.AuditWrite,
+) (MemberRecord, error) {
 	const query = `
 		INSERT INTO group_members (id, group_id, user_id, role, status)
 		VALUES ($1, $2, $3, $4, 'active')
 		RETURNING id, group_id, user_id, role, status, joined_at`
 
 	var member MemberRecord
-	err := r.pool.QueryRow(ctx, query, id, groupID, userID, role).Scan(
-		&member.ID, &member.GroupID, &member.UserID, &member.Role, &member.Status, &member.JoinedAt,
-	)
+	err := apperr.InTx(ctx, r.pool, func(ctx context.Context, tx apperr.Querier) error {
+		if err := tx.QueryRow(ctx, query, id, groupID, userID, role).Scan(
+			&member.ID, &member.GroupID, &member.UserID, &member.Role, &member.Status, &member.JoinedAt,
+		); err != nil {
+			return apperr.Translate(err, constraintMap)
+		}
+		return audit.Flush(ctx, tx)
+	})
 	if err != nil {
-		return MemberRecord{}, apperr.Translate(err, constraintMap)
+		return MemberRecord{}, err
 	}
 	return member, nil
 }
 
 // UpdateMember 修改成员角色或状态并回读。
-func (r *Repository) UpdateMember(ctx context.Context, groupID, userID string, role, status *string) (MemberRecord, error) {
+//
+// 动作（member_role_changed / member_removed …）由用例层按变更语义决定，
+// 仓储只负责"同事务落库"。
+func (r *Repository) UpdateMember(
+	ctx context.Context, groupID, userID string, role, status *string, audit *apperr.AuditWrite,
+) (MemberRecord, error) {
 	const query = `
 		UPDATE group_members
 		   SET role       = COALESCE($3, role),
@@ -618,14 +647,19 @@ func (r *Repository) UpdateMember(ctx context.Context, groupID, userID string, r
 		RETURNING id, group_id, user_id, role, status, joined_at`
 
 	var member MemberRecord
-	err := r.pool.QueryRow(ctx, query, groupID, userID, role, status).Scan(
-		&member.ID, &member.GroupID, &member.UserID, &member.Role, &member.Status, &member.JoinedAt,
-	)
-	if err != nil {
-		if apperr.IsNoRows(err) {
-			return MemberRecord{}, domain.New(domain.CodeUserNotFound, "该用户不是工作组成员")
+	err := apperr.InTx(ctx, r.pool, func(ctx context.Context, tx apperr.Querier) error {
+		if err := tx.QueryRow(ctx, query, groupID, userID, role, status).Scan(
+			&member.ID, &member.GroupID, &member.UserID, &member.Role, &member.Status, &member.JoinedAt,
+		); err != nil {
+			if apperr.IsNoRows(err) {
+				return domain.New(domain.CodeUserNotFound, "该用户不是工作组成员")
+			}
+			return apperr.Translate(err, constraintMap)
 		}
-		return MemberRecord{}, apperr.Translate(err, constraintMap)
+		return audit.Flush(ctx, tx)
+	})
+	if err != nil {
+		return MemberRecord{}, err
 	}
 	return member, nil
 }
@@ -645,29 +679,41 @@ func (r *Repository) CountManagers(ctx context.Context, groupID string) (int, er
 	return total, nil
 }
 
+// joinRequestSelect 是加入申请的显式列清单（含申请人展示字段）。
+//
+// 集中一处：三个读路径（查询、审核回读、重新开启的存在性判断）必须返回同形的行，
+// 各写一份迟早会漂移。
+const joinRequestSelect = `
+	SELECT r.id, r.group_id, r.user_id, r.status, r.reviewed_by, r.reviewed_at,
+	       r.created_at, r.updated_at, u.username, u.display_name, u.email
+	  FROM group_join_requests r
+	  JOIN users u ON u.id = r.user_id
+	 WHERE r.group_id = $1 AND r.user_id = $2`
+
 // FindJoinRequest 查询指定用户的加入申请。
 func (r *Repository) FindJoinRequest(ctx context.Context, groupID, userID string) (JoinRequestRecord, error) {
-	const query = `
-		SELECT r.id, r.group_id, r.user_id, r.status, r.reviewed_by, r.reviewed_at,
-		       r.created_at, r.updated_at, u.username, u.display_name, u.email
-		  FROM group_join_requests r
-		  JOIN users u ON u.id = r.user_id
-		 WHERE r.group_id = $1 AND r.user_id = $2`
-
-	return scanJoinRequest(r.pool.QueryRow(ctx, query, groupID, userID))
+	return scanJoinRequest(r.pool.QueryRow(ctx, joinRequestSelect, groupID, userID))
 }
 
 // CreateJoinRequest 创建加入申请。
-func (r *Repository) CreateJoinRequest(ctx context.Context, id, groupID, userID string) (JoinRequestRecord, error) {
+func (r *Repository) CreateJoinRequest(
+	ctx context.Context, id, groupID, userID string, audit *apperr.AuditWrite,
+) (JoinRequestRecord, error) {
 	const insert = `
 		INSERT INTO group_join_requests (id, group_id, user_id, status)
 		VALUES ($1, $2, $3, 'pending')
 		RETURNING id`
 
-	if _, err := r.pool.Exec(ctx, insert, id, groupID, userID); err != nil {
-		// group_join_request_identity 冲突：说明已存在一条申请记录。
-		// 这里必须翻译为 409 而不是 500（早期实现漏掉了这个捕获）。
-		return JoinRequestRecord{}, apperr.Translate(err, constraintMap)
+	err := apperr.InTx(ctx, r.pool, func(ctx context.Context, tx apperr.Querier) error {
+		if _, err := tx.Exec(ctx, insert, id, groupID, userID); err != nil {
+			// group_join_request_identity 冲突：说明已存在一条申请记录。
+			// 这里必须翻译为 409 而不是 500（早期实现漏掉了这个捕获）。
+			return apperr.Translate(err, constraintMap)
+		}
+		return audit.Flush(ctx, tx)
+	})
+	if err != nil {
+		return JoinRequestRecord{}, err
 	}
 	return r.FindJoinRequest(ctx, groupID, userID)
 }
@@ -734,6 +780,7 @@ func (r *Repository) ListJoinRequests(ctx context.Context, groupID string, statu
 func (r *Repository) ReviewJoinRequestInTx(
 	ctx context.Context,
 	groupID, userID, reviewerID, decision, memberID string,
+	audit *apperr.AuditWrite,
 ) (JoinRequestRecord, error) {
 	var reviewed JoinRequestRecord
 
@@ -777,17 +824,12 @@ func (r *Repository) ReviewJoinRequestInTx(
 			}
 		}
 
-		record, err := scanJoinRequest(tx.QueryRow(ctx, `
-			SELECT r.id, r.group_id, r.user_id, r.status, r.reviewed_by, r.reviewed_at,
-			       r.created_at, r.updated_at, u.username, u.display_name, u.email
-			  FROM group_join_requests r
-			  JOIN users u ON u.id = r.user_id
-			 WHERE r.group_id = $1 AND r.user_id = $2`, groupID, userID))
+		record, err := scanJoinRequest(tx.QueryRow(ctx, joinRequestSelect, groupID, userID))
 		if err != nil {
 			return err
 		}
 		reviewed = record
-		return nil
+		return audit.Flush(ctx, tx)
 	})
 	if err != nil {
 		return JoinRequestRecord{}, err
@@ -800,29 +842,37 @@ func (r *Repository) ReviewJoinRequestInTx(
 // 为什么不是插入新行：group_join_request_identity 对 (group_id, user_id) 唯一，
 // 保留单行并翻转状态既满足"被拒绝后可重新申请"（需求文档 5.2），
 // 又不破坏唯一性约束。只在当前状态不是 pending 时生效，避免并发重复开启。
-func (r *Repository) ReopenJoinRequest(ctx context.Context, groupID, userID string) (JoinRequestRecord, error) {
+func (r *Repository) ReopenJoinRequest(
+	ctx context.Context, groupID, userID string, audit *apperr.AuditWrite,
+) (JoinRequestRecord, error) {
 	const update = `
 		UPDATE group_join_requests
 		   SET status = 'pending', reviewed_by = NULL, reviewed_at = NULL, updated_at = now()
 		 WHERE group_id = $1 AND user_id = $2 AND status <> 'pending'
 		RETURNING id`
 
-	var id string
-	if err := r.pool.QueryRow(ctx, update, groupID, userID).Scan(&id); err != nil {
-		if apperr.IsNoRows(err) {
-			// 无行：申请不存在，或已经是 pending（并发下另一请求刚开启）。
-			existing, lookupErr := r.FindJoinRequest(ctx, groupID, userID)
-			if lookupErr != nil {
-				return JoinRequestRecord{}, lookupErr
+	err := apperr.InTx(ctx, r.pool, func(ctx context.Context, tx apperr.Querier) error {
+		var id string
+		if err := tx.QueryRow(ctx, update, groupID, userID).Scan(&id); err != nil {
+			if apperr.IsNoRows(err) {
+				// 无行：申请不存在，或已经是 pending（并发下另一请求刚开启）。
+				existing, lookupErr := scanJoinRequest(tx.QueryRow(ctx, joinRequestSelect, groupID, userID))
+				if lookupErr != nil {
+					return lookupErr
+				}
+				if existing.Status == domain.JoinRequestPending {
+					return domain.ErrConflict.
+						WithField("user_id", "已存在待审核的加入申请")
+				}
+				return domain.ErrConflict.
+					WithField("user_id", "加入申请状态冲突")
 			}
-			if existing.Status == domain.JoinRequestPending {
-				return JoinRequestRecord{}, domain.ErrConflict.
-					WithField("user_id", "已存在待审核的加入申请")
-			}
-			return JoinRequestRecord{}, domain.ErrConflict.
-				WithField("user_id", "加入申请状态冲突")
+			return apperr.Translate(err, constraintMap)
 		}
-		return JoinRequestRecord{}, apperr.Translate(err, constraintMap)
+		return audit.Flush(ctx, tx)
+	})
+	if err != nil {
+		return JoinRequestRecord{}, err
 	}
 	return r.FindJoinRequest(ctx, groupID, userID)
 }
