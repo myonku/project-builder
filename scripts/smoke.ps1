@@ -713,6 +713,9 @@ Assert-Equal $auditBadEnum.Body.error.code 'invalid_request' 'error.code'
 $auditBadParam = Invoke-Api -Method GET -Path '/api/v1/audit?kinds=created'
 Assert-Equal $auditBadParam.Status 400 '未知查询参数应 400'
 
+# 注意：项目/任务/附件在这之前还没创建（它们在本节之后的小节里），
+# "整条链路的可追溯性"断言放在脚本末尾，见那里的说明。
+
 $session = $primarySession
 $auditForbidden = Invoke-Api -Method GET -Path '/api/v1/audit'
 Assert-Equal $auditForbidden.Status 403 '普通成员访问操作记录应 403'
@@ -1119,6 +1122,40 @@ $badQuery = Invoke-Api -Method GET -Path '/api/v1/reminders?kinds=task_overdue'
 Assert-Equal $badQuery.Status 400 '未知查询参数应 400'
 $badSort = Invoke-Api -Method GET -Path '/api/v1/reminders?sort=dedupe_key'
 Assert-Equal $badSort.Status 400 '排序字段非法应 400'
+
+# ---------------------------------------------------------------------------
+Write-Step "Audit：整条链路的可追溯性"
+# ---------------------------------------------------------------------------
+
+# 到这里，脚本已经完整走过 注册 → 工作组 → 项目 → 任务 → 共享视图 → 附件 → 提醒，
+# 因此可以按对象回查审计，证明"链路中每一步都留下了记录"。
+# 需要管理员会话：重新登录一次（前面的登录会把 $session 换成普通用户）。
+$session = New-Object Microsoft.PowerShell.Commands.WebRequestSession
+$chainLogin = Invoke-Api -Method POST -Path '/api/v1/auth/login' -Body @{
+    identifier = $AdminUsername
+    password   = $AdminPassword
+}
+Assert-Equal $chainLogin.Status 200 '链路审计用例：引导管理员登录'
+
+$auditProject = Invoke-Api -Method GET -Path "/api/v1/audit?object_type=project&object_id=$projectId&page_size=50"
+Assert-Equal $auditProject.Status 200 '按项目对象查审计应 200'
+Assert-True (@($auditProject.Body.data | Where-Object { $_.action -eq 'created' }).Count -ge 1) '项目创建留下记录'
+Assert-True (@($auditProject.Body.data | Where-Object { $_.action -eq 'archived' }).Count -ge 1) '项目归档留下记录'
+
+$auditTask = Invoke-Api -Method GET -Path "/api/v1/audit?object_type=task&object_id=$taskId&page_size=50"
+Assert-Equal $auditTask.Status 200 '按任务对象查审计应 200'
+Assert-True (@($auditTask.Body.data | Where-Object { $_.action -eq 'created' }).Count -ge 1) '任务创建留下记录'
+
+$auditAttachment = Invoke-Api -Method GET -Path "/api/v1/audit?object_type=attachment&object_id=$attachmentId&page_size=50"
+Assert-Equal $auditAttachment.Status 200 '按附件对象查审计应 200'
+$attachmentCreated = @($auditAttachment.Body.data | Where-Object { $_.action -eq 'created' })
+Assert-True ($attachmentCreated.Count -ge 1) '附件上传留下记录'
+# 附件内容绝不入账：changes 里只应有元数据。
+$attachmentChanges = ($attachmentCreated[0].changes | ConvertTo-Json -Compress)
+Assert-True ($attachmentChanges -like '*original_name*') '附件记录含元数据（原始文件名）'
+Assert-True ($attachmentChanges -notlike '*附件内容*') '附件记录不含文件内容'
+
+$session = $primarySession
 
 # ---------------------------------------------------------------------------
 Write-Step "结果"

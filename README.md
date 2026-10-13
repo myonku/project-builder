@@ -6,7 +6,7 @@
 
 ## 当前状态
 
-**第一至第三阶段已全部完成并经真实依赖验证：地基 + Auth、Groups / Projects / Tasks、Users、Plan Views、Attachments、Reminders、Audit。**
+**四个阶段已全部完成并经真实依赖验证**：地基 + Auth、Groups / Projects / Tasks、Users、Plan Views、Attachments、Reminders、Audit，以及交付收口（端到端验收、备份恢复演练、部署核对）。
 
 | 能力 | 状态 |
 | --- | --- |
@@ -27,9 +27,9 @@
 
 真实依赖验证结果（PostgreSQL 16 + Redis 7，2026-10-12 复跑）：
 
-- `go test ./... -count=1 -p 1` **顶层 322 项通过、0 失败、0 跳过**（含子用例共 893 项），覆盖真实数据库上的迁移可逆性、约束生效性、单一 owner 不变式、审计的同事务与脱敏语义，以及八个域的端到端用例。
-- `scripts/smoke.ps1` 对运行中的服务执行 **197 项断言全部通过**（健康检查、认证全链路、用户资料与管理员端点（含成功路径）、计划视图三端点、持有者与工作组所有权转移、管理员兜底、附件全链路（含 multipart 与两步删除）、提醒生成与派发、**审计的可见性与脱敏**、三域 CRUD、分页边界、排序白名单、版本冲突、组合筛选、幂等复制、归档只读）。
-  **前提是服务用 `make run-test-config` 启动**（其中含 `SCHEDULER_INTERVAL_SECONDS=5`）：换用别的配置会得到 191 通过 / 1 失败，原因见 [docs/06 §7.0.1](docs/06-进度与验证记录.md) 第 4 条坑。
+- `go test ./... -count=1 -p 1` **顶层 323 项通过、0 失败、0 跳过**（含子用例共 894 项），覆盖真实数据库上的迁移可逆性、约束生效性、单一 owner 不变式、审计的同事务与脱敏语义，以及八个域的端到端用例。
+- `scripts/smoke.ps1` 对运行中的服务执行 **207 项断言全部通过**（健康检查、认证全链路、用户资料与管理员端点（含成功路径）、计划视图三端点、持有者与工作组所有权转移、管理员兜底、附件全链路（含 multipart 与两步删除）、提醒生成与派发、**审计的可见性与脱敏**、三域 CRUD、分页边界、排序白名单、版本冲突、组合筛选、幂等复制、归档只读）。
+  **前提是服务用 `make run-test-config` 启动**（其中含 `SCHEDULER_INTERVAL_SECONDS=5`）：换用别的配置会得到 201 通过 / 1 失败，原因见 [docs/06 §7.0.1](docs/06-进度与验证记录.md) 第 4 条坑。
 - 关键实现经**变异验证**：逐条注入缺陷并确认对应用例确实失败，见 [docs/06](docs/06-进度与验证记录.md) 5.7。
 - **首个管理员**在系统初始化时按 `security.bootstrap_admin_*` 录入（幂等、绝不覆盖既有密码）；本系统面向内部小组，不做管理员分发。见 [docs/03](docs/03-配置与运行.md) 3.6.1。
 
@@ -52,15 +52,14 @@
 本仓库是需求、契约、数据模型与代码的**唯一权威来源**，不需要回查任何外部仓库。
 文档编号与各自的更新时机见 [docs/05](docs/05-设计偏离与差异登记.md) 第 7 节。
 
-## 当前状态（2026-10-12）
+## 阶段状态（2026-10-12）
 
 | 阶段 | 范围 | 状态 |
 | --- | --- | --- |
 | 第一阶段 | 基础设施 + Auth | ✅ |
 | 第二阶段 | Groups / Projects / Tasks | ✅ |
-| 第三阶段 | Users / Plan Views / Attachments / Reminders | ✅ |
-| 第三阶段 | **Audit** | ✅ 已完成（2026-10-12，见 docs/06 §5.17 / §6.3.7） |
-| 第四阶段 | 交付收口（备份恢复、端到端验收、部署核对） | ⬜ 下一步 |
+| 第三阶段 | Users / Plan Views / Attachments / Reminders / **Audit** | ✅ |
+| 第四阶段 | 交付收口：端到端验收、备份恢复演练、部署核对 | ✅ 已完成（docs/06 §5.18 / §6.3.8） |
 
 **邮件通道已打通（2026-10-12）**：服务商由 Outlook 换为**阿里邮箱**
 （`smtp.qiye.aliyun.com:465` + 直接 TLS + `AUTH LOGIN`，密码用三方客户端安全密码），
@@ -114,7 +113,7 @@ pwsh -File ./scripts/smoke.ps1 -BaseUrl http://127.0.0.1:8000
 
 > **必须与服务同配方**：脚本对"调度器已生成提醒"只轮询 30 秒，因此服务侧的
 > `SCHEDULER_INTERVAL_SECONDS` 必须是 5（`make run-test-config` 已包含）。
-> 用 `docker/config.test.toml` 启动会得到 176 通过 / 1 失败——它的 scheduler 是关闭的、
+> 用 `docker/config.test.toml` 启动会得到 201 通过 / 1 失败——它的 scheduler 是关闭的、
 > mail 指向 Mailpit，而脚本断言的是"邮件未启用 → skipped"（见 docs/06 §7.0.1）。
 
 ### 5. 运行测试
@@ -163,7 +162,7 @@ project-builder/
 │   └── testsupport/                # 集成测试装配、清理与 HTTP 客户端辅助
 ├── docs/                           # 设计与契约文档（00 需求 → 06 进度）
 ├── docker/                         # 测试依赖 compose 与测试配置
-├── scripts/smoke.ps1               # 端到端冒烟检查（197 项断言）
+├── scripts/smoke.ps1               # 端到端冒烟检查（207 项断言）
 ├── config.toml                     # 本地开发默认配置（不含敏感值）
 ├── .env.example                    # 配置键名与占位符（不含真实值）
 └── Makefile                        # run / test / migrate / check
