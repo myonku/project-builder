@@ -1,0 +1,86 @@
+# 集成测试与本地联调配置
+#
+# 与 config.toml 的差异（不止端口与凭据）：
+#   * 指向测试依赖：PostgreSQL 15432、Redis 16379、Mailpit 11025；
+#   * storage.local_root 用 ./var/test-uploads，避免污染开发用的 ./data/uploads；
+#   * mail 指向 Mailpit 且启用，便于**观察真实投递**而不外发；
+#   * scheduler 关闭：本配置的用途是人工联调，不需要后台周期派发；
+#   * 显式启用引导管理员，使管理员端点可用。
+#
+# ⚠️ **不要用它跑 scripts/smoke.ps1**：脚本断言的是"邮件未启用 → 提醒记为 skipped"，
+#    且对"调度器已生成提醒"只轮询 30 秒。冒烟请用 `make run-test-config` + `make smoke`
+#    （见 backend/docs/B05-进度与验证记录.md 7.0.1 第 4 条坑）。
+#
+# 用法：
+#   $env:APP_CONFIG_FILE = "docker/config.test.toml"
+#   go run ./cmd/api
+
+API_VERSION = "1"
+
+[server]
+host = "127.0.0.1"
+port = 8001
+read_timeout_seconds = 15
+write_timeout_seconds = 30
+shutdown_timeout_seconds = 10
+cors_allowed_origins = ["http://127.0.0.1:5173", "http://localhost:5173"]
+
+[database]
+host = "127.0.0.1"
+port = 15432
+name = "project_builder_test"
+user = "project_builder_test"
+password = "project_builder_test_password"
+ssl_mode = "disable"
+max_conns = 10
+min_conns = 1
+max_conn_lifetime_seconds = 1800
+connect_timeout_seconds = 10
+
+[redis]
+enabled = true
+host = "127.0.0.1"
+port = 16379
+db = 0
+password = "project_builder_test_redis_password"
+dial_timeout_seconds = 5
+
+[mail]
+# 集成测试注入假发送器，因此这里保持关闭。
+# 指向 Mailpit，便于后续 Reminders 阶段直接观察邮件而不真的外发。
+enabled = true
+host = "127.0.0.1"
+port = 11025
+username = ""
+password = ""
+from_address = "project-builder@test.local"
+from_name = "项目计划管理系统（测试）"
+use_tls = false
+
+[storage]
+# 扩展名白名单：空数组表示不限制（集成测试上传各种扩展名，因此保持放开）。
+allowed_extensions = []
+backend = "local"
+local_root = "./var/test-uploads"
+max_file_size = 10485760
+max_files_per_user = 1000
+
+[security]
+session_secret = "project-builder-test-session-secret-value"
+session_ttl_seconds = 28800
+password_min_length = 8
+secure_cookies = false
+session_cookie_name = "pb_session"
+
+# 引导管理员：测试环境显式启用，使冒烟脚本能够覆盖管理员端点的**成功路径**
+# （生产环境不启用此配置，见 backend/docs/B03-配置与运行.md 3.6）。
+bootstrap_admin_username = "bootstrap_admin"
+bootstrap_admin_email = "bootstrap_admin@test.local"
+bootstrap_admin_password = "bootstrap_admin_test_password"
+bootstrap_admin_display_name = "引导管理员"
+
+[scheduler]
+enabled = false
+interval_seconds = 60
+reminder_batch_size = 100
+max_retries = 3

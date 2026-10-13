@@ -1,11 +1,19 @@
-# 敏感配置：绝不进入版本库（见 docs/03-配置与运行.md）
+# 仓库根目录的忽略规则。前后端各自在子目录里，因此**产物与运行期数据都要带目录前缀**：
+# 规则里以 / 开头的模式锚定在仓库根，`/bin/` 这类写法在引入 backend/ 之后不再匹配任何东西
+# （2026-10-12 移动目录时实测到：附件字节与测试上传目录会重新变成未跟踪文件）。
+#
+# 详细说明见 backend/docs/03-配置与运行.md。
+
+# 敏感配置：绝不进入版本库（任何层级都生效，因此不加前缀）
 .env
 .env.local
 *.local.toml
 
 # 构建产物
-/bin/
-/dist/
+/backend/bin/
+/backend/dist/
+/frontend/dist/
+/frontend/node_modules/
 *.exe
 *.exe~
 *.dll
@@ -13,8 +21,8 @@
 *.dylib
 
 # 运行期数据（附件、测试上传）
-/data/
-/var/
+/backend/data/
+/backend/var/
 *.test
 *.out
 
