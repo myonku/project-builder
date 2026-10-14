@@ -11,19 +11,25 @@
 project-builder/
 ├── backend/          # Go 服务端（模块 github.com/myonku/project-builder）
 │   ├── cmd/ internal/      # 代码
-│   ├── docs/              # **服务端自己的文档**（01 架构 / 02 数据模型 / 03 配置运行 / 05 偏离登记 / 06 进度）
+│   ├── docs/              # **服务端自己的文档**（01 架构 / 02 数据模型 / 03 配置运行 / 04 偏离登记 / 05 进度）
 │   ├── docker/ scripts/   # 测试依赖 compose、端到端冒烟脚本
 │   ├── Makefile config.toml .env.example
 │   └── README.md          # 服务端入口文档（怎么跑、怎么测）
-├── frontend/         # 前端工程（**规划中**，尚未创建）
-│   └── docs/              # 前端文档（待建：接入说明、组件与状态约定，编号 F01 起）
+├── frontend/         # 前端工程（Vite + React 19 + TypeScript + MUI 9.5）
+│   ├── src/               # theme / api / types / stores / router / layouts / views / components / hooks / utils
+│   ├── scripts/           # browser-smoke.mjs（浏览器级冒烟，CDP 驱动）
+│   ├── docs/              # **前端自己的文档**（F01 架构 / F02 类型 / F03 运行 / F04 偏离 / F05 进度）
+│   ├── .templates/        # MUI 官方模板本地留档（gitignore，仅供逐文件 diff 升级）
+│   ├── package.json tsconfig.json vite.config.ts
+│   └── README.md          # 前端入口文档（怎么跑、怎么测、代码怎么分层）
 └── docs/             # **前后端共用**的文档：S01 需求、S02 接口契约、api/ 逐接口详解
 ```
 
 **路径约定**：正文里出现的路径一律**相对仓库根**（例如
 `backend/docs/B03-配置与运行.md`、`docs/S02-HTTP接口契约.md`），
 文档之间的相对链接按 Markdown 惯例相对于所在文件。
-服务端的所有命令都要**在 `backend/` 目录下执行**（`config.toml`、`docker/`、`scripts/` 都在那一层）。
+服务端的所有命令都要**在 `backend/` 目录下执行**（`config.toml`、`docker/`、`scripts/` 都在那一层）；
+前端的所有命令都要在 `frontend/` 目录下执行。
 
 ## 文档地图
 
@@ -43,15 +49,17 @@ project-builder/
 | B03 | [backend/docs/B03-配置与运行.md](backend/docs/B03-配置与运行.md) | 配置键与优先级、密钥边界、运行/迁移/备份/部署核对 | 服务端 + 运维 |
 | B04 | [backend/docs/B04-设计偏离与差异登记.md](backend/docs/B04-设计偏离与差异登记.md) | 设计约定、有意偏离与加强项登记、**编号与更新时机** | 服务端 |
 | B05 | [backend/docs/B05-进度与验证记录.md](backend/docs/B05-进度与验证记录.md) | 阶段状态、验证方法与可复现命令、证据基线、已知坑 | 服务端 |
-| — | frontend/docs/（待建） | 前端接入说明、组件与状态约定、与 S02/A 的对应关系 | 前端 |
+| F01–F03 | [frontend/docs/](frontend/docs/README.md) | 前端技术选型与目录结构、TypeScript 类型与契约映射、运行/联调/部署 | 前端 |
+| F04 | [frontend/docs/F04-设计偏离与差异登记.md](frontend/docs/F04-设计偏离与差异登记.md) | 与 F01–F03 的偏离、官方模板改造清单、契约观察 | 前端 |
+| F05 | [frontend/docs/F05-进度与验证记录.md](frontend/docs/F05-进度与验证记录.md) | 前端阶段状态、可复现验证步骤与实测证据、接续指南 | 前端 |
 
 **分工原则**：共用文档（`docs/`）只写"两端共同的约定与业务事实"，**不写任何一端的推进过程**；
-推进过程、实现取舍、验证证据都留在各自工程目录内（当前在 `backend/docs/B05`）。
+推进过程、实现取舍、验证证据都留在各自工程目录内（服务端在 `backend/docs/B05`，前端在 `frontend/docs/F04`+`F05`）。
 
 
 ## 当前状态
 
-四个阶段（地基 + Auth → Groups/Projects/Tasks → Users/Plan Views/Attachments/Reminders/Audit → 交付收口）
+**服务端**：四个阶段（地基 + Auth → Groups/Projects/Tasks → Users/Plan Views/Attachments/Reminders/Audit → 交付收口）
 **全部完成并经真实依赖验证**：
 
 - 已注册端点 **59 个**；数据库迁移 head = **5**（`000001`–`000005`，均 up/down 可逆）。
@@ -62,6 +70,16 @@ project-builder/
 服务端的运行方式、验证基线与环境恢复步骤见 [backend/README.md](backend/README.md)
 与 [backend/docs/B05 §7.0](backend/docs/B05-进度与验证记录.md)；生产部署前的核对清单见
 [backend/docs/B03 §7.5](backend/docs/B03-配置与运行.md)。
+
+**前端**：**骨架期已完成**（2026-10-14），当前是一个能跑起来的空壳 + 完整的接口与类型层：
+
+- 工程可构建：`pnpm typecheck` / `pnpm build` 零错误；`pnpm dev` 起得来；
+- 主题层、`api/`（A01–A09 全部端点）、`types/`（F02 全量类型）、窄状态、路由与守卫、布局均就位；
+- **登录链路已用真实浏览器 + 真实后端验证**：登录页 → `POST /auth/login` → `GET /auth/me` → 概览页；
+- 其余页面是**带"计划对接的接口"清单的占位页**，功能按 [F05 §7.2](frontend/docs/F05-进度与验证记录.md) 的顺序推进。
+
+前端的运行方式与验证证据见 [frontend/README.md](frontend/README.md)（入口文档）、
+[frontend/docs/F03](frontend/docs/F03-运行与联调.md) 与 [frontend/docs/F05](frontend/docs/F05-进度与验证记录.md)。
 
 ## 许可
 

@@ -20,6 +20,12 @@
 *.so
 *.dylib
 
+# 前端开发期间使用的模板文件
+/frontend/.templates/
+
+# 前端浏览器冒烟的本地产物（截图 / DOM 快照）；可复现脚本在 frontend/scripts/ 下
+/frontend/.verify/
+
 # 运行期数据（附件、测试上传）
 /backend/data/
 /backend/var/

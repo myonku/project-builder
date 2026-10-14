@@ -1,0 +1,21 @@
+/*
+ * 全局样式只放"必须影响 html/body"的少数几条。
+ * 组件级样式一律用 MUI 的 `sx` / `styled()`，不要在这里堆积（F01 §6 第 14 条）。
+ */
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+}
+
+/* 打印时不要出现侧边栏与头部（模板已有 displayPrint: 'none'，这里兜底） */
+@media print {
+  body {
+    background: #fff;
+  }
+}
