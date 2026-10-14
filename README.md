@@ -74,8 +74,10 @@ project-builder/
 **前端**：**骨架期已完成**（2026-10-14），当前是一个能跑起来的空壳 + 完整的接口与类型层：
 
 - 工程可构建：`pnpm typecheck` / `pnpm build` 零错误；`pnpm dev` 起得来；
+- **样式统一为 MUI 默认的 Material Design 2**（不用模板的定制主题），字号在 MD2 阶梯上调一档；
 - 主题层、`api/`（A01–A09 全部端点）、`types/`（F02 全量类型）、窄状态、路由与守卫、布局均就位；
-- **登录链路已用真实浏览器 + 真实后端验证**：登录页 → `POST /auth/login` → `GET /auth/me` → 概览页；
+- Dashboard 侧边栏为三级结构（工作台/系统管理 → 页面 → 计划的两个子页），可收缩、默认展开；
+- **登录链路已用真实浏览器 + 真实后端验证**：登录页（含顶栏与占位入口）→ `POST /auth/login` → `GET /auth/me` → 概览页；
 - 其余页面是**带"计划对接的接口"清单的占位页**，功能按 [F05 §7.2](frontend/docs/F05-进度与验证记录.md) 的顺序推进。
 
 前端的运行方式与验证证据见 [frontend/README.md](frontend/README.md)（入口文档）、

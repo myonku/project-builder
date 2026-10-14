@@ -86,7 +86,7 @@ export default function DashboardView() {
               <Stack spacing={1} divider={<Divider flexItem />}>
                 <InfoRow label="API 前缀" value={<code>{API_BASE}</code>} />
                 <InfoRow label="开发代理" value="/api → 127.0.0.1:8000" />
-                <InfoRow label="主题" value="MUI 共享主题层（亮/暗）" />
+                <InfoRow label="主题" value="MUI 默认 Material Design 2（亮/暗）" />
               </Stack>
               <Box sx={{ mt: 2 }}>
                 <Typography variant="caption" color="text.secondary">

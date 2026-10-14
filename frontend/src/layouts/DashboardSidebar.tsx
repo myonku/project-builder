@@ -13,6 +13,7 @@ import type {} from '@mui/material/themeCssVarsAugmentation';
 import DashboardIcon from '@mui/icons-material/Dashboard';
 import FolderIcon from '@mui/icons-material/Folder';
 import EventNoteIcon from '@mui/icons-material/EventNote';
+import AssignmentIndIcon from '@mui/icons-material/AssignmentInd';
 import GroupsIcon from '@mui/icons-material/Groups';
 import NotificationsIcon from '@mui/icons-material/Notifications';
 import HistoryIcon from '@mui/icons-material/History';
@@ -47,7 +48,23 @@ export default function DashboardSidebar({
   // 管理入口只对系统管理员显示；真正的守卫在 router/guards.tsx 的 RequireAdmin
   const isAdmin = useAuthStore((state) => state.user?.system_role === 'admin');
 
-  const [expandedItemIds, setExpandedItemIds] = React.useState<string[]>([]);
+  /**
+   * 三级菜单里"计划"这一组的展开状态。
+   *
+   * **默认全部展开**（用户要求：进来就能看到所有入口，不用先点一下）：
+   * 初值直接给 `['plan']`，并且当路由落在计划页时也保持展开——
+   * 这样即使手点收起，切到 `/plans/*` 仍然能看到子项高亮。
+   */
+  const isPlanRoute = pathname === '/plans/personal' || pathname === '/plans/group';
+  const [expandedItemIds, setExpandedItemIds] = React.useState<string[]>(['plan']);
+
+  React.useEffect(() => {
+    if (isPlanRoute) {
+      setExpandedItemIds((previous) =>
+        previous.includes('plan') ? previous : [...previous, 'plan'],
+      );
+    }
+  }, [isPlanRoute]);
 
   const isOverSmViewport = useMediaQuery(theme.breakpoints.up('sm'));
   const isOverMdViewport = useMediaQuery(theme.breakpoints.up('md'));
@@ -163,6 +180,12 @@ export default function DashboardSidebar({
               width: mini ? MINI_DRAWER_WIDTH : 'auto',
             }}
           >
+            {/*
+              导航层级（用户要求）：
+              - 一级 = 分组标题（工作台 / 系统管理）
+              - 二级 = 概览、项目、计划、邮件提醒、操作记录 / 用户管理、工作组管理
+              - 三级 = 计划 下的 个人计划、组内计划（默认展开，可点击"计划"收起）
+            */}
             <DashboardSidebarHeaderItem>工作台</DashboardSidebarHeaderItem>
             <DashboardSidebarPageItem
               id="dashboard"
@@ -179,18 +202,40 @@ export default function DashboardSidebar({
               selected={pathname === '/projects' || pathname.startsWith('/projects/')}
             />
             <DashboardSidebarPageItem
-              id="personal-plan"
-              title="个人计划"
+              id="plan"
+              title="计划"
               icon={<EventNoteIcon />}
-              href="/plans/personal"
-              selected={pathname === '/plans/personal'}
-            />
-            <DashboardSidebarPageItem
-              id="group-plan"
-              title="组内计划"
-              icon={<GroupsIcon />}
-              href="/plans/group"
-              selected={pathname === '/plans/group'}
+              // 有子项时该行只做展开/收起，不参与跳转；折叠态（mini）下悬停弹出子项
+              href="/plans"
+              selected={isPlanRoute}
+              defaultExpanded
+              expanded={expandedItemIds.includes('plan')}
+              nestedNavigation={
+                <List
+                  dense
+                  sx={{
+                    padding: 0,
+                    my: 0.5,
+                    pl: mini ? 0 : 2,
+                    minWidth: 220,
+                  }}
+                >
+                  <DashboardSidebarPageItem
+                    id="personal-plan"
+                    title="个人计划"
+                    icon={<AssignmentIndIcon />}
+                    href="/plans/personal"
+                    selected={pathname === '/plans/personal'}
+                  />
+                  <DashboardSidebarPageItem
+                    id="group-plan"
+                    title="组内计划"
+                    icon={<GroupsIcon />}
+                    href="/plans/group"
+                    selected={pathname === '/plans/group'}
+                  />
+                </List>
+              }
             />
             <DashboardSidebarPageItem
               id="reminders"

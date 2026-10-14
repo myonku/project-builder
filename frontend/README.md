@@ -18,11 +18,12 @@ UI 骨架来自 MUI 官方 **CRUD Dashboard** 与 **Sign-in** 模板。
 | 能力 | 状态 |
 | --- | --- |
 | 工程骨架：Vite / TS 严格模式 / 路径别名 / 环境变量 / 代理 | ✅ 已实现 |
-| 主题层（官方 `shared-theme` + CRUD Dashboard 定制合并为一份，亮/暗模式） | ✅ 已实现 |
+| 主题：**MUI 默认 Material Design 2** + 亮/暗颜色方案 + 字号上调一档 | ✅ 已实现 |
 | `api/`：`client.ts`（Cookie、信封、错误、限流、上传、下载）+ A01–A09 九个域文件 | ✅ 已实现 |
 | `types/`：按《F02》全量落地（资源、计划视图投影、请求体；派生字段 `readonly`） | ✅ 已实现 |
 | 状态与路由：`auth` / `ui` 两个窄 store、`RequireAuth` / `RequireAdmin` | ✅ 已实现 |
-| 布局与登录页：CRUD Dashboard 布局（三视口侧边栏）+ 真实登录（RHF + Zod） | ✅ 已实现 |
+| 布局：Dashboard（Header + **三级可收缩侧边栏**）与 Blank（顶栏 + 内容区） | ✅ 已实现 |
+| 登录页：顶栏、加高卡片、"记住登录信息"、注册/忘记密码占位入口 | ✅ 已实现 |
 | 联调 Hook：`useVersionedForm` / `useListQuery` / `useApiError` / `usePermission` / `useIdempotencyKey` | ✅ 已实现 |
 | 页面：概览（真实数据）+ 项目/计划/管理/提醒/审计（占位） | ⏳ 功能期 |
 | 项目与任务列表、表单、成员管理、甘特图、附件上传下载、提醒重试 | ⏳ 功能期（顺序见 F05 §7.2） |
@@ -106,16 +107,16 @@ frontend/                        # 本目录：命令都在这里执行
 ├── docs/                        # 前端文档（F01 架构 → F05 进度）
 └── src/
     ├── main.tsx  App.tsx        # 入口：字体 + 全局样式；主题 → 通知 → 对话框 → 路由
-    ├── theme/                   # 主题层：AppTheme / themePrimitives / 颜色模式 / customizations
+    ├── theme/                   # AppTheme.tsx：MUI 默认 Material Design 2 + 亮/暗 + 字号
     ├── api/                     # client.ts（唯一 fetch 出口）+ 按 A01–A09 分域的接口文件
     ├── types/                   # 领域类型与请求体（只放类型，不 import 运行时代码）
     ├── stores/                  # 窄状态：auth（当前用户）、ui（当前工作组）
     ├── router/                  # 路由表 + RequireAuth / RequireAdmin
-    ├── layouts/                 # Dashboard 布局（Header / Sidebar / 三视口 Drawer）+ 登录用空白布局
+    ├── layouts/                 # Dashboard 布局（Header / 三级可收缩 Sidebar）+ Blank 顶栏布局
     ├── views/                   # 一个 view = 一条路由（概览已接通，其余为占位页）
     ├── components/common/       # PageContainer / AppLogo / 品牌区 / 加载态 / 占位内容
     ├── hooks/                   # 模板 Hook（useDialogs / useNotifications）+ 本项目自研 Hook
-    ├── utils/                   # datetime（原样透传）/ pagination（0/1 基换算）/ uuid
+    ├── utils/                   # datetime（原样透传）/ pagination（0/1 基换算）/ storage / uuid
     └── styles/index.css
 ```
 
@@ -123,7 +124,7 @@ frontend/                        # 本目录：命令都在这里执行
 
 以下几条是**有意为之**，详细理由与登记编号见 [F04](./docs/F04-设计偏离与差异登记.md)：
 
-1. **只有一份主题层**：两个官方模板的 `themePrimitives` 合并为 `src/theme/themePrimitives.ts`，避免"同名令牌两份、取值不同"。
+1. **样式统一为 MUI 默认的 Material Design 2**：不用官方模板那套定制主题（Inter 字体、8px 圆角、自定义阴影与 10 组组件覆盖），`src/theme/` 只有一个 `AppTheme.tsx`，在 MD2 默认值之上只做两件事——打开亮/暗颜色方案、把正文与控件字号上调一档（body1 18px）。页面里**不要**各自调字号或主题色。
 2. **`api/client.ts` 是唯一直接使用 `fetch` 的地方**：Cookie、信封解包、错误封装、限流头、上传下载全部收口；各域文件只拼路径与类型，**不加工字段**（`updated_at` 必须原样字符串返回）。
 3. **业务数据不进 store**：项目/任务是"按 id、按筛选条件"取的数据，进全局 store 会立刻出现缓存新鲜度问题，让 `expected_updated_at` 提交必然 409。视图层用 Hook 加载、局部保存。
 4. **版本协议集中在一个 Hook 里**：`useVersionedForm` 负责缓存 `updated_at`、注入 `expected_updated_at`、并在 `409 version_conflict` 时弹窗让用户选"放弃并刷新 / 保留并重试"，**不自动重试、不静默合并**。
@@ -135,7 +136,8 @@ frontend/                        # 本目录：命令都在这里执行
 
 ## 已知项
 
-- 单块产物约 837 kB（gzip 262 kB），Vite 提示 chunk 过大——骨架期不做代码分割；
+- 单块产物约 808 kB（gzip 254 kB），Vite 提示 chunk 过大——骨架期不做代码分割；
+- 顶栏的颜色模式是"图标切换亮/暗"，**没有回到"跟随系统"的入口**（初始默认仍是 System）；
 - 中文由系统字体栈回退渲染（Roboto 不含中文字形），中文字体观感取决于客户端系统；
 - 未实现页面会明确标注"骨架期占位"并列出计划对接的接口，不伪装成已实现（《S02》§6 第 4 条的同一条原则）。
 
