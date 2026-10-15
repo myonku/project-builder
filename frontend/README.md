@@ -25,8 +25,8 @@ UI 骨架来自 MUI 官方 **CRUD Dashboard** 与 **Sign-in** 模板。
 | 布局：Dashboard（Header + **三级可收缩侧边栏**）与 Blank（顶栏 + 内容区） | ✅ 已实现 |
 | 登录页：顶栏、加高卡片、"记住登录信息"、注册/忘记密码占位入口 | ✅ 已实现 |
 | 联调 Hook：`useVersionedForm` / `useListQuery` / `useApiError` / `usePermission` / `useIdempotencyKey` | ✅ 已实现 |
-| 页面：概览（真实数据）+ 项目/计划/管理/提醒/审计（占位） | ⏳ 功能期 |
-| 项目与任务列表、表单、成员管理、甘特图、附件上传下载、提醒重试 | ⏳ 功能期（顺序见 F05 §7.2） |
+| 页面：概览、**项目列表**、**项目详情（含新建/编辑表单与任务抽屉）** 已实现；计划/管理/提醒/审计仍为占位 | ✅ / ⏳ |
+| 项目与任务列表、表单、成员管理、甘特图、附件上传下载、提醒重试 | ⏳ 功能期（顺序见 F05 §7.2；第 1 步「项目列表」已完成） |
 | 自助注册入口、日期选择器 Provider、ESLint、测试 | ⏳ 按需引入（见 F05 §7.3） |
 
 **实测基线**（2026-10-14，命令与输出见 [F05 §5](./docs/F05-进度与验证记录.md)）：
@@ -79,10 +79,10 @@ pnpm dev              # 开发服务器 http://localhost:5173，带 /api 与 /he
 
 ```powershell
 chrome --headless=new --remote-debugging-port=9333 --user-data-dir=$env:TEMP\pb-chrome about:blank
-node scripts/browser-smoke.mjs 9333 http://127.0.0.1:5173/login bootstrap_admin <口令> .verify/dashboard.png
+node scripts/browser-smoke.mjs 9333 http://127.0.0.1:5173/login bootstrap_admin <口令> .verify/dashboard/dashboard.png
 ```
 
-产物落在 `.verify/`（已 gitignore）；脚本本身随仓库走。详见 [F03 §9.2](./docs/F03-运行与联调.md)。
+产物落在 `.verify/<域>/`（已 gitignore，按页面域分目录）；脚本本身随仓库走。详见 [F03 §9.2](./docs/F03-运行与联调.md)。
 
 ## 脚本命令
 
@@ -111,10 +111,11 @@ frontend/                        # 本目录：命令都在这里执行
     ├── api/                     # client.ts（唯一 fetch 出口）+ 按 A01–A09 分域的接口文件
     ├── types/                   # 领域类型与请求体（只放类型，不 import 运行时代码）
     ├── stores/                  # 窄状态：auth（当前用户）、ui（当前工作组）
-    ├── router/                  # 路由表 + RequireAuth / RequireAdmin
+    ├── router/                  # 路由表（按路由懒加载）+ RequireAuth / RequireAdmin
     ├── layouts/                 # Dashboard 布局（Header / 三级可收缩 Sidebar）+ Blank 顶栏布局
-    ├── views/                   # 一个 view = 一条路由（概览已接通，其余为占位页）
-    ├── components/common/       # PageContainer / AppLogo / 品牌区 / 加载态 / 占位内容
+    ├── views/                   # 一个 view = 一条路由（概览、项目列表已接通，其余为占位页）
+    ├── components/common/       # PageContainer / StatusTag / AppLogo / 品牌区 / 加载态 / 占位内容
+    ├── components/project/      # 项目域的展示元数据（状态与共享级别的文案/配色）
     ├── hooks/                   # 模板 Hook（useDialogs / useNotifications）+ 本项目自研 Hook
     ├── utils/                   # datetime（原样透传）/ pagination（0/1 基换算）/ storage / uuid
     └── styles/index.css
@@ -132,13 +133,14 @@ frontend/                        # 本目录：命令都在这里执行
 6. **筛选不走 DataGrid 的 `filterModel`**：后端没有对应的表达式协议，筛选由页面自己维护；排序才走白名单表达式。
 7. **字体自托管且只引 latin / latin-ext 子集**：运行时零外网请求；不分子集会多打进 50 个字体文件。
 8. **甘特图依赖暂缓引入**：`frappe-gantt` 不带类型声明，骨架期没有真实拖拽交互可验证，到甘特图功能开始时装（F04 D3）。
-9. **模板副本只作留档**：`src/` 是权威代码；`.templates/`（已 gitignore）仅用于将来按官方 tag 逐文件 diff 升级。
+9. **模板副本只作留档**：`src/` 是权威代码；`.templates/`（**已入库**，见其中的 `README.md`）仅用于按官方 tag 逐文件 diff 升级，换机器时不必再去官方仓库取。
 
 ## 已知项
 
-- 单块产物约 808 kB（gzip 254 kB），Vite 提示 chunk 过大——骨架期不做代码分割；
+- 首屏（登录页）实测传输 **243.8 kB（gzip）**；项目列表/详情页各约 **444 kB**——表格与日期组件随路由按需加载。原始 JS 约 1.7 MB，**部署时必须开 gzip/brotli**（F04 D23/D25、F03 §8）；
 - 顶栏的颜色模式是"图标切换亮/暗"，**没有回到"跟随系统"的入口**（初始默认仍是 System）；
 - 中文由系统字体栈回退渲染（Roboto 不含中文字形），中文字体观感取决于客户端系统；
+- 表格纵向滚动条出现时，DataGrid 的 flex 列会多出约 15px 横向滚动（视觉上无轨道），属组件既有行为；
 - 未实现页面会明确标注"骨架期占位"并列出计划对接的接口，不伪装成已实现（《S02》§6 第 4 条的同一条原则）。
 
 完整清单与处理时机见 [F05 §7.3](./docs/F05-进度与验证记录.md)。

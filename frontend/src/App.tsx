@@ -10,6 +10,10 @@
  *
  * 主题采用 **MUI 默认的 Material Design 2 风格**，不再向 `AppTheme` 传组件覆盖
  * （见 `theme/AppTheme.tsx` 与 F04 D16）。
+ *
+ * **这里没有 `LocalizationProvider`**：日期组件只在懒加载的项目表单里用得到，
+ * 挂到顶层会让登录页首屏白白多下载约 92 kB（gzip）。需要日期组件的子树自己包
+ * `components/common/DateLocalizationProvider.tsx`（F04 D25）。
  */
 
 import CssBaseline from '@mui/material/CssBaseline';

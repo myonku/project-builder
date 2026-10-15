@@ -4,23 +4,38 @@
  * 用 `createBrowserRouter` 而不是模板的 `createHashRouter`：
  * 生产是同源部署 + `try_files $uri /index.html` 回落（F03 §8），
  * 浏览器地址栏里的路径就是真实路径，便于分享与排查。
+ *
+ * ## 按路由拆包
+ *
+ * 项目列表引入了 `@mui/x-data-grid`（含中文语言包），整包约 500 kB；
+ * 登录页一秒都用不到它。因此**只有登录页与 404 是静态导入，其余视图全部懒加载**：
+ * 让首屏只下载外壳 + 登录页本身，其余按访问路由再取。
+ *
+ * 连概览页（`index`）也懒加载：它引入的 `utils/datetime`（dayjs）实测约 91 kB（gzip），
+ * 而登录页根本用不到日期处理（F04 D23）。
+ *
+ * `page()` 把 `React.lazy` 与 `Suspense` 包成一个元素工厂，避免每条路由都写一遍；
+ * 加载期间的占位用 `FullPageLoading`，与 `RequireAuth` 探测会话时的观感一致。
  */
 
+import * as React from 'react';
 import { createBrowserRouter } from 'react-router';
+import FullPageLoading from '@/components/common/FullPageLoading';
 import BlankLayout from '@/layouts/BlankLayout';
 import DashboardLayout from '@/layouts/DashboardLayout';
 import { RequireAdmin, RequireAuth } from '@/router/guards';
 import LoginView from '@/views/auth/LoginView';
-import DashboardView from '@/views/dashboard/DashboardView';
-import ProjectDetailView from '@/views/projects/ProjectDetailView';
-import ProjectListView from '@/views/projects/ProjectListView';
-import GroupPlanView from '@/views/plan/GroupPlanView';
-import PersonalPlanView from '@/views/plan/PersonalPlanView';
-import GroupListView from '@/views/admin/GroupListView';
-import UserListView from '@/views/admin/UserListView';
-import AuditListView from '@/views/audit/AuditListView';
-import ReminderListView from '@/views/reminders/ReminderListView';
 import NotFoundView from '@/views/NotFoundView';
+
+/** 懒加载一个页面视图，并给出统一的加载占位 */
+function page(loader: () => Promise<{ default: React.ComponentType }>): React.ReactElement {
+  const Component = React.lazy(loader);
+  return (
+    <React.Suspense fallback={<FullPageLoading />}>
+      <Component />
+    </React.Suspense>
+  );
+}
 
 export const router = createBrowserRouter([
   {
@@ -33,18 +48,45 @@ export const router = createBrowserRouter([
       {
         element: <DashboardLayout />,
         children: [
-          { index: true, element: <DashboardView /> },
-          { path: 'projects', element: <ProjectListView /> },
-          { path: 'projects/:projectId', element: <ProjectDetailView /> },
-          { path: 'plans/personal', element: <PersonalPlanView /> },
-          { path: 'plans/group', element: <GroupPlanView /> },
-          { path: 'reminders', element: <ReminderListView /> },
-          { path: 'audit', element: <AuditListView /> },
+          {
+            index: true,
+            element: page(() => import('@/views/dashboard/DashboardView')),
+          },
+          {
+            path: 'projects',
+            element: page(() => import('@/views/projects/ProjectListView')),
+          },
+          {
+            path: 'projects/:projectId',
+            element: page(() => import('@/views/projects/ProjectDetailView')),
+          },
+          {
+            path: 'plans/personal',
+            element: page(() => import('@/views/plan/PersonalPlanView')),
+          },
+          {
+            path: 'plans/group',
+            element: page(() => import('@/views/plan/GroupPlanView')),
+          },
+          {
+            path: 'reminders',
+            element: page(() => import('@/views/reminders/ReminderListView')),
+          },
+          {
+            path: 'audit',
+            element: page(() => import('@/views/audit/AuditListView')),
+          },
           {
             element: <RequireAdmin />,
             children: [
-              { path: 'admin/users', element: <UserListView /> },
-              { path: 'admin/groups', element: <GroupListView /> },
+              {
+                path: 'admin/users',
+                element: page(() => import('@/views/admin/UserListView')),
+              },
+              {
+                path: 'admin/groups',
+                element: page(() => import('@/views/admin/GroupListView')),
+              },
             ],
           },
         ],

@@ -19,7 +19,7 @@ project-builder/
 │   ├── src/               # theme / api / types / stores / router / layouts / views / components / hooks / utils
 │   ├── scripts/           # browser-smoke.mjs（浏览器级冒烟，CDP 驱动）
 │   ├── docs/              # **前端自己的文档**（F01 架构 / F02 类型 / F03 运行 / F04 偏离 / F05 进度）
-│   ├── .templates/        # MUI 官方模板本地留档（gitignore，仅供逐文件 diff 升级）
+│   ├── .templates/        # MUI 官方模板原样副本（**已入库**，供逐文件 diff 升级；见 .templates/README.md）
 │   ├── package.json tsconfig.json vite.config.ts
 │   └── README.md          # 前端入口文档（怎么跑、怎么测、代码怎么分层）
 └── docs/             # **前后端共用**的文档：S01 需求、S02 接口契约、api/ 逐接口详解

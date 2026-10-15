@@ -9,7 +9,8 @@
 //      chrome --headless=new --remote-debugging-port=9333 --user-data-dir=%TEMP%\pb-chrome about:blank
 //
 // 用法：node scripts/browser-smoke.mjs <cdpPort> <appUrl> <identifier> <password> <outPng>
-// 例：  node scripts/browser-smoke.mjs 9333 http://127.0.0.1:5173/login bootstrap_admin <密码> .verify/dashboard.png
+// 例：  node scripts/browser-smoke.mjs 9333 http://127.0.0.1:5173/login bootstrap_admin <密码> .verify/dashboard/dashboard.png
+// 产物建议按页面域分目录（.verify/login、.verify/dashboard、.verify/project …）；输出路径由参数决定。
 
 const [port, appUrl, identifier, password, outPng] = process.argv.slice(2);
 

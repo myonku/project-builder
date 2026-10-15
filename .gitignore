@@ -20,10 +20,12 @@
 *.so
 *.dylib
 
-# 前端开发期间使用的模板文件
-/frontend/.templates/
+# 注意：/frontend/.templates/ **不再忽略**（2026-10-14 起入库）。
+# 它是 MUI 官方模板（v9.5.0）的原样副本，用于在换机器/多人协作时按模板做逐文件 diff 升级，
+# 见 frontend/.templates/README.md。工程里生效的代码仍然是 frontend/src/。
 
-# 前端浏览器冒烟的本地产物（截图 / DOM 快照）；可复现脚本在 frontend/scripts/ 下
+# 前端浏览器冒烟的本地产物（截图按域分目录，例如 dashboard/ login/ project/）；
+# 可复现脚本在 frontend/scripts/ 下，产物目录是纯本地的，不入库
 /frontend/.verify/
 
 # 运行期数据（附件、测试上传）
