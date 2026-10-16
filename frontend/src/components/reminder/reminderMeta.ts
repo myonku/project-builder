@@ -39,7 +39,7 @@ const STATUS_META: Record<ReminderStatus, ReminderStatusMeta> = {
   skipped: {
     label: '已跳过',
     tone: 'warning',
-    hint: '按规则就不该发（没有邮箱、已停用、关闭了邮件提醒、任务已完成/取消、邮件功能未启用）。可以重试。',
+    hint: '按规则不应发生发送（没有邮箱、已停用、关闭了邮件提醒、任务已完成/取消、邮件功能未启用）。可以重试。',
   },
 };
 

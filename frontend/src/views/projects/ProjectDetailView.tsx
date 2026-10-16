@@ -43,6 +43,7 @@ import { archiveProject, getProject, updateProject } from '@/api/projects';
 import { createTask, queryProjectTasks } from '@/api/tasks';
 import { toApiError, type ApiError } from '@/api/client';
 import CellText from '@/components/common/CellText';
+import DataTooltip, { textCell } from '@/components/common/DataTooltip';
 import ProgressCell from '@/components/common/ProgressCell';
 import FullPageLoading from '@/components/common/FullPageLoading';
 import PageContainer from '@/components/common/PageContainer';
@@ -373,12 +374,14 @@ export default function ProjectDetailView() {
         headerName: '开始日期',
         width: 110,
         valueFormatter: (value) => formatNaturalDate(value as string | null),
+        renderCell: textCell<Task>(),
       },
       {
         field: 'end_date',
         headerName: '结束日期',
         width: 110,
         valueFormatter: (value) => formatNaturalDate(value as string | null),
+        renderCell: textCell<Task>(),
       },
       {
         field: 'is_shared',
@@ -405,6 +408,7 @@ export default function ProjectDetailView() {
         headerName: '最近更新',
         width: 150,
         valueFormatter: (value) => formatForDisplay(value as string, userTimeZone),
+        renderCell: textCell<Task>(),
       },
       {
         field: 'actions',
@@ -414,7 +418,7 @@ export default function ProjectDetailView() {
         filterable: false,
         disableColumnMenu: true,
         renderCell: (params: GridRenderCellParams<Task>) => (
-          <Tooltip title="打开任务详情">
+          <DataTooltip title="打开任务详情">
             <IconButton
               size="small"
               aria-label={`打开任务 ${params.row.name}`}
@@ -425,7 +429,7 @@ export default function ProjectDetailView() {
             >
               <VisibilityIcon fontSize="small" />
             </IconButton>
-          </Tooltip>
+          </DataTooltip>
         ),
       },
     ],

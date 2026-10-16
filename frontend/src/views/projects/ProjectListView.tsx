@@ -36,6 +36,7 @@ import { useNavigate } from 'react-router';
 import { createProject, queryProjects } from '@/api/projects';
 import { toApiError, type ApiError } from '@/api/client';
 import CellText from '@/components/common/CellText';
+import DataTooltip, { textCell } from '@/components/common/DataTooltip';
 import ProjectFormDialog, {
   type ProjectFormValues,
 } from '@/components/project/ProjectFormDialog';
@@ -247,9 +248,9 @@ export default function ProjectListView() {
           const tag = <StatusTag label={meta.label} tone={meta.tone} />;
           // 归档的精确时间放在 tooltip 里，避免再占一列（状态列已经显示"已归档"）
           return params.row.archived_at ? (
-            <Tooltip title={`归档于 ${formatForDisplay(params.row.archived_at, userTimeZone)}`}>
+            <DataTooltip title={`归档于 ${formatForDisplay(params.row.archived_at, userTimeZone)}`}>
               <Box component="span">{tag}</Box>
-            </Tooltip>
+            </DataTooltip>
           ) : (
             tag
           );
@@ -271,6 +272,8 @@ export default function ProjectListView() {
         sortable: false, // 不在排序白名单里
         valueGetter: (_value, row) =>
           groupNameById.get(row.group_id) ?? `${row.group_id.slice(0, 8)}…`,
+        // 写了 renderCell 才会去掉 DataGrid 自动塞的原生 title（F01 §6 第 34 条）
+        renderCell: textCell<Project>(),
       },
       {
         field: 'start_date',
@@ -278,12 +281,14 @@ export default function ProjectListView() {
         width: 110,
         // 自然日：原样展示，不做任何时区换算（《F01》§5.1）
         valueFormatter: (value) => formatNaturalDate(value as string | null),
+        renderCell: textCell<Project>(),
       },
       {
         field: 'end_date',
         headerName: '结束日期',
         width: 110,
         valueFormatter: (value) => formatNaturalDate(value as string | null),
+        renderCell: textCell<Project>(),
       },
       {
         field: 'progress',
@@ -291,6 +296,8 @@ export default function ProjectListView() {
         width: 90,
         sortable: false, // 派生字段，不在白名单里
         valueFormatter: (value: number) => `${value}%`,
+        // 百分比一眼能看全，不给提示（同时去掉原生 title 的噪点）
+        renderCell: textCell<Project>({ tooltip: false }),
       },
       {
         field: 'overdue_task_count',
@@ -324,6 +331,7 @@ export default function ProjectListView() {
         width: 140,
         // 版本字段原样透传，这里只是**展示**格式化（提交时仍走 useVersionedForm）
         valueFormatter: (value: string) => formatForDisplay(value, userTimeZone),
+        renderCell: textCell<Project>(),
       },
       {
         field: 'actions',
@@ -333,7 +341,7 @@ export default function ProjectListView() {
         filterable: false,
         disableColumnMenu: true,
         renderCell: (params: GridRenderCellParams<Project>) => (
-          <Tooltip title="打开详情">
+          <DataTooltip title="打开详情">
             <IconButton
               size="small"
               aria-label={`打开项目 ${params.row.name}`}
@@ -344,7 +352,7 @@ export default function ProjectListView() {
             >
               <VisibilityIcon fontSize="small" />
             </IconButton>
-          </Tooltip>
+          </DataTooltip>
         ),
       },
     ],

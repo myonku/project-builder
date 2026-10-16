@@ -1,5 +1,6 @@
 import type { ReactElement } from 'react';
 import Tooltip from '@mui/material/Tooltip';
+import { dataTooltipSlotProps } from '@/components/common/DataTooltip';
 import type { TooltipProps } from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import type { TypographyProps } from '@mui/material/Typography';
@@ -53,22 +54,12 @@ export function truncatedText(
   if (!isTruncated) return content;
 
   return (
-    <Tooltip title={str} arrow={false}
-      slotProps={{
-        tooltip: {
-          sx: {
-            // 此处有意未设定成随主题亮暗色变化的样式，而是固定为白底黑字，
-            // 意为更贴近 MUI 表格 DataGrid 中截断内容的默认样式，保持风格统一。
-            backgroundColor: '#fff',        // 白色背景
-            color: '#000',                  // 黑色文字
-            border: '2px solid #000',       // 黑色边框
-            borderRadius: 0,                // 无圆角
-            boxShadow: 'none',              // 移除默认阴影
-            fontSize: '0.75rem',            // 可选：贴近 DataGrid 的小字号
-            padding: '2px 5px',             // 可选：紧凑内边距
-          },
-        },
-      }}
+    <Tooltip
+      title={str}
+      arrow={false}
+      // 统一外观只定义一处（`components/common/DataTooltip.tsx`）：表格单元格与本函数共用同一份
+      // 样式常量，因此"表格里的悬浮提示"与"抽屉/成员面板里的截断提示"看起来完全一致（F04 D33）。
+      slotProps={dataTooltipSlotProps}
       {...tooltipProps}
     >
       {content}

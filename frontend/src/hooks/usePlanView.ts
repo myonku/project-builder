@@ -47,6 +47,18 @@ export function usePlanView({
   const [reloadToken, setReloadToken] = React.useState(0);
   const requestSeq = React.useRef(0);
 
+  /**
+   * **依赖用"查询参数的序列化值"，而不是对象身份**（2026-10-16 修）：
+   * 概览页传的是 `query: {}` 这种**每次渲染都新建**的字面量，若直接把它放进 effect 依赖，
+   * 就会出现"请求 → setState → 重渲染 → 依赖变了 → 再请求"的无限循环
+   * （实测 8 秒内发出 404 次 `GET /plan-views/personal`）。
+   * 序列化后内容相同的对象得到同一个 key，循环被切断；
+   * 真正要用参数时从 ref 读最新的那一份，避免闭包拿到旧值。
+   */
+  const queryKey = React.useMemo(() => JSON.stringify(query), [query]);
+  const queryRef = React.useRef(query);
+  queryRef.current = query;
+
   React.useEffect(() => {
     if (!enabled) {
       setPayload(null);
@@ -62,15 +74,16 @@ export function usePlanView({
 
     void (async () => {
       try {
+        const current = queryRef.current;
         const next =
           groupId === null
-            ? await getPersonalPlan(query, controller.signal)
-            : await getGroupPlan(groupId, query, controller.signal);
+            ? await getPersonalPlan(current, controller.signal)
+            : await getGroupPlan(groupId, current, controller.signal);
         if (requestSeq.current !== seq) {
           return; // 已有更新的请求发出，丢弃本次结果
         }
         setPayload(next);
-        if (!query.project_id) {
+        if (!current.project_id) {
           // 只有"未按项目筛选"的响应才能给出完整的项目选项
           setProjectOptions(next.projects);
         }
@@ -91,7 +104,8 @@ export function usePlanView({
     })();
 
     return () => controller.abort();
-  }, [enabled, groupId, query, reloadToken]);
+    // 依赖里用 queryKey（序列化值）而不是 query 对象本身，见上方注释
+  }, [enabled, groupId, queryKey, reloadToken]);
 
   const reload = React.useCallback(() => setReloadToken((token) => token + 1), []);
 

@@ -23,7 +23,7 @@ import IconButton from '@mui/material/IconButton';
 import MenuItem from '@mui/material/MenuItem';
 import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
-import Tooltip from '@mui/material/Tooltip';
+
 import Typography from '@mui/material/Typography';
 import ReplayIcon from '@mui/icons-material/Replay';
 import RestartAltIcon from '@mui/icons-material/RestartAlt';
@@ -36,9 +36,10 @@ import { useSearchParams } from 'react-router';
 import { queryReminders, retryReminder } from '@/api/reminders';
 import { toApiError } from '@/api/client';
 import CellText from '@/components/common/CellText';
+import DataTooltip, { textCell } from '@/components/common/DataTooltip';
+import { filterItemSx, filterRowSx } from '@/components/common/filterLayout';
 import PageContainer from '@/components/common/PageContainer';
 import StatusTag from '@/components/common/StatusTag';
-import { truncatedText } from '@/components/common/TruncatedText';
 import ReminderDetailDrawer from '@/components/reminder/ReminderDetailDrawer';
 import {
   REMINDER_KIND_OPTIONS,
@@ -180,6 +181,7 @@ export default function ReminderListView() {
         width: 140,
         // `kind_label` 由服务端给中文，前端不再维护映射表
         valueGetter: (_value, row) => row.kind_label,
+        renderCell: textCell<Reminder>(),
       },
       {
         field: 'status',
@@ -188,11 +190,11 @@ export default function ReminderListView() {
         renderCell: (params: GridRenderCellParams<Reminder, ReminderStatus>) => {
           const meta = reminderStatusMeta(params.value);
           return (
-            <Tooltip title={meta.hint}>
+            <DataTooltip title={meta.hint}>
               <span>
                 <StatusTag label={meta.label} tone={meta.tone} />
               </span>
-            </Tooltip>
+            </DataTooltip>
           );
         },
       },
@@ -210,20 +212,22 @@ export default function ReminderListView() {
         headerName: '收件人',
         width: 180,
         sortable: false, // 不在白名单里
-        renderCell: (params: GridRenderCellParams<Reminder, string>) => {
-          const email = params.value ?? '';
-          return (
-            <Tooltip title={email}>
-              <span>{truncatedText(email, { typographyProps: { variant: 'body2' } })}</span>
-            </Tooltip>
-          );
-        },
+        // 单元格里的长文本交给 DataGrid 自己截断（F01 §6 第 29 条）：
+        // **不要**再套 `truncatedText`——那是给"非表格的行内文本"（成员面板）用的，
+        // 在表格里用会双重截断（表格已按像素省略，函数又按字符砍一刀）。
+        // 保留 Tooltip 只是为了不用展开就能看到完整值。
+        renderCell: (params: GridRenderCellParams<Reminder, string>) => (
+          <DataTooltip title={params.value ?? ''}>
+            <span>{params.value}</span>
+          </DataTooltip>
+        ),
       },
       {
         field: 'scheduled_for',
         headerName: '计划发送',
         width: 160,
         valueFormatter: (value) => formatForDisplay(value as string, userTimeZone),
+        renderCell: textCell<Reminder>(),
       },
       {
         field: 'sent_at',
@@ -231,6 +235,7 @@ export default function ReminderListView() {
         width: 160,
         sortable: false, // 不在白名单里
         valueFormatter: (value) => (value ? formatForDisplay(value as string, userTimeZone) : '—'),
+        renderCell: textCell<Reminder>(),
       },
       {
         field: 'last_error',
@@ -238,15 +243,16 @@ export default function ReminderListView() {
         flex: 1,
         minWidth: 170,
         sortable: false,
+        // 同上：截断交给 DataGrid；完整原因本来还能在详情抽屉里看到
         renderCell: (params: GridRenderCellParams<Reminder, string>) => {
           const text = params.value ?? '';
           if (!text) {
             return <CellText muted>—</CellText>;
           }
           return (
-            <Tooltip title={text}>
-              <span>{truncatedText(text, { threshold: 30, keep: 26, ellipsis: '…' })}</span>
-            </Tooltip>
+            <DataTooltip title={text}>
+              <span>{text}</span>
+            </DataTooltip>
           );
         },
       },
@@ -266,12 +272,14 @@ export default function ReminderListView() {
         headerName: '记录创建',
         width: 170,
         valueFormatter: (value) => formatForDisplay(value as string, userTimeZone),
+        renderCell: textCell<Reminder>(),
       },
       {
         field: 'updated_at',
         headerName: '最近更新',
         width: 170,
         valueFormatter: (value) => formatForDisplay(value as string, userTimeZone),
+        renderCell: textCell<Reminder>(),
       },
       {
         field: 'actions',
@@ -283,7 +291,7 @@ export default function ReminderListView() {
           const retryable = canRetryReminder(reminder.status);
           return (
             <Stack direction="row" spacing={0.5}>
-              <Tooltip title="查看详情（完整失败原因与时间戳）">
+              <DataTooltip title="查看详情（完整失败原因与时间戳）">
                 <IconButton
                   size="small"
                   aria-label={`查看提醒 ${reminder.id}`}
@@ -294,8 +302,8 @@ export default function ReminderListView() {
                 >
                   <VisibilityIcon fontSize="small" />
                 </IconButton>
-              </Tooltip>
-              <Tooltip
+              </DataTooltip>
+              <DataTooltip
                 title={
                   retryable
                     ? '重新排入待发送队列'
@@ -315,7 +323,7 @@ export default function ReminderListView() {
                     <ReplayIcon fontSize="small" />
                   </IconButton>
                 </span>
-              </Tooltip>
+              </DataTooltip>
             </Stack>
           );
         },
@@ -347,16 +355,16 @@ export default function ReminderListView() {
         {/* 筛选区：与计划视图同一套版式（一条底部分割线 + flex/gap 行） */}
         <Box sx={{ pb: 2, borderBottom: 1, borderColor: 'divider' }}>
           <Stack spacing={1.5}>
-            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, alignItems: 'flex-start' }}>
+            <Box sx={filterRowSx(false)}>
               <TextField
                 select
                 size="small"
                 label="类型"
                 value={draft.kind}
                 onChange={(event) => setDraft({ ...draft, kind: event.target.value })}
-                sx={{ flex: '1 1 0', minWidth: 150, maxWidth: 300 }}
+                sx={filterItemSx(150, 360)}
                 slotProps={{ inputLabel: { shrink: true } }}
-                helperText="服务端不校验取值，这里只提供 5 个枚举"
+                helperText="服务端不校验取值，此处只提供枚举"
               >
                 <MenuItem value="">全部类型</MenuItem>
                 {REMINDER_KIND_OPTIONS.map((option) => (
@@ -372,8 +380,8 @@ export default function ReminderListView() {
                 value={draft.task_id}
                 onChange={(event) => setDraft({ ...draft, task_id: event.target.value.trim() })}
                 error={Boolean(taskIdError)}
-                helperText={taskIdError ?? '按任务筛选（"这条任务的提醒都发给谁了"），可留空'}
-                sx={{ flex: '1 1 0', minWidth: 200, maxWidth: 380 }}
+                helperText={taskIdError ?? '按任务筛选，可留空'}
+                sx={filterItemSx(220, 520)}
               />
 
               <TextField
@@ -384,9 +392,9 @@ export default function ReminderListView() {
                 onChange={(event) =>
                   setDraft({ ...draft, pageStatus: event.target.value as ReminderStatus | '' })
                 }
-                sx={{ flex: '1 1 0', minWidth: 150, maxWidth: 220 }}
+                sx={filterItemSx(160, 300)}
                 slotProps={{ inputLabel: { shrink: true } }}
-                helperText="接口没有 status 参数，只过滤当前页"
+                helperText="此项只过滤当前页"
               >
                 <MenuItem value="">全部状态</MenuItem>
                 {REMINDER_STATUS_OPTIONS.map((option) => (
@@ -397,15 +405,7 @@ export default function ReminderListView() {
               </TextField>
             </Box>
 
-            <Box
-              sx={{
-                display: 'flex',
-                flexWrap: 'wrap',
-                gap: 2,
-                alignItems: 'center',
-                justifyContent: 'flex-end',
-              }}
-            >
+            <Box sx={filterRowSx(true)}>
               <Button
                 variant="contained"
                 startIcon={<SearchIcon />}

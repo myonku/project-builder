@@ -36,12 +36,22 @@ import { taskPriorityMeta, taskStatusMeta } from '@/components/task/taskMeta';
 import TaskDetailDrawer from '@/components/task/TaskDetailDrawer';
 import { describeApiError } from '@/hooks/useApiError';
 import { usePlanView } from '@/hooks/usePlanView';
+import type { PlanViewQuery } from '@/types/plan';
 import { useAuthStore } from '@/stores/auth';
 import { formatForDisplay, formatNaturalDate } from '@/utils/datetime';
 import type { PlanTask } from '@/types/plan';
 
 /** "我的任务"最多显示几条（概览是"扫一眼"，完整清单在计划视图里） */
 const MY_TASK_LIMIT = 6;
+
+/**
+ * 概览不筛选：用**模块级常量**而不是内联的 `{}`。
+ *
+ * 虽然 `usePlanView` 现在按"查询参数的序列化值"比较依赖（不会再因为对象身份变化重复请求），
+ * 但调用方传一个稳定引用仍然更清楚；万一以后有人把那个 hook 改回按引用比较，
+ * 这里也不会退化成无限请求（2026-10-16 的教训：概览页曾因此 8 秒发出 404 次请求）。
+ */
+const DASHBOARD_QUERY: PlanViewQuery = {};
 
 function SectionCard({
   title,
@@ -125,7 +135,10 @@ export default function DashboardView() {
   const [searchParams, setSearchParams] = useSearchParams();
 
   // 概览不筛选：拿的就是"我个人计划的全部"，再在客户端挑出要展示的部分
-  const { payload, loading, error, reload } = usePlanView({ groupId: null, query: {} });
+  const { payload, loading, error, reload } = usePlanView({
+    groupId: null,
+    query: DASHBOARD_QUERY,
+  });
 
   const taskId = searchParams.get('taskId');
   const openTask = React.useCallback(

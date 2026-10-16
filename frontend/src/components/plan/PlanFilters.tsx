@@ -29,6 +29,7 @@ import { PROJECT_STATUS_OPTIONS } from '@/components/project/projectMeta';
 import type { PlanProject, PlanViewQuery } from '@/types/plan';
 import type { ProjectStatus } from '@/types/project';
 import type { TaskPriority, TaskStatus } from '@/types/task';
+import { filterItemSx, filterRowSx } from '@/components/common/filterLayout';
 import { dayjsToNaturalDate, naturalDateToDayjs } from '@/utils/datetime';
 
 /** "只看"的四种口径；后三种各自映射到一个查询参数 */
@@ -136,41 +137,6 @@ export function planFiltersFromQuery(query: PlanViewQuery, currentUserId: string
     overdue: query.overdue === true,
     include_archived: query.include_archived === true,
   };
-}
-
-/**
- * 筛选区里的一行。
- *
- * **不要用 `Stack` 的 `spacing`**：它靠"容器负 margin + 子项正 margin"实现，
- * 一旦折行，第二行起的左边缘会比第一行多缩进一个 margin——就是"左边空了一块"的观感。
- * `gap` 只作用在项目之间，折行后每行都从容器左边缘开始，天然对齐。
- */
-function filterRowSx(alignRight: boolean) {
-  return {
-    display: 'flex',
-    flexWrap: 'wrap',
-    gap: 2,
-    alignItems: 'center',
-    justifyContent: alignRight ? 'flex-end' : 'flex-start',
-  } as const;
-}
-
-/**
- * 第一层（选择项）里的一项：**宽度可变，撑满所在行的剩余空间**。
- *
- * 为什么不用固定宽度：固定宽度时每一行的右侧总会留下"不可控的空白"（宽度随视口变化，
- * 既没法预测也没法补齐）。改成 `flex: 1 1 0` + `minWidth` 之后：
- * - 空间够时所有项在同一行，且**宽度相等**地铺满整行（左右都贴边）；
- * - 空间不够时才折行，每一行同样被撑满（`flex-grow` 对**每一行**都生效，包括最后一行）；
- * - 间距仍然只有 `gap`，与下面两层的 16px 完全一致（用户明确要求间距统一，宽度可变）。
- *
- * `minWidth` 决定"什么时候折行"（按各控件最长内容定，例如"只看"要放得下"我负责的任务"）；
- * `maxWidth` 是**兜底**：当某一行只剩一两项时，`flex-grow` 会把它们拉得极宽
- * （实测 1180 视口下单独一项被拉到 877px），加上限后这种"残行"保持正常宽度，
- * 只在这一行的右侧留白——与"两端对齐的文本最后一行不拉伸"是同一种观感。
- */
-function filterItemSx(minWidth: number) {
-  return { flex: '1 1 0', minWidth, maxWidth: minWidth * 2 } as const;
 }
 
 export interface PlanFiltersProps {

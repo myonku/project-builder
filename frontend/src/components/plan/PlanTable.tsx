@@ -16,7 +16,7 @@ import * as React from 'react';
 import Box from '@mui/material/Box';
 import IconButton from '@mui/material/IconButton';
 import Stack from '@mui/material/Stack';
-import Tooltip from '@mui/material/Tooltip';
+
 import Typography from '@mui/material/Typography';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import SubdirectoryArrowRightIcon from '@mui/icons-material/SubdirectoryArrowRight';
@@ -26,9 +26,9 @@ import { DataGrid } from '@mui/x-data-grid';
 import type { GridColDef, GridRenderCellParams, GridRowClassNameParams } from '@mui/x-data-grid';
 import { zhCN } from '@mui/x-data-grid/locales';
 import CellText from '@/components/common/CellText';
+import DataTooltip, { textCell } from '@/components/common/DataTooltip';
 import ProgressCell from '@/components/common/ProgressCell';
 import StatusTag from '@/components/common/StatusTag';
-import { truncatedText } from '@/components/common/TruncatedText';
 import { isProjectRow, planRowEnd, planRowStart, type PlanRow } from '@/components/plan/planRows';
 import { projectStatusMeta } from '@/components/project/projectMeta';
 import { taskPriorityMeta, taskStatusMeta } from '@/components/task/taskMeta';
@@ -115,18 +115,20 @@ export default function PlanTable({
               {row.depth > 1 ? (
                 <SubdirectoryArrowRightIcon fontSize="inherit" sx={{ color: 'text.disabled' }} />
               ) : null}
-              <Typography variant="body2" noWrap title={row.task.name}>
-                {row.task.name}
-              </Typography>
+              <DataTooltip title={row.task.name}>
+                <Typography variant="body2" noWrap>
+                  {row.task.name}
+                </Typography>
+              </DataTooltip>
               {row.task.is_milestone ? (
-                <Tooltip title="里程碑">
+                <DataTooltip title="里程碑">
                   <FlagOutlinedIcon fontSize="inherit" sx={{ color: 'warning.main' }} />
-                </Tooltip>
+                </DataTooltip>
               ) : null}
               {row.task.is_shared ? (
-                <Tooltip title="已共享给工作组（组内计划里能看到它）">
+                <DataTooltip title="已共享给工作组（组内计划里能看到它）">
                   <GroupOutlinedIcon fontSize="inherit" sx={{ color: 'text.disabled' }} />
-                </Tooltip>
+                </DataTooltip>
               ) : null}
             </Stack>
           );
@@ -177,6 +179,7 @@ export default function PlanTable({
         sortable: false,
         valueGetter: (_value, row) => planRowStart(row),
         valueFormatter: (value) => formatNaturalDate(value as string | null),
+        renderCell: textCell<PlanRow>(),
       },
       {
         field: 'end_date',
@@ -185,6 +188,7 @@ export default function PlanTable({
         sortable: false,
         valueGetter: (_value, row) => planRowEnd(row),
         valueFormatter: (value) => formatNaturalDate(value as string | null),
+        renderCell: textCell<PlanRow>(),
       },
       {
         field: 'overdue',
@@ -221,10 +225,12 @@ export default function PlanTable({
           if (!owner) {
             return <CellText muted>未指定</CellText>;
           }
+          // 截断交给 DataGrid 自己（F01 §6 第 29 条）：单元格里不要再套字符截断；
+          // Tooltip 只用于不展开就能看到完整值。
           return (
-            <Tooltip title={`${owner.display_name}（${owner.username}）`}>
-              <span>{truncatedText(owner.display_name, { typographyProps: { variant: 'body2' } })}</span>
-            </Tooltip>
+            <DataTooltip title={`${owner.display_name}（${owner.username}）`}>
+              <span>{owner.display_name}</span>
+            </DataTooltip>
           );
         },
       },
@@ -243,9 +249,9 @@ export default function PlanTable({
           }
           const names = row.task.members.map((member) => member.display_name).join('、');
           return (
-            <Tooltip title={names}>
-              <span>{truncatedText(names, { typographyProps: { variant: 'body2' } })}</span>
-            </Tooltip>
+            <DataTooltip title={names}>
+              <span>{names}</span>
+            </DataTooltip>
           );
         },
       },
@@ -274,7 +280,7 @@ export default function PlanTable({
           const label = isProject ? row.project.name : row.task.name;
           const targetId = isProject ? row.project.id : row.task.id;
           return (
-            <Tooltip title={isProject ? '打开项目详情' : '打开任务详情'}>
+            <DataTooltip title={isProject ? '打开项目详情' : '打开任务详情'}>
               <IconButton
                 size="small"
                 aria-label={`打开${isProject ? '项目' : '任务'} ${label}`}
@@ -289,7 +295,7 @@ export default function PlanTable({
               >
                 <OpenInNewIcon fontSize="small" />
               </IconButton>
-            </Tooltip>
+            </DataTooltip>
           );
         },
       },
