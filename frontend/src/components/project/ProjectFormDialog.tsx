@@ -167,23 +167,30 @@ export default function ProjectFormDialog({
             />
 
             {mode === 'create' ? (
-              <TextField
-                {...register('group_id')}
-                select
-                label="归属工作组"
-                fullWidth
-                error={Boolean(errors.group_id)}
-                helperText={
-                  errors.group_id?.message ??
-                  '只能建在你是活跃成员的工作组下（《A04》端点 1：系统管理员也不豁免）'
-                }
-              >
-                {groups.map((group) => (
-                  <MenuItem key={group.id} value={group.id}>
-                    {group.name}
-                  </MenuItem>
-                ))}
-              </TextField>
+              <Controller
+                control={control}
+                name="group_id"
+                render={({ field }) => (
+                  <TextField
+                    select
+                    label="归属工作组"
+                    fullWidth
+                    value={field.value}
+                    onChange={(event) => field.onChange(event.target.value)}
+                    error={Boolean(errors.group_id)}
+                    helperText={
+                      errors.group_id?.message ??
+                      '只能建在你是活跃成员的工作组下（《A04》端点 1：系统管理员也不豁免）'
+                    }
+                  >
+                    {groups.map((group) => (
+                      <MenuItem key={group.id} value={group.id}>
+                        {group.name}
+                      </MenuItem>
+                    ))}
+                  </TextField>
+                )}
+              />
             ) : (
               <TextField
                 label="归属工作组"
@@ -235,21 +242,28 @@ export default function ProjectFormDialog({
               />
             </Stack>
 
-            <TextField
-              {...register('visibility')}
-              select
-              label="共享级别"
-              fullWidth
-              helperText={
-                VISIBILITY_OPTIONS.find((option) => option.value === visibilityValue)?.hint
-              }
-            >
-              {VISIBILITY_OPTIONS.map((option) => (
-                <MenuItem key={option.value} value={option.value}>
-                  {option.label}
-                </MenuItem>
-              ))}
-            </TextField>
+            <Controller
+              control={control}
+              name="visibility"
+              render={({ field }) => (
+                <TextField
+                  select
+                  label="共享级别"
+                  fullWidth
+                  value={field.value}
+                  onChange={(event) => field.onChange(event.target.value)}
+                  helperText={
+                    VISIBILITY_OPTIONS.find((option) => option.value === visibilityValue)?.hint
+                  }
+                >
+                  {VISIBILITY_OPTIONS.map((option) => (
+                    <MenuItem key={option.value} value={option.value}>
+                      {option.label}
+                    </MenuItem>
+                  ))}
+                </TextField>
+              )}
+            />
 
             <TextField
               {...register('color')}

@@ -1,22 +1,27 @@
 /**
- * 任务详情抽屉（`?taskId=` 承载）。
+ * 任务详情抽屉（`?taskId=` 承载）——F05 §7.2 第 2/3 步。
  *
  * 为什么用 Drawer 而不是路由页：任务单端点挂在 `/api/v1/tasks/{task_id}`（与项目无嵌套），
  * 且几乎总是从项目详情或计划视图点开——Drawer 关掉就回到原列表，筛选与滚动位置天然保留；
  * 项目详情、个人计划、组内计划**三处复用同一个组件**（《F01》§5.7）。
  *
- * 本组件**只读**：展示任务字段与成员。编辑任务（含 `parent_id` 三态与进度联动）与成员管理
- * 需要各自的表单与权限分支，放在功能期的后续步骤，这里不做半成品入口。
+ * 本组件负责：
+ * 1. 用 `useVersionedForm` 加载任务（同时拿到 `updated_at` 供 PATCH 使用）；
+ * 2. **编辑任务**：`TaskFormDialog` + `buildTaskPatch`（只提交改动字段，含 `parent_id` 三态），
+ *    `409 version_conflict` 交给 Hook 弹窗二选一；
+ * 3. **任务成员管理**：`TaskMembersPanel`（候选池是项目成员，《A05》§端点 9）。
+ *
+ * `canEdit` 由调用方按 `usePermission` 算好（项目写权限 + 未归档）；归档项目上任何写入都是 409，
+ * 所以这里不自己判断"能不能改"（F01 §6 第 7、8、10 条）。
  *
  * 刷新语义：`taskId` 变化时由调用方用 `key={taskId}` 重新挂载本组件，
- * 因此 `useVersionedForm` 的 `autoLoad` 只跑一次就够——**不在这里做"用 effect 手动重载"**，
- * 那样会与 Hook 自己的加载 effect 打架。
+ * 因此 `autoLoad` 只跑一次就够——**不在这里用 effect 手动重载**，那样会与 Hook 自己的加载 effect 打架。
  */
 
 import * as React from 'react';
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
-import Chip from '@mui/material/Chip';
+import Button from '@mui/material/Button';
 import Divider from '@mui/material/Divider';
 import Drawer from '@mui/material/Drawer';
 import IconButton from '@mui/material/IconButton';
@@ -24,26 +29,43 @@ import Stack from '@mui/material/Stack';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import CloseIcon from '@mui/icons-material/Close';
+import EditIcon from '@mui/icons-material/Edit';
+import { queryProjectMembers } from '@/api/projects';
+import { getTask, updateTask } from '@/api/tasks';
+import { toApiError, type ApiError } from '@/api/client';
 import FullPageLoading from '@/components/common/FullPageLoading';
 import StatusTag from '@/components/common/StatusTag';
+import TaskFormDialog, {
+  buildTaskPatch,
+  type TaskFormValues,
+} from '@/components/task/TaskFormDialog';
+import TaskMembersPanel from '@/components/task/TaskMembersPanel';
 import { taskPriorityMeta, taskStatusMeta } from '@/components/task/taskMeta';
-import { getTask, queryTaskMembers } from '@/api/tasks';
-import { toApiError, type ApiError } from '@/api/client';
 import { describeApiError } from '@/hooks/useApiError';
+import { useNotifications } from '@/hooks/useNotifications';
 import { useVersionedForm } from '@/hooks/useVersionedForm';
 import { useAuthStore } from '@/stores/auth';
-import type { Task, TaskMember } from '@/types/task';
+import type { ProjectMember } from '@/types/project';
+import type { Task, UpdateTaskBody } from '@/types/task';
 import { formatForDisplay, formatNaturalDate } from '@/utils/datetime';
 
 export interface TaskDetailDrawerProps {
   /** 打开的任务 id；`null` 表示关闭 */
   taskId: string | null;
+  /** 是否允许编辑与成员管理（= 对项目有写权限且项目未归档） */
+  canEdit: boolean;
+  /** 任务数据变化后通知调用方（刷新任务列表） */
+  onChanged?: () => void;
   onClose: () => void;
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <Stack direction="row" spacing={2} sx={{ justifyContent: 'space-between', alignItems: 'center' }}>
+    <Stack
+      direction="row"
+      spacing={2}
+      sx={{ justifyContent: 'space-between', alignItems: 'center' }}
+    >
       <Typography variant="body2" color="text.secondary" sx={{ flexShrink: 0 }}>
         {label}
       </Typography>
@@ -52,45 +74,54 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-export default function TaskDetailDrawer({ taskId, onClose }: TaskDetailDrawerProps) {
+export default function TaskDetailDrawer({
+  taskId,
+  canEdit,
+  onChanged,
+  onClose,
+}: TaskDetailDrawerProps) {
   const userTimeZone = useAuthStore((state) => state.user?.timezone);
+  const { show } = useNotifications();
 
-  const { entity: task, loading, error } = useVersionedForm<Task, { expected_updated_at: string }>({
-    // 本组件只读，`save` 不会被调用；这里仍走同一个 Hook 是为了拿到一致的加载/错误语义，
-    // 后续接入"编辑任务"时直接把它换成真正的 `updateTask(id, body)` 即可。
+  const [editOpen, setEditOpen] = React.useState(false);
+  const [saving, setSaving] = React.useState(false);
+  const [saveError, setSaveError] = React.useState<ApiError | null>(null);
+  const [projectMembers, setProjectMembers] = React.useState<ProjectMember[]>([]);
+
+  const {
+    entity: task,
+    loading,
+    error,
+    save: saveTask,
+  } = useVersionedForm<Task, UpdateTaskBody>({
     load: (signal) => getTask(taskId as string, signal),
-    save: () => Promise.reject(new Error('TaskDetailDrawer 目前是只读视图')),
+    save: (body) => updateTask(taskId as string, body),
     autoLoad: taskId !== null,
   });
 
-  const [members, setMembers] = React.useState<TaskMember[]>([]);
-  const [membersError, setMembersError] = React.useState<ApiError | null>(null);
-
+  // 任务成员的候选池是"项目成员"：拿到任务后按 `project_id` 拉一次
+  const projectId = task?.project_id;
   React.useEffect(() => {
-    if (!taskId) {
+    if (!projectId || !canEdit) {
+      setProjectMembers([]);
       return undefined;
     }
     const controller = new AbortController();
     let cancelled = false;
-    setMembers([]);
-    setMembersError(null);
     void (async () => {
       try {
-        const page = await queryTaskMembers(
-          taskId,
-          { page: 1, page_size: 100, sort: 'role' },
+        const page = await queryProjectMembers(
+          projectId,
+          { page: 1, page_size: 100, sort: 'display_name' },
           controller.signal,
         );
         if (!cancelled) {
-          setMembers(page.data ?? []);
+          setProjectMembers(page.data ?? []);
         }
       } catch (caught) {
-        if (cancelled) {
-          return;
-        }
-        const apiError = toApiError(caught);
-        if (apiError.code !== 'aborted') {
-          setMembersError(apiError);
+        // 候选池拿不到只影响"加入成员"，不影响详情展示
+        if (!cancelled && toApiError(caught).code !== 'aborted') {
+          setProjectMembers([]);
         }
       }
     })();
@@ -98,7 +129,42 @@ export default function TaskDetailDrawer({ taskId, onClose }: TaskDetailDrawerPr
       cancelled = true;
       controller.abort();
     };
-  }, [taskId]);
+  }, [canEdit, projectId]);
+
+  const handleSave = React.useCallback(
+    async (values: TaskFormValues) => {
+      if (!task) {
+        return;
+      }
+      const patch = buildTaskPatch(values, task);
+      if (Object.keys(patch).length === 0) {
+        show('没有需要保存的修改。', { severity: 'info' });
+        setEditOpen(false);
+        return;
+      }
+      setSaving(true);
+      setSaveError(null);
+      const outcome = await saveTask(patch);
+      setSaving(false);
+      if (outcome.ok) {
+        setEditOpen(false);
+        onChanged?.();
+        show('任务已保存。', { severity: 'success' });
+        return;
+      }
+      if (outcome.resolution === 'reloaded') {
+        setEditOpen(false);
+        onChanged?.();
+        show('已刷新为服务端最新数据。', { severity: 'info' });
+        return;
+      }
+      setSaveError(outcome.error);
+      if (outcome.resolution === 'kept') {
+        show('版本号已刷新为服务端最新值，可以再次提交。', { severity: 'warning' });
+      }
+    },
+    [onChanged, saveTask, show, task],
+  );
 
   const statusMeta = taskStatusMeta(task?.status);
   const priorityMeta = taskPriorityMeta(task?.priority);
@@ -108,7 +174,7 @@ export default function TaskDetailDrawer({ taskId, onClose }: TaskDetailDrawerPr
       anchor="right"
       open={taskId !== null}
       onClose={onClose}
-      slotProps={{ paper: { sx: { width: { xs: '100%', sm: 480 } } } }}
+      slotProps={{ paper: { sx: { width: { xs: '100%', sm: 520 } } } }}
     >
       <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
         <Stack
@@ -118,11 +184,29 @@ export default function TaskDetailDrawer({ taskId, onClose }: TaskDetailDrawerPr
           <Typography variant="h6" component="h2">
             任务详情
           </Typography>
-          <Tooltip title="关闭">
-            <IconButton onClick={onClose} aria-label="关闭任务详情">
-              <CloseIcon />
-            </IconButton>
-          </Tooltip>
+          <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+            <Tooltip title={canEdit ? '' : '归档项目或只读共享下不能修改任务'}>
+              <span>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  startIcon={<EditIcon />}
+                  disabled={!canEdit || !task}
+                  onClick={() => {
+                    setSaveError(null);
+                    setEditOpen(true);
+                  }}
+                >
+                  编辑
+                </Button>
+              </span>
+            </Tooltip>
+            <Tooltip title="关闭">
+              <IconButton onClick={onClose} aria-label="关闭任务详情">
+                <CloseIcon />
+              </IconButton>
+            </Tooltip>
+          </Stack>
         </Stack>
         <Divider />
 
@@ -130,9 +214,7 @@ export default function TaskDetailDrawer({ taskId, onClose }: TaskDetailDrawerPr
           {loading && !task ? <FullPageLoading message="正在加载任务…" /> : null}
 
           {error ? (
-            <Alert severity={error.isNotFound ? 'info' : 'error'}>
-              {describeApiError(error)}
-            </Alert>
+            <Alert severity={error.isNotFound ? 'info' : 'error'}>{describeApiError(error)}</Alert>
           ) : null}
 
           {task ? (
@@ -164,7 +246,13 @@ export default function TaskDetailDrawer({ taskId, onClose }: TaskDetailDrawerPr
               {task.deleted_at ? (
                 <Alert severity="warning">
                   该任务已被逻辑删除（{formatForDisplay(task.deleted_at, userTimeZone)}），
-                  默认不出现在列表里；如需恢复请联系系统管理员。
+                  默认不出现在列表里。
+                </Alert>
+              ) : null}
+
+              {!canEdit ? (
+                <Alert severity="info" variant="outlined">
+                  当前状态下任务只读（项目已归档，或你在项目上只有读权限）。
                 </Alert>
               ) : null}
 
@@ -217,38 +305,28 @@ export default function TaskDetailDrawer({ taskId, onClose }: TaskDetailDrawerPr
               ) : null}
 
               <Divider />
-              <Stack spacing={1}>
-                <Typography variant="subtitle2" color="text.secondary">
-                  任务成员（{members.length}）
-                </Typography>
-                {membersError ? (
-                  <Alert severity="error">{describeApiError(membersError)}</Alert>
-                ) : null}
-                {members.length === 0 && !membersError ? (
-                  <Typography variant="body2" color="text.secondary">
-                    暂无成员
-                  </Typography>
-                ) : null}
-                <Stack direction="row" sx={{ flexWrap: 'wrap', gap: 1 }}>
-                  {members.map((member) => (
-                    <Chip
-                      key={member.id}
-                      size="small"
-                      variant={member.role === 'owner' ? 'filled' : 'outlined'}
-                      color={member.role === 'owner' ? 'primary' : 'default'}
-                      label={`${member.display_name}${member.role === 'owner' ? '（持有者）' : ''}`}
-                    />
-                  ))}
-                </Stack>
-              </Stack>
-
-              <Alert severity="info" variant="outlined">
-                编辑任务、成员管理与附件将在功能期的后续步骤接入；本视图只读。
-              </Alert>
+              <TaskMembersPanel
+                key={task.id}
+                taskId={task.id}
+                canManage={canEdit}
+                projectMembers={projectMembers}
+                onChanged={onChanged}
+              />
             </Stack>
           ) : null}
         </Box>
       </Box>
+
+      <TaskFormDialog
+        open={editOpen}
+        mode="edit"
+        projectId={task?.project_id ?? ''}
+        task={task}
+        submitting={saving}
+        serverError={saveError}
+        onClose={() => setEditOpen(false)}
+        onSubmit={(values) => void handleSave(values)}
+      />
     </Drawer>
   );
 }

@@ -12,6 +12,7 @@
 
 import * as React from 'react';
 import Typography from '@mui/material/Typography';
+import type { SxProps, Theme } from '@mui/material/styles';
 
 export interface CellTextProps {
   children: React.ReactNode;
@@ -19,15 +20,20 @@ export interface CellTextProps {
   muted?: boolean;
   /** 强调（中等字重），例如金额、进度 */
   strong?: boolean;
+  /** 追加样式（宽度、对齐等）；不会覆盖行内元素这条底线 */
+  sx?: SxProps<Theme>;
 }
 
-export default function CellText({ children, muted = false, strong = false }: CellTextProps) {
+export default function CellText({ children, muted = false, strong = false, sx }: CellTextProps) {
   return (
     <Typography
       component="span"
       variant="body2"
       color={muted ? 'text.secondary' : undefined}
-      sx={strong ? { fontWeight: 500 } : undefined}
+      sx={[
+        strong ? { fontWeight: 500 } : {},
+        ...(Array.isArray(sx) ? sx : [sx]),
+      ]}
     >
       {children}
     </Typography>

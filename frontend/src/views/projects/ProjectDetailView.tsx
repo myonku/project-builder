@@ -30,6 +30,7 @@ import Switch from '@mui/material/Switch';
 import TextField from '@mui/material/TextField';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
+import AddIcon from '@mui/icons-material/Add';
 import ArchiveIcon from '@mui/icons-material/Archive';
 import EditIcon from '@mui/icons-material/Edit';
 import RefreshIcon from '@mui/icons-material/Refresh';
@@ -39,9 +40,10 @@ import type { GridColDef, GridRenderCellParams } from '@mui/x-data-grid';
 import { zhCN } from '@mui/x-data-grid/locales';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
 import { archiveProject, getProject, updateProject } from '@/api/projects';
-import { queryProjectTasks } from '@/api/tasks';
+import { createTask, queryProjectTasks } from '@/api/tasks';
 import { toApiError, type ApiError } from '@/api/client';
 import CellText from '@/components/common/CellText';
+import ProgressCell from '@/components/common/ProgressCell';
 import FullPageLoading from '@/components/common/FullPageLoading';
 import PageContainer from '@/components/common/PageContainer';
 import StatusTag from '@/components/common/StatusTag';
@@ -53,7 +55,11 @@ import {
   projectStatusMeta,
   projectVisibilityMeta,
 } from '@/components/project/projectMeta';
+import ProjectMembersPanel from '@/components/project/ProjectMembersPanel';
 import TaskDetailDrawer from '@/components/task/TaskDetailDrawer';
+import TaskFormDialog, {
+  type TaskFormValues,
+} from '@/components/task/TaskFormDialog';
 import { TASK_STATUS_OPTIONS, taskPriorityMeta, taskStatusMeta } from '@/components/task/taskMeta';
 import { useApiError } from '@/hooks/useApiError';
 import { useDialogs } from '@/hooks/useDialogs';
@@ -64,7 +70,7 @@ import { usePermission } from '@/hooks/usePermission';
 import { useVersionedForm } from '@/hooks/useVersionedForm';
 import { useAuthStore } from '@/stores/auth';
 import type { Project, UpdateProjectBody } from '@/types/project';
-import type { Task, TaskQueryBody, TaskStatus } from '@/types/task';
+import type { CreateTaskBody, Task, TaskQueryBody, TaskStatus } from '@/types/task';
 import { formatForDisplay, formatNaturalDate } from '@/utils/datetime';
 
 /** 任务列表的排序白名单：与《A05》的 `TaskQueryBody.sort` 逐一对应 */
@@ -138,6 +144,10 @@ export default function ProjectDetailView() {
   const [saving, setSaving] = React.useState(false);
   const [saveError, setSaveError] = React.useState<ApiError | null>(null);
   const [taskFilters, setTaskFilters] = React.useState<TaskFilters>(INITIAL_TASK_FILTERS);
+  const [createTaskOpen, setCreateTaskOpen] = React.useState(false);
+  const [creatingTask, setCreatingTask] = React.useState(false);
+  const [createTaskError, setCreateTaskError] = React.useState<ApiError | null>(null);
+
 
   const {
     entity: project,
@@ -154,6 +164,11 @@ export default function ProjectDetailView() {
   }, [projectError, handle]);
 
   const canManage = project ? permission.canManageProject(project) : false;
+  // 任务与任务成员的写权限依据是「项目权限 + 任务是否共享」（F01 §6 第 8 条），与"是否是任务成员"无关
+  const canWriteTasks = project
+    ? permission.canWriteTasksOfProject(project) && !permission.isProjectReadOnly(project)
+    : false;
+
   const readOnly = project ? permission.isProjectReadOnly(project) : false;
   const statusMeta = projectStatusMeta(project?.status);
   const visibilityMeta = projectVisibilityMeta(project?.visibility);
@@ -258,6 +273,43 @@ export default function ProjectDetailView() {
     }
   }, [dialogs, handle, project, reloadProject, show]);
 
+  /** 新建任务：POST /projects/{id}/tasks（不接受 status/progress，新任务固定未开始 0%） */
+  const handleCreateTask = React.useCallback(
+    async (values: TaskFormValues) => {
+      setCreatingTask(true);
+      setCreateTaskError(null);
+      const body: CreateTaskBody = {
+        name: values.name,
+        start_date: values.start_date,
+        end_date: values.end_date,
+        priority: values.priority as CreateTaskBody['priority'],
+        is_milestone: values.is_milestone,
+        is_shared: values.is_shared,
+      };
+      if (values.description.trim()) {
+        body.description = values.description;
+      }
+      if (values.parent_id) {
+        body.parent_id = values.parent_id;
+      }
+      try {
+        const created = await createTask(projectId, body);
+        setCreateTaskOpen(false);
+        reloadTasks();
+        void reloadProject();
+        show(`任务「${created.name}」已创建。`, { severity: 'success' });
+      } catch (error) {
+        const apiError = toApiError(error);
+        setCreateTaskError(apiError);
+        if (Object.keys(apiError.fields).length === 0) {
+          handle(apiError, { silent: false });
+        }
+      } finally {
+        setCreatingTask(false);
+      }
+    },
+    [handle, projectId, reloadProject, reloadTasks, show],
+  );
   const openTask = React.useCallback(
     (nextTaskId: string) => {
       const next = new URLSearchParams(searchParams);
@@ -311,15 +363,9 @@ export default function ProjectDetailView() {
         field: 'progress',
         headerName: '进度',
         width: 130,
+        // 进度条 + 文字是块级容器：必须自己撑满单元格才能垂直居中（F01 §6 第 28 条）
         renderCell: (params: GridRenderCellParams<Task, number>) => (
-          <Stack direction="row" spacing={1} sx={{ alignItems: 'center', width: '100%' }}>
-            <LinearProgress
-              variant="determinate"
-              value={params.value ?? 0}
-              sx={{ flex: 1, height: 6, borderRadius: 3 }}
-            />
-            <CellText muted>{params.value ?? 0}%</CellText>
-          </Stack>
+          <ProgressCell value={params.value} />
         ),
       },
       {
@@ -548,10 +594,35 @@ export default function ProjectDetailView() {
 
         <Divider />
 
+        <ProjectMembersPanel
+          projectId={project.id}
+          groupId={project.group_id}
+          canManage={canManage && !readOnly}
+          onChanged={() => void reloadProject()}
+        />
+
+        <Divider />
+
         <Stack direction="row" spacing={2} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
           <Typography variant="h6" component="h2">
             任务
           </Typography>
+          <Tooltip title={canWriteTasks ? '' : '你在这个项目上没有写任务的权限，或项目已归档'}>
+            <span>
+              <Button
+                size="medium"
+                variant="contained"
+                startIcon={<AddIcon />}
+                disabled={!canWriteTasks}
+                onClick={() => {
+                  setCreateTaskError(null);
+                  setCreateTaskOpen(true);
+                }}
+              >
+                新建任务
+              </Button>
+            </span>
+          </Tooltip>
           <TextField
             select
             size="small"
@@ -654,7 +725,23 @@ export default function ProjectDetailView() {
       />
 
       {/* key=taskId：换任务时重新挂载，让 Hook 的自动加载只跑一次（见组件头注释） */}
-      <TaskDetailDrawer key={taskId ?? 'none'} taskId={taskId} onClose={closeTask} />
+      <TaskDetailDrawer
+        key={taskId ?? 'none'}
+        taskId={taskId}
+        canEdit={canWriteTasks}
+        onChanged={reloadTasks}
+        onClose={closeTask}
+      />
+
+      <TaskFormDialog
+        open={createTaskOpen}
+        mode="create"
+        projectId={projectId}
+        submitting={creatingTask}
+        serverError={createTaskError}
+        onClose={() => setCreateTaskOpen(false)}
+        onSubmit={(values) => void handleCreateTask(values)}
+      />
     </PageContainer>
   );
 }
