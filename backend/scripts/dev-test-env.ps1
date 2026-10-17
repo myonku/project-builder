@@ -189,6 +189,9 @@ if (Get-ApiProcess) {
     exit 1
 }
 
+# -Port 必须真正传给服务端：config.toml 的 server.port 是 8000，
+# 而进程环境变量的优先级高于 TOML；只把 -Port 用于健康检查/占位判断是不够的。
+$env:SERVER_PORT = "$Port"
 $env:REDIS_HOST = '127.0.0.1'
 $env:REDIS_PORT = $TestRedisPort
 $env:REDIS_PASSWORD = $TestRedisPassword

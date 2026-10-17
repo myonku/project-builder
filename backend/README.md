@@ -99,13 +99,14 @@
 
 ```powershell
 pwsh -File ./scripts/dev-test-env.ps1                  # 依赖 + 迁移 + 起服务（Ctrl+C 结束）
+pwsh -File ./scripts/dev-test-env.ps1 -Port 18000      # API 监听 18000（脚本会导出 SERVER_PORT）
 pwsh -File ./scripts/dev-test-env.ps1 -WithFrontend     # 顺便开一个窗口起前端 dev server
-pwsh -File ./scripts/dev-test-env.ps1 -Stop             # 停掉 API 与依赖容器（保留数据卷）
+pwsh -File ./scripts/dev-test-env.ps1 -Stop -Port 18000 # 停掉 18000 上的 API 与依赖容器（保留数据卷）
 ```
 
 它等价于下面三条 `make` 配方（同一套 `TEST_*` 常量），但会等容器 **healthy**、检查端口占用，
 并在启动前打印可用地址、测试账号与 Mailpit 面板。**它不跑测试、不跑冒烟、不碰测试数据**，
-详见 [B03 §7.2](./docs/B03-配置与运行.md)。
+详见 [B03 §7.2](./docs/B03-配置与运行.md)。`-Port` 现在会真正写入 `SERVER_PORT`，不再只是打印值。
 
 **或者按 `make` 分步执行**（本机已装 GNU Make）：
 
