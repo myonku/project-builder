@@ -247,29 +247,26 @@ export default function TaskFormDialog({
               </Stack>
 
               {mode === 'edit' ? (
-                <Stack direction="row" spacing={2} sx={{ alignItems: 'center' }}>
+                <Stack direction="row" spacing={2} sx={{ alignItems: 'flex-start' }}>
                   <Controller
                     control={control}
                     name="status"
                     render={({ field }) => (
-                  <TextField
-                    select
-                    label="状态"
-                    sx={{ minWidth: 160 }}
-                    value={field.value}
-                    onChange={(event) => field.onChange(event.target.value)}
-                    helperText={
-                      // 《A05》§端点 4：只给 progress 时由**进度推导状态**（0 / 1–99 / 100）；
-                      // 同时给出两者时以显式值为准，后端不做一致性校验
-                      '只改进度而不改状态时，状态按进度推导：0 → 未开始、1–99 → 进行中、100 → 已完成（《A05》§端点 4）'
-                    }
-                  >
-                    {TASK_STATUS_OPTIONS.map((option) => (
-                      <MenuItem key={option.value} value={option.value}>
-                        {option.label}
-                      </MenuItem>
-                    ))}
-                  </TextField>
+                      <TextField
+                        select
+                        label="状态"
+                        sx={{ minWidth: 160 }}
+                        value={field.value}
+                        onChange={(event) => field.onChange(event.target.value)}
+                        // 面向用户的短说明：不改技术细节，尽量保持一行
+                        helperText="进度会同步更新状态"
+                      >
+                        {TASK_STATUS_OPTIONS.map((option) => (
+                          <MenuItem key={option.value} value={option.value}>
+                            {option.label}
+                          </MenuItem>
+                        ))}
+                      </TextField>
                     )}
                   />
                   <Controller
@@ -282,6 +279,8 @@ export default function TaskFormDialog({
                         sx={{ minWidth: 140 }}
                         value={field.value}
                         onChange={(event) => field.onChange(Number(event.target.value))}
+                        // 与状态框一样保留 helper 高度，两个下拉的输入框才能对齐
+                        helperText={'\u00A0'}
                       >
                         {TASK_PRIORITY_OPTIONS.map((option) => (
                           <MenuItem key={option.value} value={option.value}>
@@ -320,7 +319,7 @@ export default function TaskFormDialog({
               )}
 
               {mode === 'edit' ? (
-                <Stack spacing={0.5}>
+                <Stack spacing={0.5} sx ={{ pt: 1, pb: 3, paddingLeft: 1, paddingRight: 1 }}>
                   <Stack direction="row" sx={{ justifyContent: 'space-between' }}>
                     <Typography variant="body2" color="text.secondary">
                       进度
@@ -358,7 +357,7 @@ export default function TaskFormDialog({
                     disabled={parentLoading}
                     value={field.value}
                     onChange={(event) => field.onChange(event.target.value)}
-                    helperText="留空表示顶层任务；最多 3 层，循环与深度由后端校验（候选只取前 100 个任务）"
+                    helperText="留空表示顶层任务；最多 3 层（候选只取前 100 个任务）"
                   >
                     <MenuItem value={NO_PARENT}>（顶层任务）</MenuItem>
                     {parentCandidates.map((candidate) => (

@@ -117,7 +117,6 @@ export default function UserEditDialog({ userId, onClose, onSaved }: UserEditDia
   });
 
   const {
-    register,
     control,
     handleSubmit,
     reset,
@@ -201,27 +200,62 @@ export default function UserEditDialog({ userId, onClose, onSaved }: UserEditDia
                 helperText="登录标识，创建后不可修改"
                 fullWidth
               />
-              <TextField
-                {...register('display_name')}
-                label="显示名"
-                error={Boolean(errors.display_name)}
-                helperText={errors.display_name?.message}
-                fullWidth
+              {/*
+                这三个字段必须受控：`reset()` 是在对话框打开、GET 用户成功之后才灌值的，
+                非受控 `register` 直接改 DOM value，MUI 的 InputLabel 有时收不到
+                “已有值”的信号，label 会留在输入框内和预置文本重叠。
+              */}
+              <Controller
+                control={control}
+                name="display_name"
+                render={({ field }) => (
+                  <TextField
+                    label="显示名"
+                    value={field.value}
+                    onChange={field.onChange}
+                    onBlur={field.onBlur}
+                    name={field.name}
+                    inputRef={field.ref}
+                    error={Boolean(errors.display_name)}
+                    helperText={errors.display_name?.message}
+                    fullWidth
+                  />
+                )}
               />
-              <TextField
-                {...register('email')}
-                label="邮箱"
-                type="email"
-                error={Boolean(errors.email)}
-                helperText={errors.email?.message}
-                fullWidth
+              <Controller
+                control={control}
+                name="email"
+                render={({ field }) => (
+                  <TextField
+                    label="邮箱"
+                    type="email"
+                    value={field.value}
+                    onChange={field.onChange}
+                    onBlur={field.onBlur}
+                    name={field.name}
+                    inputRef={field.ref}
+                    error={Boolean(errors.email)}
+                    helperText={errors.email?.message}
+                    fullWidth
+                  />
+                )}
               />
-              <TextField
-                {...register('timezone')}
-                label="时区"
-                error={Boolean(errors.timezone)}
-                helperText={errors.timezone?.message ?? 'IANA 时区，例如 Asia/Shanghai'}
-                fullWidth
+              <Controller
+                control={control}
+                name="timezone"
+                render={({ field }) => (
+                  <TextField
+                    label="时区"
+                    value={field.value}
+                    onChange={field.onChange}
+                    onBlur={field.onBlur}
+                    name={field.name}
+                    inputRef={field.ref}
+                    error={Boolean(errors.timezone)}
+                    helperText={errors.timezone?.message ?? 'IANA 时区，例如 Asia/Shanghai'}
+                    fullWidth
+                  />
+                )}
               />
               <Controller
                 control={control}
