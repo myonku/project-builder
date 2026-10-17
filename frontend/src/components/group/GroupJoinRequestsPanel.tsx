@@ -198,7 +198,7 @@ export default function GroupJoinRequestsPanel({
         <Alert
           severity={error.isNotFound ? 'info' : 'error'}
           action={
-            <Button color="inherit" size="small" onClick={reload}>
+            <Button color="inherit" onClick={reload}>
               重试
             </Button>
           }

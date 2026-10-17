@@ -225,7 +225,6 @@ export default function GroupDetailDrawer({
             <Tooltip title={group ? '编辑工作组' : ''}>
               <span>
                 <Button
-                  size="small"
                   variant="outlined"
                   startIcon={<EditIcon />}
                   disabled={!group}

@@ -322,7 +322,6 @@ export default function AttachmentPanel({
             <span>
               <Button
                 component="label"
-                size="small"
                 variant="outlined"
                 startIcon={uploading ? <CircularProgress size={16} /> : <UploadFileIcon />}
                 disabled={!canWrite || uploading}
@@ -365,7 +364,7 @@ export default function AttachmentPanel({
         <Alert
           severity={error.isNotFound ? 'info' : 'error'}
           action={
-            <Button color="inherit" size="small" onClick={reload}>
+            <Button color="inherit" onClick={reload}>
               重试
             </Button>
           }
@@ -491,14 +490,12 @@ export default function AttachmentPanel({
             第 {page + 1} / {totalPages} 页
           </Typography>
           <Button
-            size="small"
             disabled={page === 0 || loading}
             onClick={() => setPage((current) => Math.max(0, current - 1))}
           >
             上一页
           </Button>
           <Button
-            size="small"
             disabled={page + 1 >= totalPages || loading}
             onClick={() => setPage((current) => Math.min(totalPages - 1, current + 1))}
           >

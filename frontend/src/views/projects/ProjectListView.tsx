@@ -28,6 +28,8 @@ import TextField from '@mui/material/TextField';
 import Tooltip from '@mui/material/Tooltip';
 import AddIcon from '@mui/icons-material/Add';
 import RefreshIcon from '@mui/icons-material/Refresh';
+import RestartAltIcon from '@mui/icons-material/RestartAlt';
+import SearchIcon from '@mui/icons-material/Search';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import { DataGrid } from '@mui/x-data-grid';
 import type { GridColDef, GridRenderCellParams } from '@mui/x-data-grid';
@@ -37,6 +39,7 @@ import { createProject, queryProjects } from '@/api/projects';
 import { toApiError, type ApiError } from '@/api/client';
 import CellText from '@/components/common/CellText';
 import DataTooltip, { textCell } from '@/components/common/DataTooltip';
+import { filterItemSx, filterRowSx } from '@/components/common/filterLayout';
 import ProjectFormDialog, {
   type ProjectFormValues,
 } from '@/components/project/ProjectFormDialog';
@@ -397,69 +400,83 @@ export default function ProjectListView() {
             event.preventDefault();
             commitFilters({ name: nameDraft });
           }}
-          sx={{
-            display: 'flex',
-            flexWrap: 'wrap',
-            gap: 2,
-            alignItems: 'center',
-          }}
+          sx={{ pb: 2, borderBottom: 1, borderColor: 'divider' }}
         >
-          <TextField
-            size="small"
-            label="项目名称"
-            placeholder="包含匹配"
-            value={nameDraft}
-            onChange={(event) => setNameDraft(event.target.value)}
-            sx={{ minWidth: 220 }}
-          />
-          <TextField
-            select
-            size="small"
-            label="工作组"
-            value={filters.groupId}
-            onChange={(event) => commitFilters({ groupId: event.target.value })}
-            disabled={groupsLoading}
-            sx={{ minWidth: 200 }}
-          >
-            <MenuItem value="">全部</MenuItem>
-            {groupOptions.map((option) => (
-              <MenuItem key={option.id} value={option.id}>
-                {option.name}
-              </MenuItem>
-            ))}
-          </TextField>
-          <TextField
-            select
-            size="small"
-            label="状态"
-            value={filters.status}
-            onChange={(event) =>
-              commitFilters({ status: event.target.value as ProjectStatus | '' })
-            }
-            sx={{ minWidth: 160 }}
-          >
-            <MenuItem value="">全部</MenuItem>
-            {PROJECT_STATUS_OPTIONS.map((option) => (
-              <MenuItem key={option.value} value={option.value}>
-                {option.label}
-              </MenuItem>
-            ))}
-          </TextField>
-          <FormControlLabel
-            control={
-              <Switch
-                checked={filters.includeArchived}
-                onChange={(event) => commitFilters({ includeArchived: event.target.checked })}
+          <Stack spacing={1.5}>
+            {/* ① 三个筛选条件：动态宽度铺满一行（与提醒/计划页同一套 filterLayout） */}
+            <Box sx={filterRowSx(false)}>
+              <TextField
+                size="small"
+                label="项目名称"
+                placeholder="包含匹配"
+                value={nameDraft}
+                onChange={(event) => setNameDraft(event.target.value)}
+                sx={filterItemSx(220, 440)}
               />
-            }
-            label="含归档项目"
-          />
-          <Button type="submit" variant="contained">
-            查询
-          </Button>
-          <Button type="button" onClick={handleReset}>
-            重置
-          </Button>
+              <TextField
+                select
+                size="small"
+                label="工作组"
+                value={filters.groupId}
+                onChange={(event) => commitFilters({ groupId: event.target.value })}
+                disabled={groupsLoading}
+                sx={filterItemSx(200, 400)}
+                slotProps={{ inputLabel: { shrink: true } }}
+              >
+                <MenuItem value="">全部</MenuItem>
+                {groupOptions.map((option) => (
+                  <MenuItem key={option.id} value={option.id}>
+                    {option.name}
+                  </MenuItem>
+                ))}
+              </TextField>
+              <TextField
+                select
+                size="small"
+                label="状态"
+                value={filters.status}
+                onChange={(event) =>
+                  commitFilters({ status: event.target.value as ProjectStatus | '' })
+                }
+                sx={filterItemSx(160, 320)}
+                slotProps={{ inputLabel: { shrink: true } }}
+              >
+                <MenuItem value="">全部</MenuItem>
+                {PROJECT_STATUS_OPTIONS.map((option) => (
+                  <MenuItem key={option.value} value={option.value}>
+                    {option.label}
+                  </MenuItem>
+                ))}
+              </TextField>
+            </Box>
+
+            {/* ② 含归档 + 查询/重置：全部下移一行，靠右（与提醒页第二层一致） */}
+            <Box sx={filterRowSx(true)}>
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={filters.includeArchived}
+                    onChange={(event) =>
+                      commitFilters({ includeArchived: event.target.checked })
+                    }
+                  />
+                }
+                label="含归档项目"
+                sx={{ m: 0 }}
+              />
+              <Button type="submit" variant="contained" startIcon={<SearchIcon />}>
+                查询
+              </Button>
+              <Button
+                type="button"
+                variant="outlined"
+                startIcon={<RestartAltIcon />}
+                onClick={handleReset}
+              >
+                重置
+              </Button>
+            </Box>
+          </Stack>
         </Box>
 
         {error ? (

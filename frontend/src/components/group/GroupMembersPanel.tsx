@@ -302,7 +302,7 @@ export default function GroupMembersPanel({
         <Alert
           severity={error.isNotFound ? 'info' : 'error'}
           action={
-            <Button color="inherit" size="small" onClick={reload}>
+            <Button color="inherit" onClick={reload}>
               重试
             </Button>
           }
@@ -352,6 +352,8 @@ export default function GroupMembersPanel({
           value={selectedRole}
           onChange={(event) => setSelectedRole(event.target.value as GroupMemberRole)}
           sx={{ minWidth: 130 }}
+          // 与“添加成员”一样保留 helper 高度，水平行里的输入框才能对齐
+          helperText={'\u00A0'}
         >
           {GROUP_MEMBER_ROLE_OPTIONS.map((option) => (
             <MenuItem key={option.value} value={option.value}>
@@ -364,6 +366,8 @@ export default function GroupMembersPanel({
           variant="outlined"
           startIcon={busyId === 'add' ? <CircularProgress size={16} /> : <GroupAddIcon />}
           disabled={!selectedUserId || busyId === 'add' || loading}
+          // 两个下拉都有 helper 高度；按钮顶到输入框上沿，避免被行高居中后显得偏低
+          sx={{ alignSelf: 'flex-start', mt: '2px' }}
         >
           加入
         </Button>
@@ -449,7 +453,6 @@ export default function GroupMembersPanel({
                   <Tooltip title="恢复成员关系（status=active）">
                     <span>
                       <Button
-                        size="small"
                         onClick={() => void handleRestore(member)}
                         disabled={busyId === member.user_id}
                       >

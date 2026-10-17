@@ -240,7 +240,7 @@ export default function ProjectMembersPanel({
         <Alert
           severity={error.isNotFound ? 'info' : 'error'}
           action={
-            <Button color="inherit" size="small" onClick={() => void load()}>
+            <Button color="inherit" onClick={() => void load()}>
               重试
             </Button>
           }

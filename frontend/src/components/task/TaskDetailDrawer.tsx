@@ -198,7 +198,6 @@ export default function TaskDetailDrawer({
             <Tooltip title={canEdit ? '' : '归档项目或只读共享下不能修改任务'}>
               <span>
                 <Button
-                  size="small"
                   variant="outlined"
                   startIcon={<EditIcon />}
                   disabled={!canEdit || !task}

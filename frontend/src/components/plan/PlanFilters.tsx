@@ -321,7 +321,13 @@ export default function PlanFilters({
               onChange={(next) => patch({ due_from: dayjsToNaturalDate(next) ?? '' })}
               format="YYYY-MM-DD"
               slotProps={{
-                textField: { size: 'small', sx: { width: 160 }, error: Boolean(dateError) },
+                textField: {
+                  size: 'small',
+                  sx: { width: 160 },
+                  error: Boolean(dateError),
+                  // 与“截止（止）”保留同样的 helper 高度，错误出现时两个输入框仍然对齐
+                  helperText: '\u00A0',
+                },
               }}
             />
             <DatePicker
@@ -334,7 +340,7 @@ export default function PlanFilters({
                   size: 'small',
                   sx: { width: 160 },
                   error: Boolean(dateError),
-                  helperText: dateError ?? undefined,
+                  helperText: dateError ?? '\u00A0',
                 },
               }}
             />
