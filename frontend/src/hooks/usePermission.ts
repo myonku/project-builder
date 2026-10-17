@@ -85,6 +85,32 @@ export function canWriteTasksOfProject(
   return false;
 }
 
+/**
+ * 能否写**项目级内容**（目前是项目附件；与"改项目本身"不同）。
+ *
+ * 服务端附件写权限是 `ProjectPermission >= PermWrite`（A07 `CanWriteAttachment`）：
+ * - 项目持有者 / 普通成员 / 系统管理员；
+ * - `group_editable` 的归属组活跃成员（即使不是项目成员）；
+ * - 归档项目统一只读。
+ *
+ * 不要用 `canManageProject` 代替：普通成员可以传项目附件，但不能改项目本身。
+ */
+export function canWriteProjectContent(
+  project: Pick<Project, 'status' | 'archived_at' | 'membership_role' | 'visibility'>,
+  user: User | null,
+): boolean {
+  if (isProjectReadOnly(project)) {
+    return false;
+  }
+  if (isSystemAdmin(user)) {
+    return true;
+  }
+  if (project.membership_role === 'owner' || project.membership_role === 'member') {
+    return true;
+  }
+  return project.visibility === 'group_editable';
+}
+
 /** 计划视图里服务端已经算好了 `can_edit`，直接采信 */
 export function canEditPlanTask(task: Pick<PlanTask, 'can_edit'>): boolean {
   return task.can_edit;
@@ -107,6 +133,9 @@ export interface PermissionHelpers {
     project: Pick<Project, 'status' | 'archived_at' | 'membership_role' | 'visibility'>,
     task?: Pick<Task, 'is_shared'> | null,
   ) => boolean;
+  canWriteProjectContent: (
+    project: Pick<Project, 'status' | 'archived_at' | 'membership_role' | 'visibility'>,
+  ) => boolean;
   canEditPlanTask: typeof canEditPlanTask;
 }
 
@@ -123,6 +152,7 @@ export function usePermission(): PermissionHelpers {
       canManageProject: (project) => canManageProject(project, user),
       canWriteTasksOfProject: (project, task) =>
         canWriteTasksOfProject(project, user, task),
+      canWriteProjectContent: (project) => canWriteProjectContent(project, user),
       canEditPlanTask,
     }),
     [user],

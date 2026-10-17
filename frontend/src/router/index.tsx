@@ -73,12 +73,14 @@ export const router = createBrowserRouter([
             element: page(() => import('@/views/reminders/ReminderListView')),
           },
           {
-            path: 'audit',
-            element: page(() => import('@/views/audit/AuditListView')),
-          },
-          {
+            // 操作记录仅系统管理员可查看（《A09》§权限语义）：非管理员直接回首页，
+            // 不渲染一个必然 403 的页面（F01 §6 第 5 条的 403/404 区分）。
             element: <RequireAdmin />,
             children: [
+              {
+                path: 'audit',
+                element: page(() => import('@/views/audit/AuditListView')),
+              },
               {
                 path: 'admin/users',
                 element: page(() => import('@/views/admin/UserListView')),

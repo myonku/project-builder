@@ -57,5 +57,6 @@ export interface AuditQuery {
   to?: string;
   page?: number;
   page_size?: number;
-  sort?: 'created_at' | 'action' | 'object_type';
+  /** 排序表达式：字段白名单 `created_at` / `action` / `object_type`；`-` 前缀降序，可逗号分隔 */
+  sort?: string;
 }

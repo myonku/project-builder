@@ -42,6 +42,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router';
 import { archiveProject, getProject, updateProject } from '@/api/projects';
 import { createTask, queryProjectTasks } from '@/api/tasks';
 import { toApiError, type ApiError } from '@/api/client';
+import AttachmentPanel from '@/components/attachment/AttachmentPanel';
 import CellText from '@/components/common/CellText';
 import DataTooltip, { textCell } from '@/components/common/DataTooltip';
 import ProgressCell from '@/components/common/ProgressCell';
@@ -165,6 +166,8 @@ export default function ProjectDetailView() {
   }, [projectError, handle]);
 
   const canManage = project ? permission.canManageProject(project) : false;
+  // 项目附件写权限 = 项目级 PermWrite（成员 / group_editable 组员 / 管理员），与"改项目本身"不同
+  const canWriteProject = project ? permission.canWriteProjectContent(project) : false;
   // 任务与任务成员的写权限依据是「项目权限 + 任务是否共享」（F01 §6 第 8 条），与"是否是任务成员"无关
   const canWriteTasks = project
     ? permission.canWriteTasksOfProject(project) && !permission.isProjectReadOnly(project)
@@ -603,6 +606,14 @@ export default function ProjectDetailView() {
           groupId={project.group_id}
           canManage={canManage && !readOnly}
           onChanged={() => void reloadProject()}
+        />
+
+        <Divider />
+
+        <AttachmentPanel
+          target={{ kind: 'project', id: project.id }}
+          canWrite={canWriteProject}
+          canPurgeAll={project.membership_role === 'owner'}
         />
 
         <Divider />

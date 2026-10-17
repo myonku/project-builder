@@ -29,5 +29,6 @@ export interface AttachmentQueryBody {
   deleted_only?: boolean;
   page?: number;
   page_size?: number;
-  sort?: 'created_at' | 'updated_at' | 'original_name' | 'size_bytes' | 'extension';
+  /** 排序表达式：字段白名单 `created_at` / `updated_at` / `original_name` / `size_bytes` / `extension`；`-` 前缀降序 */
+  sort?: string;
 }

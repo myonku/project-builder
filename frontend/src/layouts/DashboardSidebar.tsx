@@ -45,7 +45,7 @@ export default function DashboardSidebar({
 
   const { pathname } = useLocation();
 
-  // 管理入口只对系统管理员显示；真正的守卫在 router/guards.tsx 的 RequireAdmin
+  // 操作记录与管理入口只对系统管理员显示；真正的守卫在 router/guards.tsx 的 RequireAdmin
   const isAdmin = useAuthStore((state) => state.user?.system_role === 'admin');
 
   /**
@@ -244,15 +244,16 @@ export default function DashboardSidebar({
               href="/reminders"
               selected={pathname === '/reminders'}
             />
-            <DashboardSidebarPageItem
-              id="audit"
-              title="操作记录"
-              icon={<HistoryIcon />}
-              href="/audit"
-              selected={pathname === '/audit'}
-            />
             {isAdmin ? (
               <React.Fragment>
+                {/* 审计仅系统管理员可见（《A09》）：非管理员连入口都不显示 */}
+                <DashboardSidebarPageItem
+                  id="audit"
+                  title="操作记录"
+                  icon={<HistoryIcon />}
+                  href="/audit"
+                  selected={pathname === '/audit'}
+                />
                 <DashboardSidebarDividerItem />
                 <DashboardSidebarHeaderItem>系统管理</DashboardSidebarHeaderItem>
                 <DashboardSidebarPageItem

@@ -33,6 +33,7 @@ import EditIcon from '@mui/icons-material/Edit';
 import { queryProjectMembers } from '@/api/projects';
 import { getTask, updateTask } from '@/api/tasks';
 import { toApiError, type ApiError } from '@/api/client';
+import AttachmentPanel from '@/components/attachment/AttachmentPanel';
 import FullPageLoading from '@/components/common/FullPageLoading';
 import StatusTag from '@/components/common/StatusTag';
 import TaskFormDialog, {
@@ -174,7 +175,16 @@ export default function TaskDetailDrawer({
       anchor="right"
       open={taskId !== null}
       onClose={onClose}
-      slotProps={{ paper: { sx: { width: { xs: '100%', sm: 520 } } } }}
+      slotProps={{
+        paper: {
+          sx: {
+            width: { xs: '100%', sm: 520 },
+            // 与审计详情抽屉一致：绝对定位的 AppBar 会盖住从视口顶部开始的抽屉
+            top: { xs: 56, sm: 64 },
+            height: { xs: 'calc(100% - 56px)', sm: 'calc(100% - 64px)' },
+          },
+        },
+      }}
     >
       <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
         <Stack
@@ -311,6 +321,15 @@ export default function TaskDetailDrawer({
                 canManage={canEdit}
                 projectMembers={projectMembers}
                 onChanged={onChanged}
+              />
+
+              <Divider />
+              <AttachmentPanel
+                key={`attachments-${task.id}`}
+                target={{ kind: 'task', id: task.id }}
+                canWrite={canEdit}
+                canPurgeAll={canEdit && task.membership_role === 'owner'}
+                dense
               />
             </Stack>
           ) : null}

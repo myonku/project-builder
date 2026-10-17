@@ -7,6 +7,8 @@
 # 敏感配置：绝不进入版本库（任何层级都生效，因此不加前缀）
 .env
 .env.local
+# Vite 的本地覆盖（如 frontend/.env.development.local 里的 API_PROXY_TARGET）
+.env.*.local
 *.local.toml
 
 # 构建产物

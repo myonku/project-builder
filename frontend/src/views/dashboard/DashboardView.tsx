@@ -332,7 +332,10 @@ export default function DashboardView() {
             <SectionCard title="运行信息">
               <Stack spacing={1} divider={<Divider flexItem />}>
                 <InfoRow label="API 前缀" value={<code>{API_BASE}</code>} />
-                <InfoRow label="开发代理" value="/api → 127.0.0.1:8000" />
+                <InfoRow
+                  label="开发代理"
+                  value="/api 由 Vite 转发（目标可配 API_PROXY_TARGET）"
+                />
                 <InfoRow label="主题" value="MUI 默认 Material Design 2（亮/暗）" />
                 <InfoRow
                   label="数据来源"
