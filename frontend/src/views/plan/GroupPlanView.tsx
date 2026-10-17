@@ -14,6 +14,7 @@ import * as React from 'react';
 import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
 import Divider from '@mui/material/Divider';
+import RefreshIcon from '@mui/icons-material/Refresh';
 import MenuItem from '@mui/material/MenuItem';
 import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
@@ -130,7 +131,12 @@ export default function GroupPlanView() {
       title="组内计划"
       breadcrumbs={[{ title: '概览', path: '/' }, { title: '组内计划' }]}
       actions={
-        <Button variant="outlined" onClick={reload} disabled={loading || noGroup}>
+        <Button
+          variant="outlined"
+          startIcon={<RefreshIcon />}
+          onClick={reload}
+          disabled={loading || noGroup}
+        >
           刷新
         </Button>
       }

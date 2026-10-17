@@ -25,6 +25,7 @@ import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
 
 import Typography from '@mui/material/Typography';
+import RefreshIcon from '@mui/icons-material/Refresh';
 import ReplayIcon from '@mui/icons-material/Replay';
 import RestartAltIcon from '@mui/icons-material/RestartAlt';
 import SearchIcon from '@mui/icons-material/Search';
@@ -342,7 +343,7 @@ export default function ReminderListView() {
       title="邮件提醒"
       breadcrumbs={[{ title: '概览', path: '/' }, { title: '邮件提醒' }]}
       actions={
-        <Button variant="outlined" onClick={reload} disabled={loading}>
+        <Button variant="outlined" startIcon={<RefreshIcon />} onClick={reload} disabled={loading}>
           刷新
         </Button>
       }

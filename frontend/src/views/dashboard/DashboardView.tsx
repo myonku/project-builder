@@ -26,6 +26,7 @@ import Stack from '@mui/material/Stack';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
+import RefreshIcon from '@mui/icons-material/Refresh';
 import { Link as RouterLink, useSearchParams } from 'react-router';
 import { API_BASE } from '@/api/client';
 import CellText from '@/components/common/CellText';
@@ -173,7 +174,7 @@ export default function DashboardView() {
     <PageContainer
       title="概览"
       actions={
-        <Button variant="outlined" onClick={reload} disabled={loading}>
+        <Button variant="outlined" startIcon={<RefreshIcon />} onClick={reload} disabled={loading}>
           刷新
         </Button>
       }

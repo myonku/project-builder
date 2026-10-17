@@ -8,9 +8,9 @@
  * 三处审计特有的契约细节：
  * 1. **仅系统管理员**：路由外面包了 `RequireAdmin`，侧边栏入口也只对管理员显示；
  *    非管理员即便直接敲 URL 也回首页（《A09》§权限语义）。
- * 2. **时间范围是 RFC3339 且两端都含**（《A09》§端点 1）：界面用与计划页一致的
- *    `DatePicker`（`YYYY-MM-DD`）收集日期，提交前按账号时区取日界
- *    （开始日 00:00:00 / 结束日 23:59:59.999）并转成 UTC ISO。
+ * 2. **时间范围是 RFC3339 且两端都含**（《A09》§端点 1）：界面用与计划页同风格的
+ *    `DateTimePicker`（`YYYY-MM-DD HH:mm`）收集到分钟，提交前按账号时区转成 UTC ISO；
+ *    保留时间精度，不限制到"天"。
  * 3. **`changes` 只记录新值**，扁平、敏感键已脱敏为 `[redacted]`、单值截断 200 字符。
  *    单元格只放一行摘要，完整内容在详情抽屉里看；不要尝试把它解析成嵌套结构。
  */
@@ -31,7 +31,7 @@ import VisibilityIcon from '@mui/icons-material/Visibility';
 import { DataGrid } from '@mui/x-data-grid';
 import type { GridColDef, GridRenderCellParams } from '@mui/x-data-grid';
 import { zhCN } from '@mui/x-data-grid/locales';
-import { DatePicker } from '@mui/x-date-pickers/DatePicker';
+import { DateTimePicker } from '@mui/x-date-pickers/DateTimePicker';
 import { queryAudit } from '@/api/audit';
 import CellText from '@/components/common/CellText';
 import DataTooltip, { textCell } from '@/components/common/DataTooltip';
@@ -51,16 +51,8 @@ import { describeApiError, useApiError } from '@/hooks/useApiError';
 import { useListQuery } from '@/hooks/useListQuery';
 import { useAuthStore } from '@/stores/auth';
 import type { AuditAction, AuditObjectType, AuditQuery, AuditRecord } from '@/types/audit';
-import {
-  dayjs,
-  dayjsToNaturalDate,
-  formatForDisplay,
-  naturalDateToDayjs,
-} from '@/utils/datetime';
+import { DATETIME_FORMAT, dayjs, formatForDisplay } from '@/utils/datetime';
 import { isUuid } from '@/utils/uuid';
-
-/** 空白 helper 占位：让带/不带说明的控件在水平行里占据同样的高度 */
-const BLANK_HELPER = '\u00A0';
 
 /**
  * 排序白名单与《A09》§端点 1 **逐字一致**（多一个少一个都会 400）。
@@ -73,7 +65,7 @@ interface AuditFilters {
   action: AuditAction | '';
   objectId: string;
   actorId: string;
-  /** `YYYY-MM-DD`（DatePicker 的值）；提交时按账号时区取日界并转 RFC3339 */
+  /** `YYYY-MM-DD HH:mm`（DateTimePicker 的值）；提交时按账号时区转 RFC3339 */
   from: string;
   /** 同上；闭区间，早于 from 会被本地校验拦住 */
   to: string;
@@ -88,34 +80,26 @@ const INITIAL_FILTERS: AuditFilters = {
   to: '',
 };
 
-/**
- * 把 `YYYY-MM-DD` 按账号时区解释成 RFC3339 的时间边界：
- * `from` 取当天 00:00:00.000，`to` 取当天 23:59:59.999（A09 两端都含）。
- */
-function auditDateToRfc3339(
-  value: string,
-  timeZone: string | undefined,
-  endOfDay: boolean,
-): string | undefined {
+/** 把 `YYYY-MM-DD HH:mm` 按账号时区解释成 RFC3339（UTC ISO 8601） */
+function localDateTimeToRfc3339(value: string, timeZone?: string): string | undefined {
   if (!value) {
     return undefined;
   }
   try {
-    // keepLocalTime=true：把日期当作目标时区的墙上日期，而不是先按浏览器时区解释
-    const base = timeZone ? dayjs(value).tz(timeZone, true) : dayjs(value);
-    const boundary = endOfDay ? base.endOf('day') : base.startOf('day');
-    return boundary.isValid() ? boundary.toISOString() : undefined;
+    // keepLocalTime=true：把输入当作目标时区的墙上时间，而不是先按浏览器时区解释
+    const parsed = timeZone ? dayjs(value).tz(timeZone, true) : dayjs(value);
+    return parsed.isValid() ? parsed.toISOString() : undefined;
   } catch {
     // 非法时区名等极端情况：让调用方按"未填写"处理，最终由后端兜底
     return undefined;
   }
 }
 
-function validateDate(value: string): string | null {
+function validateLocalDateTime(value: string): string | null {
   if (!value) {
     return null;
   }
-  return dayjs(value).isValid() ? null : '日期格式不正确';
+  return dayjs(value).isValid() ? null : '时间格式不正确';
 }
 
 function NoAuditRows() {
@@ -139,15 +123,15 @@ export default function AuditListView() {
     draft.objectId !== '' && !isUuid(draft.objectId) ? '对象 id 必须是 UUID' : null;
   const actorIdError =
     draft.actorId !== '' && !isUuid(draft.actorId) ? '操作人 id 必须是 UUID' : null;
-  const fromError = validateDate(draft.from);
-  const toError = validateDate(draft.to);
+  const fromError = validateLocalDateTime(draft.from);
+  const toError = validateLocalDateTime(draft.to);
   const rangeError =
     !fromError &&
     !toError &&
     draft.from !== '' &&
     draft.to !== '' &&
     dayjs(draft.to).isBefore(dayjs(draft.from))
-      ? '结束日期不能早于开始日期'
+      ? '结束时间不能早于开始时间'
       : null;
   const hasDraftError = Boolean(
     objectIdError || actorIdError || fromError || toError || rangeError,
@@ -180,13 +164,13 @@ export default function AuditListView() {
         query.actor_id = active.actorId;
       }
       if (active.from) {
-        const from = auditDateToRfc3339(active.from, userTimeZone, false);
+        const from = localDateTimeToRfc3339(active.from, userTimeZone);
         if (from) {
           query.from = from;
         }
       }
       if (active.to) {
-        const to = auditDateToRfc3339(active.to, userTimeZone, true);
+        const to = localDateTimeToRfc3339(active.to, userTimeZone);
         if (to) {
           query.to = to;
         }
@@ -326,9 +310,9 @@ export default function AuditListView() {
     [userTimeZone],
   );
 
-  const scopeNote = `仅系统管理员可查看；审计记录与业务写操作同事务写入，只增不删。日期按账号时区（${
+  const scopeNote = `仅系统管理员可查看；审计记录与业务写操作同事务写入，只增不删。时间按账号时区（${
     userTimeZone ?? '浏览器本地时区'
-  }）取日界：开始日 00:00:00、结束日 23:59:59.999，from / to 两端都含。`;
+  }）填写，from / to 两端都含。`;
 
   return (
     <PageContainer
@@ -359,7 +343,7 @@ export default function AuditListView() {
           sx={{ pb: 2, borderBottom: 1, borderColor: 'divider' }}
         >
           <Stack spacing={1.5}>
-            <Box sx={filterRowSx(false)}>
+            <Box sx={filterRowSx(false, true)}>
               <TextField
                 select
                 size="small"
@@ -369,7 +353,6 @@ export default function AuditListView() {
                   setDraft({ ...draft, objectType: event.target.value as AuditObjectType | '' })
                 }
                 sx={filterItemSx(150, 300)}
-                helperText={BLANK_HELPER}
                 slotProps={{ inputLabel: { shrink: true } }}
               >
                 <MenuItem value="">全部类型</MenuItem>
@@ -389,7 +372,6 @@ export default function AuditListView() {
                   setDraft({ ...draft, action: event.target.value as AuditAction | '' })
                 }
                 sx={filterItemSx(170, 340)}
-                helperText={BLANK_HELPER}
                 slotProps={{ inputLabel: { shrink: true } }}
               >
                 <MenuItem value="">全部动作</MenuItem>
@@ -409,7 +391,7 @@ export default function AuditListView() {
                   setDraft({ ...draft, objectId: event.target.value.trim() })
                 }
                 error={Boolean(objectIdError)}
-                helperText={objectIdError ?? BLANK_HELPER}
+                helperText={objectIdError ?? undefined}
                 sx={filterItemSx(240, 480)}
               />
 
@@ -422,42 +404,42 @@ export default function AuditListView() {
                   setDraft({ ...draft, actorId: event.target.value.trim() })
                 }
                 error={Boolean(actorIdError)}
-                helperText={actorIdError ?? BLANK_HELPER}
+                helperText={actorIdError ?? undefined}
                 sx={filterItemSx(240, 480)}
               />
             </Box>
 
             <DateLocalizationProvider>
-              <Box sx={filterRowSx(true)}>
-                <DatePicker
-                  label="开始日期（含）"
-                  value={naturalDateToDayjs(draft.from)}
+              <Box sx={filterRowSx(true, true)}>
+                <DateTimePicker
+                  label="开始时间（含）"
+                  value={draft.from ? dayjs(draft.from) : null}
                   onChange={(next) =>
-                    setDraft({ ...draft, from: dayjsToNaturalDate(next) ?? '' })
+                    setDraft({ ...draft, from: next ? next.format(DATETIME_FORMAT) : '' })
                   }
-                  format="YYYY-MM-DD"
+                  format={DATETIME_FORMAT}
                   slotProps={{
                     textField: {
                       size: 'small',
-                      sx: { width: 190 },
+                      sx: { width: 210 },
                       error: Boolean(fromError) || Boolean(rangeError),
-                      helperText: fromError ?? BLANK_HELPER,
+                      helperText: fromError ?? undefined,
                     },
                   }}
                 />
-                <DatePicker
-                  label="结束日期（含）"
-                  value={naturalDateToDayjs(draft.to)}
+                <DateTimePicker
+                  label="结束时间（含）"
+                  value={draft.to ? dayjs(draft.to) : null}
                   onChange={(next) =>
-                    setDraft({ ...draft, to: dayjsToNaturalDate(next) ?? '' })
+                    setDraft({ ...draft, to: next ? next.format(DATETIME_FORMAT) : '' })
                   }
-                  format="YYYY-MM-DD"
+                  format={DATETIME_FORMAT}
                   slotProps={{
                     textField: {
                       size: 'small',
-                      sx: { width: 190 },
+                      sx: { width: 210 },
                       error: Boolean(toError) || Boolean(rangeError),
-                      helperText: rangeError ?? toError ?? BLANK_HELPER,
+                      helperText: rangeError ?? toError ?? undefined,
                     },
                   }}
                 />

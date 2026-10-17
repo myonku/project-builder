@@ -14,6 +14,7 @@
 import * as React from 'react';
 import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
+import RefreshIcon from '@mui/icons-material/Refresh';
 import Divider from '@mui/material/Divider';
 import Stack from '@mui/material/Stack';
 import { useNavigate, useSearchParams } from 'react-router';
@@ -85,7 +86,7 @@ export default function PersonalPlanView() {
       title="个人计划"
       breadcrumbs={[{ title: '概览', path: '/' }, { title: '个人计划' }]}
       actions={
-        <Button variant="outlined" onClick={reload} disabled={loading}>
+        <Button variant="outlined" startIcon={<RefreshIcon />} onClick={reload} disabled={loading}>
           刷新
         </Button>
       }

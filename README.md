@@ -75,7 +75,7 @@ project-builder/
 
 - 工程可构建：`pnpm typecheck` / `pnpm build` 零错误；起环境用 `backend/scripts/dev-test-env.ps1`
   （依赖 + 迁移 + 服务，`-WithFrontend` 顺便起前端，`-Stop` 收尾；**不跑测试、不碰测试数据**）；
-- **样式统一为 MUI 默认的 Material Design 2**，字号在 MD2 阶梯上调一档；首屏（登录页）实测传输 **243.8 kB（gzip）**，
+- **样式统一为 MUI 默认的 Material Design 2**，字号在 MD2 阶梯上调一档；首屏（登录页）实测传输约 **249 kB（gzip）**，
   表格与日期组件随路由按需加载（部署必须开 gzip/brotli，F03 §8）；
 - **开发代理目标可配置**：`API_PROXY_TARGET`（默认 `http://127.0.0.1:8000`）；本机 8000 落在 Windows
   保留端口区间时，用 `.env.development.local` 指到 18000 即可，不用改源码（F03 §4）；

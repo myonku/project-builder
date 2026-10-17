@@ -13,13 +13,17 @@
 
 import type { SxProps, Theme } from '@mui/material/styles';
 
-/** 筛选区里的一行；`alignRight` 用于"内容占不满一行"的后几层 */
-export function filterRowSx(alignRight = false): SxProps<Theme> {
+/**
+ * 筛选区里的一行；`alignRight` 用于"内容占不满一行"的后几层。
+ * `alignTop` 用于同排控件的 helper 高度可能不同的场景：输入框顶部对齐，
+ * 错误说明只向下扩展，不会把输入框本身顶高（F01 §6 第 38 条）。
+ */
+export function filterRowSx(alignRight = false, alignTop = false): SxProps<Theme> {
   return {
     display: 'flex',
     flexWrap: 'wrap',
     gap: 2,
-    alignItems: 'center',
+    alignItems: alignTop ? 'flex-start' : 'center',
     justifyContent: alignRight ? 'flex-end' : 'flex-start',
   };
 }

@@ -313,8 +313,8 @@ export default function PlanFilters({
 
           </Box>
 
-          {/* ② 截止区间：靠右 */}
-          <Box sx={filterRowSx(true)}>
+          {/* ② 截止区间：靠右；出现错误说明时用顶部对齐，避免两个输入框错位 */}
+          <Box sx={filterRowSx(true, true)}>
               <DatePicker
                 label="截止（起）"
               value={naturalDateToDayjs(value.due_from)}
@@ -325,8 +325,6 @@ export default function PlanFilters({
                   size: 'small',
                   sx: { width: 160 },
                   error: Boolean(dateError),
-                  // 与“截止（止）”保留同样的 helper 高度，错误出现时两个输入框仍然对齐
-                  helperText: '\u00A0',
                 },
               }}
             />
@@ -340,7 +338,7 @@ export default function PlanFilters({
                   size: 'small',
                   sx: { width: 160 },
                   error: Boolean(dateError),
-                  helperText: dateError ?? '\u00A0',
+                  helperText: dateError ?? undefined,
                 },
               }}
             />
