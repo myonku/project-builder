@@ -52,6 +52,7 @@ project-builder/
 | F01–F03 | [frontend/docs/](frontend/docs/README.md) | 前端技术选型与目录结构、TypeScript 类型与契约映射、运行/联调/部署 | 前端 |
 | F04 | [frontend/docs/F04-设计偏离与差异登记.md](frontend/docs/F04-设计偏离与差异登记.md) | 与 F01–F03 的偏离、官方模板改造清单、契约观察 | 前端 |
 | F05 | [frontend/docs/F05-进度与验证记录.md](frontend/docs/F05-进度与验证记录.md) | 前端阶段状态、可复现验证步骤与实测证据、接续指南 | 前端 |
+| 交接 | [HANDOFF.md](HANDOFF.md) | 换设备续作的**入口**：环境、测试账号/数据、启动/停止、剩余工作与已知边界 | 接续开发者 |
 
 **分工原则**：共用文档（`docs/`）只写"两端共同的约定与业务事实"，**不写任何一端的推进过程**；
 推进过程、实现取舍、验证证据都留在各自工程目录内（服务端在 `backend/docs/B05`，前端在 `frontend/docs/F05`，取舍登记在 `frontend/docs/F04`）。
@@ -71,7 +72,7 @@ project-builder/
 与 [backend/docs/B05 §7.0](backend/docs/B05-进度与验证记录.md)；生产部署前的核对清单见
 [backend/docs/B03 §7.5](backend/docs/B03-配置与运行.md)。
 
-**前端**：**骨架期已完成（2026-10-14），功能期已推进到第 9 步（2026-10-17）**：
+**前端**：**骨架期已完成（2026-10-14），功能期第 1–10 步已完成（2026-10-18）**：
 
 - 工程可构建：`pnpm typecheck` / `pnpm build` 零错误；起环境用 `backend/scripts/dev-test-env.ps1`
   （依赖 + 迁移 + 服务，`-WithFrontend` 顺便起前端，`-Stop` 收尾；**不跑测试、不碰测试数据**）；
@@ -84,9 +85,10 @@ project-builder/
   个人计划与组内计划、邮件提醒（详情 + 重试）、审计（仅管理员 / 分页排序筛选 / 详情抽屉）、
   附件（项目/任务：上传 / 下载 / 逻辑删除 / 彻底删除）、用户与工作组管理（A02/A03：账号维护、
   成员软移除/恢复、所有权转移、加入申请审核）；
-- **仍未实现**：权限分支全量回归；甘特图待定（交互方案未定）；
-- 下一步要碰哪些文件、抄哪个模式、验收要点，以及可复用的公共件清单，都写在
-  [F05 §7.4 阶段性总结与接续指南](frontend/docs/F05-进度与验证记录.md)。
+- **仍未实现**：甘特图（交互方案未定，唯一剩余功能项）；另有一个附件 404 错误码口径偏差（F04 C6）留待后端修复；
+- 已完成的权限矩阵与证据见 [F05 §5.20](frontend/docs/F05-进度与验证记录.md)；
+- 换设备续作先看 [HANDOFF.md](HANDOFF.md)（环境、测试账号/数据、启动/停止、剩余工作），
+  页面模式与公共件见 [F05 §7.4](frontend/docs/F05-进度与验证记录.md)。
 
 前端的运行方式与验证证据见 [frontend/README.md](frontend/README.md)（入口文档）、
 [frontend/docs/F03](frontend/docs/F03-运行与联调.md) 与 [frontend/docs/F05](frontend/docs/F05-进度与验证记录.md)。
