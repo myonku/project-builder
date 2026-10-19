@@ -98,10 +98,10 @@
 **一键启动（推荐，日常联调用）**：
 
 ```powershell
-pwsh -File ./scripts/dev-test-env.ps1                  # 依赖 + 迁移 + 起服务（Ctrl+C 结束）
-pwsh -File ./scripts/dev-test-env.ps1 -Port 18000      # API 监听 18000（脚本会导出 SERVER_PORT）
+pwsh -File ./scripts/dev-test-env.ps1                  # 依赖 + 迁移 + 起服务（默认 8000，Ctrl+C 结束）
+pwsh -File ./scripts/dev-test-env.ps1 -Port 8001       # 8000 被占用时改端口（脚本会导出 SERVER_PORT）
 pwsh -File ./scripts/dev-test-env.ps1 -WithFrontend     # 顺便开一个窗口起前端 dev server
-pwsh -File ./scripts/dev-test-env.ps1 -Stop -Port 18000 # 停掉 18000 上的 API 与依赖容器（保留数据卷）
+pwsh -File ./scripts/dev-test-env.ps1 -Stop -Port 8001  # 停掉 8001 上的 API 与依赖容器（保留数据卷）
 ```
 
 它等价于下面三条 `make` 配方（同一套 `TEST_*` 常量），但会等容器 **healthy**、检查端口占用，

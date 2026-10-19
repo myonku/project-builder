@@ -179,7 +179,7 @@ export default function GroupListView() {
           return (
             <DataTooltip title={ownerId}>
               <Box component="span" sx={{ fontFamily: 'monospace' }}>
-                {ownerId.slice(-8)}
+                {ownerId}
               </Box>
             </DataTooltip>
           );
@@ -260,7 +260,7 @@ export default function GroupListView() {
               setFilters({ status: event.target.value as GroupStatus | '' })
             }
             sx={{ minWidth: 160 }}
-            slotProps={{ inputLabel: { shrink: true } }}
+            slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true } }}
           >
             <MenuItem value="">全部</MenuItem>
             {GROUP_STATUS_OPTIONS.map((option) => (

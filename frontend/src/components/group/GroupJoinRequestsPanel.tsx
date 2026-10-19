@@ -166,6 +166,7 @@ export default function GroupJoinRequestsPanel({
           value={status}
           onChange={(event) => setStatus(event.target.value as JoinRequestStatus | '')}
           sx={{ minWidth: 160 }}
+          slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true } }}
         >
           <MenuItem value="">全部状态</MenuItem>
           {JOIN_REQUEST_STATUS_OPTIONS.map((option) => (

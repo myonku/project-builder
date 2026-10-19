@@ -6,8 +6,8 @@ import { defineConfig, loadEnv } from 'vite';
 //
 // `API_PROXY_TARGET` 是**只给 Vite dev server 用**的 Node 侧配置，刻意不加 `VITE_` 前缀：
 //  - `VITE_*` 会被 Vite 暴露给浏览器并可能进入构建产物，内部地址不应这样用（F03 §3）；
-//  - 本机 8000 被 Windows 保留端口占用时，可在 `frontend/.env.development.local` 里覆盖为
-//    `API_PROXY_TARGET=http://127.0.0.1:18000`，不必改代码，也不影响其它机器。
+//  - 8000 被占用时，可在 `frontend/.env.development.local` 里覆盖为其它端口
+//    （例如 `API_PROXY_TARGET=http://127.0.0.1:8001`），不必改代码，也不影响其它机器。
 const DEFAULT_PROXY_TARGET = 'http://127.0.0.1:8000';
 
 export default defineConfig(({ mode }) => {

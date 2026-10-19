@@ -358,6 +358,7 @@ export default function TaskFormDialog({
                     value={field.value}
                     onChange={(event) => field.onChange(event.target.value)}
                     helperText="留空表示顶层任务；最多 3 层（候选只取前 100 个任务）"
+                    slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true } }}
                   >
                     <MenuItem value={NO_PARENT}>（顶层任务）</MenuItem>
                     {parentCandidates.map((candidate) => (

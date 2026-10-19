@@ -364,7 +364,7 @@ export default function ReminderListView() {
                 value={draft.kind}
                 onChange={(event) => setDraft({ ...draft, kind: event.target.value })}
                 sx={filterItemSx(150, 360)}
-                slotProps={{ inputLabel: { shrink: true } }}
+                slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true } }}
                 helperText="服务端不校验取值，此处只提供枚举"
               >
                 <MenuItem value="">全部类型</MenuItem>
@@ -394,7 +394,7 @@ export default function ReminderListView() {
                   setDraft({ ...draft, pageStatus: event.target.value as ReminderStatus | '' })
                 }
                 sx={filterItemSx(160, 300)}
-                slotProps={{ inputLabel: { shrink: true } }}
+                slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true } }}
                 helperText="此项只过滤当前页"
               >
                 <MenuItem value="">全部状态</MenuItem>

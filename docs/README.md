@@ -9,11 +9,10 @@
 | `backend/docs/` | 架构设计、数据模型、配置与运行、偏离登记、进度与验证 | `B01`–`B05` | Go 服务端 |
 | `frontend/docs/` | 架构设计、数据对象模型、运行与联调、偏离登记、进度与验证（**接续指南见 `F05` §7.4**） | `F01`–`F05` | 前端 |
 
-仓库级总览见 [../README.md](../README.md)；换设备续作先看 [../HANDOFF.md](../HANDOFF.md)；
-服务端入口见 [../backend/README.md](../backend/README.md)；前端入口见
-[../frontend/README.md](../frontend/README.md)；接口详解入口见 [api/README.md](api/README.md)。
+仓库级总览见 [../README.md](../README.md)；服务端入口见 [../backend/README.md](../backend/README.md)；
+前端入口见 [../frontend/README.md](../frontend/README.md)；接口详解入口见 [api/README.md](api/README.md)。
 
-## 三套编号互不冲突
+## 四套编号互不冲突
 
 `S` = shared（共用）、`A` = API（逐接口详解）、`B` = backend（服务端）、`F` = frontend（前端）。
 各套**从 01 起独立编号**，因此：

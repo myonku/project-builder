@@ -45,6 +45,7 @@ import { useVersionedForm } from '@/hooks/useVersionedForm';
 import { useAuthStore } from '@/stores/auth';
 import type { Group, UpdateGroupBody } from '@/types/group';
 import { formatForDisplay } from '@/utils/datetime';
+import { truncatedText } from '../common/TruncatedText';
 
 export interface GroupDetailDrawerProps {
   /** 打开的组 id；`null` 表示关闭 */
@@ -272,11 +273,9 @@ export default function GroupDetailDrawer({
                   </Typography>
                 )}
                 <InfoRow label="所有者">
-                  <Tooltip title={group.owner_id}>
                     <Typography variant="caption" sx={{ fontFamily: 'monospace' }}>
-                      {group.owner_id.slice(-8)}
+                      {truncatedText(group.owner_id)}
                     </Typography>
-                  </Tooltip>
                 </InfoRow>
                 <InfoRow label="成员关系">
                   <Typography variant="body2" color="text.secondary">

@@ -353,7 +353,7 @@ export default function AuditListView() {
                   setDraft({ ...draft, objectType: event.target.value as AuditObjectType | '' })
                 }
                 sx={filterItemSx(150, 300)}
-                slotProps={{ inputLabel: { shrink: true } }}
+                slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true } }}
               >
                 <MenuItem value="">全部类型</MenuItem>
                 {AUDIT_OBJECT_TYPE_OPTIONS.map((option) => (
@@ -372,7 +372,7 @@ export default function AuditListView() {
                   setDraft({ ...draft, action: event.target.value as AuditAction | '' })
                 }
                 sx={filterItemSx(170, 340)}
-                slotProps={{ inputLabel: { shrink: true } }}
+                slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true } }}
               >
                 <MenuItem value="">全部动作</MenuItem>
                 {AUDIT_ACTION_OPTIONS.map((option) => (

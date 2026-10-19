@@ -649,6 +649,7 @@ export default function ProjectDetailView() {
               applyTaskFilters(next);
             }}
             sx={{ minWidth: 150 }}
+            slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true } }}
           >
             <MenuItem value="">全部</MenuItem>
             {TASK_STATUS_OPTIONS.map((option) => (

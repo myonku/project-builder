@@ -421,7 +421,7 @@ export default function ProjectListView() {
                 onChange={(event) => commitFilters({ groupId: event.target.value })}
                 disabled={groupsLoading}
                 sx={filterItemSx(200, 400)}
-                slotProps={{ inputLabel: { shrink: true } }}
+                slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true } }}
               >
                 <MenuItem value="">全部</MenuItem>
                 {groupOptions.map((option) => (
@@ -439,7 +439,7 @@ export default function ProjectListView() {
                   commitFilters({ status: event.target.value as ProjectStatus | '' })
                 }
                 sx={filterItemSx(160, 320)}
-                slotProps={{ inputLabel: { shrink: true } }}
+                slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true } }}
               >
                 <MenuItem value="">全部</MenuItem>
                 {PROJECT_STATUS_OPTIONS.map((option) => (

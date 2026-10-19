@@ -337,6 +337,7 @@ export default function GroupMembersPanel({
               : '候选为未停用且不在本组的账号'
           }
           disabled={loading || Boolean(error)}
+          slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true } }}
         >
           <MenuItem value="">请选择用户</MenuItem>
           {candidates.map((candidate) => (
