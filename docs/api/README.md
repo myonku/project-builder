@@ -28,11 +28,12 @@
 | [A07-attachments.md](A07-attachments.md) | 附件：上传、列表、下载、逻辑删除、彻底删除 | `/api/v1/attachments/*` 等 | 7 |
 | [A08-reminders.md](A08-reminders.md) | 提醒：列表、详情、手动重试 | `/api/v1/reminders/*` | 3 |
 | [A09-audit.md](A09-audit.md) | 操作记录（仅系统管理员可查） | `/api/v1/audit` | 1 |
+| [A10-registration-requests.md](A10-registration-requests.md) | 注册申请审核（仅系统管理员） | `/api/v1/registration-requests/*` | 2 |
 
-合计 **55 个业务端点**，另有 4 个健康检查端点（见下）。
+合计 **57 个业务端点**，另有 4 个健康检查端点（见下）。
 
-> 本目录的文件按域编号（`A01`…）。共用文档用 `S` 前缀，服务端文档用 `B` 前缀
-> （见 `backend/docs/B04-设计偏离与差异登记.md` §7.2），前端将来的文档用 `F` 前缀。
+> 本目录的文件按域编号（`A01`…）。共用文档用 `S` 前缀，服务端文档用 `B` 前缀，
+> 前端文档用 `F` 前缀（见 `frontend/docs/README.md`）。
 
 ## 健康检查（无需登录）
 

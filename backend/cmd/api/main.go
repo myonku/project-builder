@@ -96,14 +96,16 @@ func run() error {
 		Logger: logger,
 	})
 
+	authStore := auth.NewRepository(postgres.Pool)
 	authService := auth.NewService(auth.Options{
-		Users:    auth.NewRepository(postgres.Pool),
-		Sessions: sessionStore,
-		Hasher:   platform.NewPasswordHasher(),
-		IDs:      ids,
-		Clock:    clk,
-		Logger:   logger,
-		Security: cfg.Security,
+		Users:         authStore,
+		Registrations: authStore,
+		Sessions:      sessionStore,
+		Hasher:        platform.NewPasswordHasher(),
+		IDs:           ids,
+		Clock:         clk,
+		Logger:        logger,
+		Security:      cfg.Security,
 		// 自助注册的操作记录：操作人就是新建的账号本身。
 		Audit: auditService,
 	})

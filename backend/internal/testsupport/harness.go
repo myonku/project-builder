@@ -361,6 +361,9 @@ func TestConfig() config.Config {
 			PasswordMinLength: 8,
 			SecureCookies:     false,
 			SessionCookieName: "pb_session_test",
+			// 既有测试用 /auth/register 准备账号；默认关闭审核以保持原行为。
+			// 注册审核链路由 NewHarnessWithOptions(RegistrationApproval: true) 的测试覆盖。
+			RegistrationRequiresApproval: false,
 		},
 		Scheduler: config.SchedulerConfig{Enabled: false, IntervalSeconds: 60, ReminderBatchSize: 100, MaxRetries: 1},
 	}
@@ -414,10 +417,23 @@ type Harness struct {
 	Logger *slog.Logger
 }
 
+// HarnessOptions 是测试装配的可选差异。
+type HarnessOptions struct {
+	// RegistrationApproval 为真时启用"注册申请 + 管理员审核"链路；
+	// 默认 false，保持既有测试用 /auth/register 直接创建 active 用户的行为。
+	RegistrationApproval bool
+}
+
 // NewHarness 装配真实 PostgreSQL + Redis 的测试环境。
 //
 // 已迁移到最新 schema，已清空业务表与会话键，因此每个用例从空库开始。
 func NewHarness(t *testing.T) *Harness {
+	t.Helper()
+	return NewHarnessWithOptions(t, HarnessOptions{})
+}
+
+// NewHarnessWithOptions 与 NewHarness 相同，但允许测试显式启用注册审核等差异。
+func NewHarnessWithOptions(t *testing.T, opts HarnessOptions) *Harness {
 	t.Helper()
 
 	// 串行化：见 sharedState 的说明。
@@ -431,6 +447,7 @@ func NewHarness(t *testing.T) *Harness {
 
 	logger := Logger()
 	cfg := TestConfig()
+	cfg.Security.RegistrationRequiresApproval = opts.RegistrationApproval
 	clk := clock.NewFixed(time.Date(2026, 10, 11, 9, 30, 0, 0, time.UTC))
 	ids := idgen.NewTimeOrdered(clk.Now)
 	hasher := platform.NewPasswordHasherWith(TestArgon2Params())
@@ -448,14 +465,15 @@ func NewHarness(t *testing.T) *Harness {
 	})
 
 	authService := auth.NewService(auth.Options{
-		Users:    authUsers,
-		Sessions: store,
-		Hasher:   hasher,
-		IDs:      ids,
-		Clock:    clk,
-		Logger:   logger,
-		Security: cfg.Security,
-		Audit:    auditService,
+		Users:         authUsers,
+		Registrations: authUsers,
+		Sessions:      store,
+		Hasher:        hasher,
+		IDs:           ids,
+		Clock:         clk,
+		Logger:        logger,
+		Security:      cfg.Security,
+		Audit:         auditService,
 	})
 	authHandler := auth.NewHandler(authService, logger)
 

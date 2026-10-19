@@ -32,13 +32,14 @@ type UserRepository interface {
 
 // Service 承载认证用例。
 type Service struct {
-	users    UserRepository
-	store    SessionStore
-	hasher   *platform.PasswordHasher
-	ids      *idgen.Generator
-	clk      clock.Clock
-	logger   *slog.Logger
-	security config.SecurityConfig
+	users         UserRepository
+	registrations RegistrationStore
+	store         SessionStore
+	hasher        *platform.PasswordHasher
+	ids           *idgen.Generator
+	clk           clock.Clock
+	logger        *slog.Logger
+	security      config.SecurityConfig
 	// audit 用于"自助注册"这条路径：操作人就是新建的账号本身。
 	// 管理员代建与重置密码由调用方（users 端点）提供操作人，见 adapter.go。
 	audit apperr.AuditWriter
@@ -46,13 +47,14 @@ type Service struct {
 
 // Options 是 Service 的构造参数。
 type Options struct {
-	Users    UserRepository
-	Sessions SessionStore
-	Hasher   *platform.PasswordHasher
-	IDs      *idgen.Generator
-	Clock    clock.Clock
-	Logger   *slog.Logger
-	Security config.SecurityConfig
+	Users         UserRepository
+	Registrations RegistrationStore
+	Sessions      SessionStore
+	Hasher        *platform.PasswordHasher
+	IDs           *idgen.Generator
+	Clock         clock.Clock
+	Logger        *slog.Logger
+	Security      config.SecurityConfig
 	// Audit 为 nil 时不记操作记录（单元测试装配）。
 	Audit apperr.AuditWriter
 }
@@ -72,14 +74,15 @@ func NewService(opts Options) *Service {
 		hasher = platform.NewPasswordHasher()
 	}
 	return &Service{
-		users:    opts.Users,
-		store:    opts.Sessions,
-		hasher:   hasher,
-		ids:      opts.IDs,
-		clk:      clk,
-		logger:   logger,
-		security: opts.Security,
-		audit:    opts.Audit,
+		users:         opts.Users,
+		registrations: opts.Registrations,
+		store:         opts.Sessions,
+		hasher:        hasher,
+		ids:           opts.IDs,
+		clk:           clk,
+		logger:        logger,
+		security:      opts.Security,
+		audit:         opts.Audit,
 	}
 }
 
@@ -103,15 +106,23 @@ func (s *Service) auditUserCreated(actorID, newUserID, username, email string, e
 }
 
 // RegisterResult 是注册成功的结果。
+//
+// Pending 为真时 Request 是待审核申请，User 为空；否则是直接创建的账号。
 type RegisterResult struct {
-	User UserRecord
+	User    UserRecord
+	Request RegistrationRequestRecord
+	Pending bool
 }
 
 // Register 执行注册用例。
 //
-// 处理顺序（接口文档 5）：字段校验 → 唯一性检查 → 领域规则 → 事务写入。
-// 注意：注册不自动登录，与契约 4.2 一致（成功 201）。
+// 生产配置下（RegistrationRequiresApproval=true）只创建待审核申请，不创建用户；
+// 测试/冒烟配置可显式关闭审核并保留原有的"直接创建 active 用户"行为。
+// 无论哪种模式都不自动登录，与契约 4.2 一致。
 func (s *Service) Register(ctx context.Context, in domain.RegistrationInput) (RegisterResult, error) {
+	if s.security.RegistrationRequiresApproval {
+		return s.registerPending(ctx, in)
+	}
 	return s.register(ctx, in, "")
 }
 

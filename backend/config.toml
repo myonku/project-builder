@@ -75,6 +75,9 @@ session_ttl_seconds = 28800
 password_min_length = 8
 secure_cookies = false
 session_cookie_name = "pb_session"
+# 自助注册需要管理员审核（默认且生产必须为 true）：
+# POST /auth/register 只写入 registration_requests，不创建 users。
+registration_requires_approval = true
 
 # 引导管理员（系统初始化时录入一个系统级后台账号）。
 #

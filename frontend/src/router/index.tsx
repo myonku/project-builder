@@ -25,6 +25,7 @@ import BlankLayout from '@/layouts/BlankLayout';
 import DashboardLayout from '@/layouts/DashboardLayout';
 import { RequireAdmin, RequireAuth } from '@/router/guards';
 import LoginView from '@/views/auth/LoginView';
+import RegisterView from '@/views/auth/RegisterView';
 import NotFoundView from '@/views/NotFoundView';
 
 /** 懒加载一个页面视图，并给出统一的加载占位 */
@@ -40,7 +41,10 @@ function page(loader: () => Promise<{ default: React.ComponentType }>): React.Re
 export const router = createBrowserRouter([
   {
     element: <BlankLayout />,
-    children: [{ path: '/login', element: <LoginView /> }],
+    children: [
+      { path: '/login', element: <LoginView /> },
+      { path: '/register', element: <RegisterView /> },
+    ],
   },
   {
     element: <RequireAuth />,
@@ -84,6 +88,10 @@ export const router = createBrowserRouter([
               {
                 path: 'admin/users',
                 element: page(() => import('@/views/admin/UserListView')),
+              },
+              {
+                path: 'admin/registration-requests',
+                element: page(() => import('@/views/admin/RegistrationRequestListView')),
               },
               {
                 path: 'admin/groups',

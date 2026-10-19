@@ -7,6 +7,7 @@
 
 import { apiGet, apiPost } from './client';
 import type { LoginBody, RegisterBody } from '@/types/auth';
+import type { RegisterResponse } from '@/types/registration';
 import type { User } from '@/types/user';
 
 /** `POST /auth/login`：成功返回当前用户，会话写入 HttpOnly Cookie */
@@ -14,9 +15,13 @@ export function login(body: LoginBody): Promise<User> {
   return apiPost<User>('/auth/login', body);
 }
 
-/** `POST /auth/register`：不自动登录 */
-export function register(body: RegisterBody): Promise<User> {
-  return apiPost<User>('/auth/register', body);
+/**
+ * `POST /auth/register`：生产配置下只创建待审核申请，不创建用户、不自动登录。
+ *
+ * 返回 `RegistrationRequest`；仅测试配置关闭审核时返回 `User`。
+ */
+export function register(body: RegisterBody): Promise<RegisterResponse> {
+  return apiPost<RegisterResponse>('/auth/register', body);
 }
 
 /** `POST /auth/logout`：204，返回 `undefined` */

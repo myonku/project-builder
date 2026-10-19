@@ -18,6 +18,7 @@ import GroupsIcon from '@mui/icons-material/Groups';
 import NotificationsIcon from '@mui/icons-material/Notifications';
 import HistoryIcon from '@mui/icons-material/History';
 import ManageAccountsIcon from '@mui/icons-material/ManageAccounts';
+import HowToRegIcon from '@mui/icons-material/HowToReg';
 import CorporateFareIcon from '@mui/icons-material/CorporateFare';
 import { useLocation } from 'react-router';
 import { useAuthStore } from '@/stores/auth';
@@ -262,6 +263,13 @@ export default function DashboardSidebar({
                   icon={<ManageAccountsIcon />}
                   href="/admin/users"
                   selected={pathname === '/admin/users'}
+                />
+                <DashboardSidebarPageItem
+                  id="admin-registration-requests"
+                  title="注册申请"
+                  icon={<HowToRegIcon />}
+                  href="/admin/registration-requests"
+                  selected={pathname === '/admin/registration-requests'}
                 />
                 <DashboardSidebarPageItem
                   id="admin-groups"

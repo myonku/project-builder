@@ -140,7 +140,7 @@
 | `401` | `invalid_credentials` | 凭据错误。**不区分**账号不存在与密码错误 |
 | `403` | `permission_denied` | 已登录但无权操作；也用于停用用户登录 |
 | `404` | `resource_not_found` | 对象不存在或不可见 |
-| `404` | `user_not_found` / `group_not_found` / `project_not_found` / `task_not_found` / `attachment_not_found` / `reminder_not_found` | 域内精确不存在 |
+| `404` | `user_not_found` / `group_not_found` / `project_not_found` / `task_not_found` / `attachment_not_found` / `reminder_not_found` / `registration_request_not_found` | 域内精确不存在 |
 | `409` | `conflict` | 状态、重复或并发冲突 |
 | `409` | `duplicate_member` | 重复成员关系 |
 | `409` | `version_conflict` | `expected_updated_at` 不匹配 |

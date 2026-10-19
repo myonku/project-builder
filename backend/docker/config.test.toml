@@ -71,6 +71,9 @@ session_ttl_seconds = 28800
 password_min_length = 8
 secure_cookies = false
 session_cookie_name = "pb_session"
+# 集成测试与冒烟脚本大量用 /auth/register 准备账号；测试配置保留"注册即 active"，
+# 审核链路由专门的集成测试（RegistrationRequiresApproval=true）覆盖。
+registration_requires_approval = false
 
 # 引导管理员：测试环境显式启用，使冒烟脚本能够覆盖管理员端点的**成功路径**
 # （生产环境不启用此配置，见 backend/docs/B03-配置与运行.md 3.6）。

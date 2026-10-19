@@ -13,7 +13,8 @@
  * - 新增"记住登录信息"勾选：**只把用户名存在本机浏览器**用于下次预填，
  *   并通过 `autoComplete` 告诉浏览器"可以保存这个站点的表单"。
  *   **它不延长会话**——会话有效期由服务端 Cookie / Redis 决定（《S02》§2.2），后端也没有"记住我"语义；
- * - 新增"注册新账号""忘记密码"两个**占位入口**：点击给出明确反馈而不是毫无反应（F04 D18）。
+ * - "注册新账号"进入 `/register`（提交注册申请，管理员审核）；"忘记密码"仍是
+ *   有明确反馈的占位入口（F04 D18）。
  *
  * 校验用 React Hook Form + Zod，只做**结构校验**，语义判定交给后端（F02 §9）。
  */
@@ -224,12 +225,7 @@ export default function LoginView() {
               component="button"
               type="button"
               variant="body2"
-              onClick={() =>
-                notifyPlaceholder(
-                  '注册入口尚未实现',
-                  '账号目前由系统管理员在「用户管理」中创建（POST /users）。',
-                )
-              }
+              onClick={() => navigate('/register')}
             >
               注册新账号
             </Link>

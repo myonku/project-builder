@@ -43,6 +43,9 @@ func (h *Handler) Register(api *gin.RouterGroup) {
 	group.POST("/login", h.login)
 	group.POST("/logout", h.logout)
 	group.GET("/me", h.me)
+
+	// 注册申请审核：仅系统管理员；权限在 service 层再次校验。
+	h.registerRegistrationRoutes(api)
 }
 
 // registerRequest 对应接口文档 4.2 POST /auth/register 的字段。
@@ -80,8 +83,12 @@ func (h *Handler) register(c *gin.Context) {
 		return
 	}
 
-	// 契约 2.1：成功写响应包含对象 id 和最新 updated_at；3.1 要求返回公开用户字段。
-	// 注册不建立会话，也不返回会话令牌。
+	// 生产配置下 result.Pending 为真：只返回申请，不创建用户、不建会话。
+	// 测试/冒烟配置关闭审核时保留原来的"直接创建 active 用户"响应。
+	if result.Pending {
+		httpapi.RespondCreated(c, newRegistrationRequestResponse(result.Request))
+		return
+	}
 	httpapi.RespondCreated(c, NewPublicUser(result.User))
 }
 

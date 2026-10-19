@@ -149,6 +149,14 @@ type SecurityConfig struct {
 	SecureCookies     bool   `toml:"secure_cookies"`
 	SessionCookieName string `toml:"session_cookie_name"`
 
+	// RegistrationRequiresApproval 控制自助注册是否走"提交申请 → 管理员审核"。
+	//
+	// 生产默认 true：POST /auth/register 只创建 registration_requests 行，不创建 users。
+	// 测试/冒烟环境可显式设为 false，保留原有的"注册即 active"行为，避免把
+	// 所有既有账号准备步骤都改成"注册 + 管理员审核"。它只是测试便利开关，
+	// 不是业务上的第二种注册语义；生产配置不得关闭。
+	RegistrationRequiresApproval bool `toml:"registration_requires_approval"`
+
 	// 引导管理员（bootstrap administrator）。
 	//
 	// 背景：本系统的使用场景中普通用户不需要管理员角色，因此没有分发管理员的需求；
@@ -340,11 +348,12 @@ func defaultConfig() Config {
 			MaxFilesPerUser: 1000,
 		},
 		Security: SecurityConfig{
-			SessionSecret:     devSessionSecretPlaceholder,
-			SessionTTLSeconds: 28800,
-			PasswordMinLength: 8,
-			SecureCookies:     false,
-			SessionCookieName: "pb_session",
+			SessionSecret:                devSessionSecretPlaceholder,
+			SessionTTLSeconds:            28800,
+			PasswordMinLength:            8,
+			SecureCookies:                false,
+			SessionCookieName:            "pb_session",
+			RegistrationRequiresApproval: true,
 		},
 		RateLimit: RateLimitConfig{
 			// 默认开启：限流是"没配就是关着"最容易在交付时被漏掉的一类保护。
@@ -504,6 +513,7 @@ func envBindings() []envBinding {
 		{"SECURITY_PASSWORD_MIN_LENGTH", intSetter(func(c *Config) *int { return &c.Security.PasswordMinLength })},
 		{"SECURITY_SECURE_COOKIES", boolSetter(func(c *Config) *bool { return &c.Security.SecureCookies })},
 		{"SECURITY_SESSION_COOKIE_NAME", stringSetter(func(c *Config) *string { return &c.Security.SessionCookieName })},
+		{"SECURITY_REGISTRATION_REQUIRES_APPROVAL", boolSetter(func(c *Config) *bool { return &c.Security.RegistrationRequiresApproval })},
 		{"SECURITY_BOOTSTRAP_ADMIN_USERNAME", stringSetter(func(c *Config) *string { return &c.Security.BootstrapAdminUsername })},
 		{"SECURITY_BOOTSTRAP_ADMIN_EMAIL", stringSetter(func(c *Config) *string { return &c.Security.BootstrapAdminEmail })},
 		{"SECURITY_BOOTSTRAP_ADMIN_PASSWORD", stringSetter(func(c *Config) *string { return &c.Security.BootstrapAdminPassword })},

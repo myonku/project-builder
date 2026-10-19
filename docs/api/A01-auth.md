@@ -7,7 +7,7 @@
 
 | # | 方法 | 路径 | 权限 | 说明 |
 | --- | --- | --- | --- | --- |
-| 1 | `POST` | `/api/v1/auth/register` | 无需登录 | 自助注册账号；不自动登录、不建立会话 |
+| 1 | `POST` | `/api/v1/auth/register` | 无需登录 | 提交注册申请（pending）；不创建用户、不建立会话 |
 | 2 | `POST` | `/api/v1/auth/login` | 无需登录 | 用用户名或邮箱换取会话 Cookie |
 | 3 | `POST` | `/api/v1/auth/logout` | 登录用户 | 撤销会话并清除 Cookie；幂等 |
 | 4 | `GET` | `/api/v1/auth/me` | 登录用户 | 返回当前会话对应的用户 |
@@ -16,7 +16,7 @@
 `logout` 与 `me` **不在**白名单内，因此必须携带会话 Cookie，缺失时由网关直接返回 `401`（不查 Redis）。
 Cookie 名由 `security.session_cookie_name` 配置（默认 `pb_session`），前端不应硬编码，也不应假定令牌形状。
 
-**公开用户结构**（本域 3 个端点返回同一个结构；字段表见本节与 [README.md](README.md) 的"公共资源表示"）：
+**公开用户结构**（`login` 与 `/auth/me` 返回同一个结构；`register` 返回申请结构，见 §1；字段表见本节与 [README.md](README.md) 的"公共资源表示"）：
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
@@ -35,7 +35,9 @@ Cookie 名由 `security.session_cookie_name` 配置（默认 `pb_session`），�
 
 ## 1. `POST /api/v1/auth/register`
 
-**用途**：自助注册一个普通成员账号，返回新账号的公开资料。
+**用途**：提交一条**注册申请**（`pending`），不创建用户、不建立会话。
+申请必须由系统管理员在 `POST /api/v1/registration-requests/{id}/review` 通过后，
+才会在同一事务里创建启用账号（详见 [A10](A10-registration-requests.md)）。
 **权限**：无需登录（会话网关白名单）。
 
 **路径参数**（无则写"无"）：无
@@ -52,7 +54,7 @@ Cookie 名由 `security.session_cookie_name` 配置（默认 `pb_session`），�
 | `password` | string | 是 | ≥ `security.password_min_length`（默认 8）且 ≤256 字符；**不做 trim** | 明文密码，前后空格是合法字符 |
 | `timezone` | string | 否 | IANA 时区标识，≤64 字符 | 省略或为空串则存为 `UTC` |
 
-**响应 `201`**：
+**响应 `201`**（申请已创建，**不是用户**）：
 
 ```json
 {
@@ -61,11 +63,12 @@ Cookie 名由 `security.session_cookie_name` 配置（默认 `pb_session`），�
     "username": "alice",
     "email": "alice@example.com",
     "display_name": "Alice",
-    "status": "active",
-    "system_role": "member",
     "timezone": "Asia/Shanghai",
-    "reminder_enabled": true,
-    "last_login_at": null,
+    "status": "pending",
+    "reviewed_by": null,
+    "reviewed_at": null,
+    "rejection_reason": null,
+    "created_at": "2026-10-11T03:39:11Z",
     "updated_at": "2026-10-11T03:39:11Z"
   }
 }
@@ -73,38 +76,41 @@ Cookie 名由 `security.session_cookie_name` 配置（默认 `pb_session`），�
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
-| `data.id` | string (UUID) | 新账号 id |
+| `data.id` | string (UUID) | 申请 id |
 | `data.username` | string | 已归一化的小写用户名 |
 | `data.email` | string | 已归一化的小写邮箱 |
 | `data.display_name` | string | 显示名（已 `TrimSpace`） |
-| `data.status` | string | 固定 `active` |
-| `data.system_role` | string | 固定 `member`（新用户不得默认为管理员） |
 | `data.timezone` | string | 提交值或 `UTC` |
-| `data.reminder_enabled` | boolean | 固定 `true` |
-| `data.last_login_at` | null | 注册不登录，恒为 `null` |
-| `data.updated_at` | string | 创建时刻 |
+| `data.status` | string | 固定 `pending` |
+| `data.reviewed_by` | string \| null | 审核管理员 id；未审核为 `null` |
+| `data.reviewed_at` | string \| null | 审核时间；未审核为 `null` |
+| `data.rejection_reason` | string \| null | 拒绝原因；通过/未审核为 `null` |
+| `data.created_at` / `data.updated_at` | string | 申请时间戳 |
 
-响应**不含** `Set-Cookie`：注册不自动登录，前端成功后可接着调用 §2。
+响应**不含** `Set-Cookie`：提交申请不登录；申请未通过前也没有可登录的账号。
 
 **错误**：
 
 | 状态码 | `error.code` | 触发条件 |
 | --- | --- | --- |
 | `400` | `invalid_request` | 请求体不是合法 JSON、请求体为空、字段类型不符、请求体含多个 JSON 值（`fields.body` 等） |
-| `409` | `conflict` | 用户名或邮箱已被占用：`fields.username` / `fields.email`（不区分大小写） |
+| `409` | `conflict` | 用户名或邮箱已被用户或**待审核申请**占用：`fields.username` / `fields.email`（不区分大小写） |
 | `422` | `validation_error` | 字段校验失败（一次返回全部字段明细）；请求体含契约未定义字段（`fields` 指出该字段名） |
 | `500` | `internal_error` | 未预期服务端错误 |
 
 **备注**：
 
-- 处理顺序：请求体绑定（`400` / 未知字段 `422`）→ 字段校验（`422`）→ 唯一性检查（`409`）→ 事务写入。
-- 唯一性判定**不区分大小写**（`Alice` 与 `alice` 是同一个账号）；并发注册同一账号时
-  必然有一方得到 `409 conflict`，不会出现 `500`。
+- 处理顺序：请求体绑定（`400` / 未知字段 `422`）→ 字段校验（`422`）→ 唯一性检查（`409`）→ 写入申请。
+- 唯一性判定**不区分大小写**（`Alice` 与 `alice` 是同一个账号）；并发提交相同 pending 申请时
+  由 `uq_registration_requests_*_lower` 部分唯一索引保证只有一条成功，另一方得到 `409`。
+- 被拒绝后可以重新提交；同一 HTTP 请求不会重复创建 pending 申请。
 - 请求体**不接受** `status` / `system_role` / `reminder_enabled`：它们不在契约字段集合内，
   提交即因未知字段返回 `422`（而不是被静默忽略）。
 - 密码长度下限按**字节数**比较、上限按 **Unicode 码点数**比较，
   因此多字节字符的口令在长度上的实际表现与"字符数"不完全一致。
 - 用户名与邮箱保存为小写，`id` 为服务端生成的 UUIDv7；这两项都不接受客户端指定。
+- **测试配置** `security.registration_requires_approval=false` 时可恢复到"注册即创建 active 用户"的旧行为；
+  生产配置默认且必须为 `true`，见 [B03](../../backend/docs/B03-配置与运行.md)。
 
 ## 2. `POST /api/v1/auth/login`
 
