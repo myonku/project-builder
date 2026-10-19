@@ -290,8 +290,9 @@ RETURNING id, updated_at;
 | Attachments | 7 | [api/A07-attachments.md](api/A07-attachments.md) |
 | Reminders | 3 | [api/A08-reminders.md](api/A08-reminders.md) |
 | Audit | 1 | [api/A09-audit.md](api/A09-audit.md) |
+| Registration Requests | 2 | [api/A10-registration-requests.md](api/A10-registration-requests.md) |
 
-合计 **55 个业务端点** + 4 个健康检查端点。业务端点一律以 `/api/v1` 为前缀；
+合计 **57 个业务端点** + 4 个健康检查端点。业务端点一律以 `/api/v1` 为前缀；
 根级 `/healthz` 供容器/反向代理使用（无版本前缀）。
 
 ## 4. 写接口处理顺序
