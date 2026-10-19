@@ -13,6 +13,7 @@ import type {} from '@mui/material/themeCssVarsAugmentation';
 import DashboardIcon from '@mui/icons-material/Dashboard';
 import FolderIcon from '@mui/icons-material/Folder';
 import EventNoteIcon from '@mui/icons-material/EventNote';
+import TimelineIcon from '@mui/icons-material/Timeline';
 import AssignmentIndIcon from '@mui/icons-material/AssignmentInd';
 import GroupsIcon from '@mui/icons-material/Groups';
 import NotificationsIcon from '@mui/icons-material/Notifications';
@@ -184,7 +185,7 @@ export default function DashboardSidebar({
             {/*
               导航层级（用户要求）：
               - 一级 = 分组标题（工作台 / 系统管理）
-              - 二级 = 概览、项目、计划、邮件提醒、操作记录 / 用户管理、工作组管理
+              - 二级 = 概览、项目、计划、视图、邮件提醒、操作记录 / 用户管理、工作组管理
               - 三级 = 计划 下的 个人计划、组内计划（默认展开，可点击"计划"收起）
             */}
             <DashboardSidebarHeaderItem>工作台</DashboardSidebarHeaderItem>
@@ -237,6 +238,13 @@ export default function DashboardSidebar({
                   />
                 </List>
               }
+            />
+            <DashboardSidebarPageItem
+              id="gantt"
+              title="视图"
+              icon={<TimelineIcon />}
+              href="/gantt"
+              selected={pathname === '/gantt'}
             />
             <DashboardSidebarPageItem
               id="reminders"

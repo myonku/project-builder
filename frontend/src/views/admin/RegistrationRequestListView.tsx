@@ -17,6 +17,7 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 import CheckIcon from '@mui/icons-material/Check';
 import CloseIcon from '@mui/icons-material/Close';
 import { DataGrid, type GridColDef, type GridRenderCellParams } from '@mui/x-data-grid';
+import { zhCN } from '@mui/x-data-grid/locales';
 import { toApiError } from '@/api/client';
 import { queryRegistrationRequests, reviewRegistrationRequest } from '@/api/registration';
 import PageContainer from '@/components/common/PageContainer';
@@ -303,6 +304,7 @@ export default function RegistrationRequestListView() {
             pageSizeOptions={[10, 20, 50]}
             disableColumnFilter
             disableRowSelectionOnClick
+            localeText={zhCN.components.MuiDataGrid.defaultProps.localeText}
           />
         </Box>
       </Stack>

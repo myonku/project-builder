@@ -73,6 +73,10 @@ export const router = createBrowserRouter([
             element: page(() => import('@/views/plan/GroupPlanView')),
           },
           {
+            path: 'gantt',
+            element: page(() => import('@/views/gantt/GanttView')),
+          },
+          {
             path: 'reminders',
             element: page(() => import('@/views/reminders/ReminderListView')),
           },
