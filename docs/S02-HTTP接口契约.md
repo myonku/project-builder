@@ -9,16 +9,23 @@
 > 前端要读的是本文档 + 《S01 需求文档》+ [api/](api/README.md)（逐接口的请求/响应结构）。
 
 - 业务需求以 [S01-需求文档.md](./S01-需求文档.md) 为准。
-- **逐接口的字段与响应结构在 [api/](api/README.md)**（`A01`–`A09`），本文档不重复。
+- **逐接口的字段与响应结构在 [api/](api/README.md)**（`A01`–`A10`），本文档不重复。
   两者冲突时：**约定**以本文档为准，**字段与结构**以 api/ 的实测为准，冲突即缺陷、应修文档。
 - 容易做错的契约加强项在 §5 汇总（"项"列写 `A0x` 表示该条对应 api/ 里的域文档）。
+
+> **2026-10-20 规划（未生效）**：Worklane 品牌、Mongo/GridFS 附件存储、头像与 `/me`、
+> 邮箱验证重置密码的评估与**未来**接口/错误码/端点计数见
+> [P01-Worklane-规划-2026-10-20.md](P01-Worklane-规划-2026-10-20.md)。本文当前仍是**唯一生效契约**；
+> 在 P01 的端点、202/204、`password_reset_token_invalid`、`password_reset_unavailable`、
+> `avatar_not_found`、`object_storage_unavailable`
+> 等被正式写入本文之前，不得按规划内容调用或实现。
 
 ## 2. 公共约定
 
 ### 2.1 基础格式
 
 - 基础地址：`/api/v{API_VERSION}`，当前为 `/api/v1`。
-- JSON 请求与响应使用 `application/json`；文件上传使用 `multipart/form-data`（附件上传）。
+- JSON 请求与响应使用 `application/json`；文件上传使用 `multipart/form-data`（附件、头像上传）。
 - JSON 字段统一 `snake_case`。
 - ID 使用标准 36 字符带连字符的小写 UUID 字符串。
 - 日期使用 `YYYY-MM-DD` 自然日；瞬时时间使用 UTC ISO 8601，例如 `2026-09-30T04:00:00Z`。

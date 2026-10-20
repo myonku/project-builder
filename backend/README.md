@@ -1,8 +1,9 @@
-# 项目/计划管理系统 — Go 服务端
+# Worklane — Go 服务端
 
-项目/计划管理系统的服务端，使用 **Go 1.26 + Gin + pgx** 实现。
+Worklane（Work Items & Layered Timelines）的服务端，使用 **Go 1.26 + Gin + pgx** 实现。
 
-应用面向内部网络，不面向公网开放。
+应用面向内部网络，不面向公网开放。2026-10 的 Mongo/GridFS、头像与邮箱重置密码规划见
+[../docs/P01-Worklane-规划-2026-10-20.md](../docs/P01-Worklane-规划-2026-10-20.md)（规划中，未实现）。
 
 > **本文件是服务端的入口文档**（怎么跑、怎么测、代码怎么分层）。
 > 仓库级总览见 [../README.md](../README.md)；前后端共用的文档（业务需求、HTTP 接口契约）在
@@ -12,6 +13,10 @@
 ## 当前状态
 
 **四个阶段已全部完成并经真实依赖验证**：地基 + Auth、Groups / Projects / Tasks、Users、Plan Views、Attachments、Reminders、Audit，以及交付收口（端到端验收、备份恢复演练、部署核对）。
+
+> **2026-10 新规划（未实现）**：Worklane 品牌（用户可见文案/邮件）、MongoDB 7 + GridFS 附件/头像存储、
+> 头像端点和 `/me` 需要的资料字段、邮箱验证重置密码（7 天冷却、5 次/窗口、`session_version`）。
+> 当前代码/迁移/端点计数不变；详见 P01 与 B05 §5.21。
 
 | 能力 | 状态 |
 | --- | --- |

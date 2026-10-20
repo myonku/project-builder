@@ -32,6 +32,12 @@
 
 合计 **57 个业务端点**，另有 4 个健康检查端点（见下）。
 
+> **2026-10-20 规划（未生效）**：头像（`GET /users/{id}/avatar`、`POST/DELETE /me/avatar`）与
+> 邮箱验证重置密码（`POST /auth/password-reset/request`、`POST /auth/password-reset/confirm`）
+> 尚未实现，**不计入上面的 57/61**。字段、错误码、迁移与阶段顺序见
+> [P01-Worklane-规划-2026-10-20.md](../P01-Worklane-规划-2026-10-20.md)；
+> 落地时先改 S02，再改本目录对应 A0x，最后改代码。
+
 > 本目录的文件按域编号（`A01`…）。共用文档用 `S` 前缀，服务端文档用 `B` 前缀，
 > 前端文档用 `F` 前缀（见 `frontend/docs/README.md`）。
 
@@ -41,7 +47,7 @@
 | --- | --- | --- |
 | `GET` | `/api/v1/health/check` | 要求 `arg` 请求头；缺失返回 `422`，成功 `200` |
 | `GET` | `/api/v1/health/live` | 存活检查，**不检查**任何外部依赖 |
-| `GET` | `/api/v1/health/ready` | 就绪检查，真实检查数据库与 Redis |
+| `GET` | `/api/v1/health/ready` | 就绪检查，真实检查数据库与 Redis（规划：`storage.backend=gridfs` 时还检查 Mongo，失败返回 `object_storage_unavailable`） |
 | `GET` | `/healthz` | 根级存活探针（无版本前缀），供容器/反向代理使用 |
 
 `/health/ready` 的响应体是**例外形状**（不带 `data` 信封）：

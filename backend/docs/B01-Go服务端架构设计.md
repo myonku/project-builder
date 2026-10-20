@@ -1,4 +1,4 @@
-# 项目/计划管理系统 Go 服务端架构设计
+# Worklane Go 服务端架构设计
 
 ## 1. 文档定位
 
@@ -13,7 +13,7 @@
 | --- | --- |
 | [S01-需求文档](../../docs/S01-需求文档.md) | 业务需求与验收边界（**业务范围的唯一权威来源**，前后端共用） |
 | [S02-HTTP接口契约](../../docs/S02-HTTP接口契约.md) | 约定性叙述：信封、认证、分页、并发与幂等、限流、错误码（**前后端共用**） |
-| [api/ 逐接口详解](../../docs/api/README.md) | `A01`–`A09`：每个端点的请求/响应数据结构（前后端共用，前端为主） |
+| [api/ 逐接口详解](../../docs/api/README.md) | `A01`–`A10`：每个端点的请求/响应数据结构（前后端共用，前端为主） |
 | [frontend/docs/](../../frontend/docs/README.md) | `F01`–`F05`：前端架构、类型映射、运行联调、偏离登记、进度与验证（前端） |
 | 本文档（B01） | 技术选型、分层职责、依赖方向、必须规避的历史缺陷 |
 | [B02-数据库模型与迁移](./B02-数据库模型与迁移.md) | 表结构权威定义、约束、迁移策略与验收要求 |
@@ -53,21 +53,29 @@ Gin/pgx 生态。但必须同时承认：**更换语言不会自动修复逻辑�
 | HTTP | `github.com/gin-gonic/gin` | 路由、中间件、绑定与响应 |
 | 数据库驱动 | `github.com/jackc/pgx/v5` | 直接使用 `pgxpool`，显式 SQL |
 | 迁移 | 纯 SQL 迁移文件 + `golang-migrate`（或等价库） | 迁移内容与原 Alembic 语义一一对应 |
-| 主数据库 | PostgreSQL 16 | 唯一业务数据源 |
+| 主数据库 | PostgreSQL 16 | **唯一业务事实源**；不是唯一数据存储 |
+| 对象存储 | MongoDB 7 + GridFS（**规划**，当前为本地文件系统） | 只存附件/头像字节；元数据、权限、审计仍在 PostgreSQL |
 | 短期状态 | Redis 7 | 会话、限流、锁；不保存核心业务唯一数据 |
 | 密码 | `golang.org/x/crypto/argon2` | 与原 Argon2 行为对齐 |
 | ID | `github.com/google/uuid` 的 UUIDv7 | 时间有序，替代早期实现里的 ID 生成模块 |
 | 配置 | 环境变量 + TOML（`github.com/BurntSushi/toml`） | 启动时读取一次 |
 | 日志 | 标准库 `log/slog` | 结构化、UTC、可脱敏 |
 | 邮件 | `net/smtp` 或 `github.com/wneessen/go-mail` | 通过接口隔离，业务层不感知 SMTP |
-| 文件 | 本地文件系统 | 根目录 `data/uploads`，接口预留替换边界 |
+| 文件 | 本地文件系统（现状）→ GridFS（规划） | 根目录 `data/uploads` / `gridfs` bucket；接口预留替换边界 |
 | 后台任务 | 单实例应用内 goroutine + ticker | 不引入独立队列 |
 | 测试 | 标准 `testing` + `net/http/httptest` + 真实 PostgreSQL/Redis | 见第 6 节 |
 
 依赖解析已在本机验证可用（`GOPROXY=https://goproxy.io,direct`，
-`github.com/google/uuid v1.6.0` 可正常拉取）。
+`github.com/google/uuid v1.6.0` 可正常拉取）。`go.mongodb.org/mongo-driver/v2 v2.5.0`
+当前已在 `go.mod` 的 indirect 依赖中；引入 GridFS 后提升为 direct 即可。
 
-应用面向内部网络，不引入微服务、对象存储、搜索服务、独立消息队列或配置中心。
+> **2026-10-20 规划（未生效）**：正式引入 MongoDB 7 作为附件与头像的字节存储，
+> 保持 `storage.Store` 四方法不变、`stored_key` 不变；PostgreSQL 仍是唯一业务事实源。
+> 设计、迁移、回滚、备份与健康检查见
+> [P01-Worklane-规划-2026-10-20.md](../../docs/P01-Worklane-规划-2026-10-20.md) §3。
+
+应用面向内部网络，不引入微服务、独立搜索服务、独立消息队列或配置中心；
+MongoDB 仅作为**对象存储**，不承载业务事实。
 
 ## 4. 分层设计（有意收敛，不做 1:1 平移）
 
