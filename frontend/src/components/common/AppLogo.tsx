@@ -1,39 +1,29 @@
 /**
- * 应用标识（本项目文件，替代模板自带的 `SitemarkIcon`）。
+ * Worklane 主题图标（W 标记）。
  *
- * 模板的 `SitemarkIcon` 是 MUI 官方文档站的商标图形，直接留在产物里等于给内部系统
- * 挂了一个别人的品牌。这里换成一个中性的"层级/项目树"标记：
- * - 不引入图片资源，纯 SVG，跟随主题 `primary` 色与文字色；
- * - 需要换成正式 Logo 时，只改这一个文件（或替换为 `<img src="/logo.svg">`，
- *   静态资源放 `public/`）。
+ * 资产来自 `src/assets/brand/`：2x 为主、1x 作为低 DPR 回退。图标在顶栏与
+ * `Worklane` 文字并排时是装饰性的，`alt=""` + `aria-hidden` 避免读屏重复；
+ * 链接本身的 `aria-label` 由 `DashboardHeader` 提供。
  */
 
-import SvgIcon from '@mui/material/SvgIcon';
-import type { SvgIconProps } from '@mui/material/SvgIcon';
+import Box from '@mui/material/Box';
+import { BRAND_MARK, BRAND_MARK_1X } from '@/config/brand';
 
-export default function AppLogo(props: SvgIconProps) {
+export interface AppLogoProps {
+  /** 显示高度（px）；默认 30，顶栏容器高 40 */
+  height?: number;
+}
+
+export default function AppLogo({ height = 30 }: AppLogoProps) {
   return (
-    <SvgIcon
-      viewBox="0 0 32 32"
-      sx={{ fontSize: 30, color: 'primary.main' }}
+    <Box
+      component="img"
+      src={BRAND_MARK}
+      srcSet={`${BRAND_MARK_1X} 1x, ${BRAND_MARK} 2x`}
+      alt=""
       aria-hidden="true"
-      {...props}
-    >
-      {/* 顶层节点 */}
-      <rect x="11" y="2" width="10" height="7" rx="2" fill="currentColor" />
-      {/* 连线 */}
-      <path
-        d="M16 9v5M6 20v-3h20v3"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        fill="none"
-      />
-      {/* 下层节点 */}
-      <rect x="1" y="20" width="10" height="7" rx="2" fill="currentColor" opacity="0.75" />
-      <rect x="21" y="20" width="10" height="7" rx="2" fill="currentColor" opacity="0.75" />
-      {/* 里程碑菱形 */}
-      <path d="M16 19.5l2.6 2.6L16 24.7l-2.6-2.6z" fill="currentColor" />
-    </SvgIcon>
+      draggable={false}
+      sx={{ height, width: 'auto', display: 'block' }}
+    />
   );
 }

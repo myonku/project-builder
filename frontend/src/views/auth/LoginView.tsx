@@ -36,6 +36,7 @@ import { useForm } from 'react-hook-form';
 import { useNavigate, useSearchParams } from 'react-router';
 import { z } from 'zod';
 import { toApiError } from '@/api/client';
+import { BRAND_NAME, BRAND_TAGLINE } from '@/config/brand';
 import { useNotifications } from '@/hooks/useNotifications';
 import { useAuthStore } from '@/stores/auth';
 import {
@@ -152,7 +153,10 @@ export default function LoginView() {
               登录
             </Typography>
             <Typography variant="body1" color="text.secondary">
-              项目/计划管理系统 · 仅限内部网络使用
+              {BRAND_NAME} · {BRAND_TAGLINE}
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              仅限内部网络使用
             </Typography>
           </Stack>
 

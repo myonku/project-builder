@@ -11,8 +11,7 @@ import { Outlet } from 'react-router';
 import DashboardHeader from './DashboardHeader';
 import DashboardSidebar from './DashboardSidebar';
 import AppLogo from '@/components/common/AppLogo';
-
-const APP_TITLE = import.meta.env.VITE_APP_TITLE ?? '项目/计划管理系统';
+import { BRAND_NAME } from '@/config/brand';
 
 export default function DashboardLayout() {
   const theme = useTheme();
@@ -65,7 +64,7 @@ export default function DashboardLayout() {
     >
       <DashboardHeader
         logo={<AppLogo />}
-        title={APP_TITLE}
+        title={BRAND_NAME}
         menuOpen={isNavigationExpanded}
         onToggleMenu={handleToggleHeaderMenu}
       />

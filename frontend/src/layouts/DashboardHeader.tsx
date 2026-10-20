@@ -16,6 +16,7 @@ import Stack from '@mui/material/Stack';
 import { Link } from 'react-router';
 import ThemeSwitcher from './ThemeSwitcher';
 import UserMenu from './UserMenu';
+import { BRAND_NAME } from '@/config/brand';
 
 const AppBar = styled(MuiAppBar)(({ theme }) => ({
   borderWidth: 0,
@@ -94,7 +95,7 @@ export default function DashboardHeader({
         >
           <Stack direction="row" sx={{ alignItems: 'center' }}>
             <Box sx={{ mr: 1 }}>{getMenuIcon(menuOpen)}</Box>
-            <Link to="/" style={{ textDecoration: 'none' }}>
+            <Link to="/" style={{ textDecoration: 'none' }} aria-label={`${BRAND_NAME} 首页`}>
               <Stack direction="row" sx={{ alignItems: 'center' }}>
                 {logo ? <LogoContainer>{logo}</LogoContainer> : null}
                 {title ? (
@@ -106,6 +107,8 @@ export default function DashboardHeader({
                       ml: 1,
                       whiteSpace: 'nowrap',
                       lineHeight: 1,
+                      // 用户确认：窄屏只保留 W 图标，不把 Worklane 挤进工具栏
+                      display: { xs: 'none', sm: 'block' },
                     }}
                   >
                     {title}
