@@ -100,11 +100,12 @@ export default function DashboardHeader({
                 {logo ? <LogoContainer>{logo}</LogoContainer> : null}
                 {title ? (
                   <Typography
-                    variant="h6"
+                    variant="subtitle1"
                     sx={{
                       color: (theme.vars ?? theme).palette.primary.main,
                       fontWeight: '700',
-                      ml: 1,
+                      fontSize: 18,
+                      ml: 0.75,
                       whiteSpace: 'nowrap',
                       lineHeight: 1,
                       // 用户确认：窄屏只保留 W 图标，不把 Worklane 挤进工具栏

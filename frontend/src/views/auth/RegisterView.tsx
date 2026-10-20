@@ -23,6 +23,7 @@ import { useForm } from 'react-hook-form';
 import { useNavigate } from 'react-router';
 import { z } from 'zod';
 import { register } from '@/api/auth';
+import AppBrand from '@/components/common/AppBrand';
 import { describeApiError, applyApiFieldErrors } from '@/hooks/useApiError';
 import { useNotifications } from '@/hooks/useNotifications';
 import type { RegistrationRequest } from '@/types/registration';
@@ -104,14 +105,15 @@ export default function RegisterView() {
         py: 4,
       }}
     >
-      <Card elevation={3} sx={{ width: '100%', maxWidth: 560, mx: 'auto' }}>
+      <Card elevation={3} sx={{ width: '100%', maxWidth: 480, mx: 'auto' }}>
         <CardContent sx={{ p: { xs: 3, sm: 4 } }}>
           <Stack spacing={3}>
-            <Stack spacing={1}>
-              <Typography component="h1" variant="h4" sx={{ fontWeight: 500 }}>
-                注册新账号
+            <AppBrand />
+            <Stack spacing={2}>
+              <Typography align='center' component="h2" variant="h5" sx={{ fontWeight: 500 }}>
+                注册新的账号
               </Typography>
-              <Typography variant="body1" color="text.secondary">
+              <Typography variant="body2" color="text.secondary">
                 提交申请后由系统管理员审核；审核通过前不能登录。
               </Typography>
             </Stack>

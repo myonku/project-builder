@@ -36,7 +36,7 @@ import { useForm } from 'react-hook-form';
 import { useNavigate, useSearchParams } from 'react-router';
 import { z } from 'zod';
 import { toApiError } from '@/api/client';
-import { BRAND_NAME, BRAND_TAGLINE } from '@/config/brand';
+import AppBrand from '@/components/common/AppBrand';
 import { useNotifications } from '@/hooks/useNotifications';
 import { useAuthStore } from '@/stores/auth';
 import {
@@ -148,15 +148,13 @@ export default function LoginView() {
             p: { xs: 3, sm: 4 },
           }}
         >
-          <Stack spacing={1}>
-            <Typography component="h1" variant="h4" sx={{ fontWeight: 500 }}>
+          <AppBrand />
+          <Stack spacing={2}>
+            <Typography align='center' component="h2" variant="h5" sx={{ fontWeight: 500 }}>
               登录
             </Typography>
-            <Typography variant="body1" color="text.secondary">
-              {BRAND_NAME} · {BRAND_TAGLINE}
-            </Typography>
             <Typography variant="body2" color="text.secondary">
-              仅限内部网络使用
+              仅限内部网络使用。
             </Typography>
           </Stack>
 

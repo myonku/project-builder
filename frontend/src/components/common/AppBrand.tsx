@@ -1,59 +1,64 @@
 /**
- * 公开页品牌区（登录 / 注册顶栏）。
+ * 登录 / 注册卡片顶部的品牌装饰。
  *
- * 用户确认的形态：**WILT 字标 + Worklane + 文字标题**；窄屏只保留字标，
- * 避免 64px 顶栏里挤下三行内容。应用内（Dashboard）使用 W 图标 + `Worklane`，
- * 见 `DashboardLayout` / `DashboardHeader`。
+ * 顶栏只留 W 主题图标，这里承担公开页的完整品牌信息：
+ * - 大一点的 W 主题图标；
+ * - `Work Items & Layered Timelines` 文字；
+ * - 暗色下轻微提亮字标。
  */
 
-import Box from '@mui/material/Box';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
-import { useTheme } from '@mui/material/styles';
+import AppLogo from '@/components/common/AppLogo';
 import {
   BRAND_NAME,
   BRAND_TAGLINE,
-  BRAND_WORDMARK,
-  BRAND_WORDMARK_1X,
 } from '@/config/brand';
+import { useTheme } from '@mui/material/styles';
 
 export default function AppBrand() {
   const theme = useTheme();
-
   return (
-    <Stack direction="row" spacing={1.25} sx={{ alignItems: 'center', minWidth: 0 }}>
-      <Box
-        component="img"
-        src={BRAND_WORDMARK}
-        srcSet={`${BRAND_WORDMARK_1X} 1x, ${BRAND_WORDMARK} 2x`}
-        alt="WILT"
-        draggable={false}
+    <Stack
+      spacing={1.25}
+      sx={{
+        alignItems: 'center',
+        justifyContent: 'center',
+        textAlign: 'center',
+        width: '100%',
+      }}
+    >
+      <Stack
+        direction="row"
+        spacing={1}
         sx={{
-          height: { xs: 30, sm: 40 },
-          width: 'auto',
-          display: 'block',
-          flexShrink: 0,
-          // 深蓝端在暗色背景上对比偏低；轻微提亮而不是再维护一套位图
-          [theme.getColorSchemeSelector('dark')]: { filter: 'brightness(1.35)' },
+          alignItems: 'center',
+          justifyContent: 'center',
+          textAlign: 'center',
         }}
-      />
-      <Box sx={{ display: { xs: 'none', sm: 'block' }, minWidth: 0 }}>
+      >
+        <AppLogo height={36} />
         <Typography
-          variant="subtitle1"
-          component="div"
-          sx={{ fontWeight: 700, lineHeight: 1.2, whiteSpace: 'nowrap' }}
+          component="h1" variant="h4"
+          sx={{
+            color: (theme.vars ?? theme).palette.primary.main,
+            fontWeight: 500,
+            fontSize: 36,
+            ml: 0.75,
+            whiteSpace: 'nowrap',
+            lineHeight: 1,
+          }}
         >
           {BRAND_NAME}
         </Typography>
-        <Typography
-          variant="caption"
-          color="text.secondary"
-          component="div"
-          sx={{ lineHeight: 1.2, whiteSpace: 'nowrap' }}
-        >
-          {BRAND_TAGLINE}
-        </Typography>
-      </Box>
+      </Stack>
+      <Typography
+        variant="body2"
+        color="text.secondary"
+        sx={{ fontSize: 14, lineHeight: 1.4 }}
+      >
+        {BRAND_TAGLINE}
+      </Typography>
     </Stack>
   );
 }

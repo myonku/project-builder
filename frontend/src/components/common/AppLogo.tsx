@@ -10,11 +10,11 @@ import Box from '@mui/material/Box';
 import { BRAND_MARK, BRAND_MARK_1X } from '@/config/brand';
 
 export interface AppLogoProps {
-  /** 显示高度（px）；默认 30，顶栏容器高 40 */
+  /** 显示高度（px）；默认 26，顶栏容器高 40 */
   height?: number;
 }
 
-export default function AppLogo({ height = 30 }: AppLogoProps) {
+export default function AppLogo({ height = 26 }: AppLogoProps) {
   return (
     <Box
       component="img"
