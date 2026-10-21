@@ -16,6 +16,7 @@ import (
 type Health struct {
 	PostgresPing func() error
 	RedisPing    func() error
+	MongoPing    func() error
 }
 
 // Registrar 是业务模块向路由注册自身端点的接口。
@@ -145,6 +146,12 @@ func registerHealth(api *gin.RouterGroup, health Health) {
 		if health.RedisPing != nil {
 			if err := health.RedisPing(); err != nil {
 				c.JSON(503, gin.H{"status": "not_ready", "error": "redis_unavailable"})
+				return
+			}
+		}
+		if health.MongoPing != nil {
+			if err := health.MongoPing(); err != nil {
+				c.JSON(503, gin.H{"status": "not_ready", "error": "object_storage_unavailable"})
 				return
 			}
 		}

@@ -76,6 +76,8 @@ type Service struct {
 	clk      clock.Clock
 	logger   *slog.Logger
 	cfg      config.StorageConfig
+	// backend 是当前写入使用的对象存储标识，写入 attachments.storage_backend 账本。
+	backend string
 	// audit 是操作记录的写入方，由仓储在业务事务里调用（见 apperr.AuditWrite）。
 	audit apperr.AuditWriter
 }
@@ -104,6 +106,10 @@ func NewService(opts Options) *Service {
 	if clk == nil {
 		clk = clock.NewSystem()
 	}
+	backend := strings.ToLower(strings.TrimSpace(opts.Config.Backend))
+	if backend == "" {
+		backend = "local"
+	}
 	return &Service{
 		repo:     opts.Store,
 		storage:  opts.Storage,
@@ -113,6 +119,7 @@ func NewService(opts Options) *Service {
 		clk:      clk,
 		logger:   logger,
 		cfg:      opts.Config,
+		backend:  backend,
 		audit:    opts.Audit,
 	}
 }
@@ -229,15 +236,16 @@ func (s *Service) Upload(ctx context.Context, in UploadInput) (Record, error) {
 	}
 
 	record, err := s.repo.Create(ctx, CreateParams{
-		ID:           id,
-		ProjectID:    in.ProjectID,
-		TaskID:       in.TaskID,
-		UploaderID:   in.ActorID,
-		OriginalName: originalName,
-		StoredKey:    key,
-		Extension:    extension,
-		SizeBytes:    in.Size,
-		MimeType:     normalizeMime(in.MimeType, extension),
+		ID:             id,
+		ProjectID:      in.ProjectID,
+		TaskID:         in.TaskID,
+		UploaderID:     in.ActorID,
+		OriginalName:   originalName,
+		StoredKey:      key,
+		Extension:      extension,
+		SizeBytes:      in.Size,
+		MimeType:       normalizeMime(in.MimeType, extension),
+		StorageBackend: s.backend,
 		// 上传也入账：只记元数据，不记内容。
 		Audit: s.auditWith(in.ActorID, domain.AuditActionCreated, id, map[string]string{
 			"original_name": originalName,

@@ -2,8 +2,9 @@
 
 Worklane（Work Items & Layered Timelines）的服务端，使用 **Go 1.26 + Gin + pgx** 实现。
 
-应用面向内部网络，不面向公网开放。2026-10 的 Mongo/GridFS、头像与邮箱重置密码规划见
-[../docs/P01-Worklane-规划-2026-10-20.md](../docs/P01-Worklane-规划-2026-10-20.md)（规划中，未实现）。
+应用面向内部网络，不面向公网开放。2026-10 的迁移/对象存储/头像规划见
+[../docs/P01-Worklane-规划-2026-10-20.md](../docs/P01-Worklane-规划-2026-10-20.md)
+（W1 品牌、W2 `/me`、W3 Mongo/GridFS 已落地；W4/W5 未开始）。
 
 > **本文件是服务端的入口文档**（怎么跑、怎么测、代码怎么分层）。
 > 仓库级总览见 [../README.md](../README.md)；前后端共用的文档（业务需求、HTTP 接口契约）在
@@ -14,9 +15,8 @@ Worklane（Work Items & Layered Timelines）的服务端，使用 **Go 1.26 + Gi
 
 **四个阶段已全部完成并经真实依赖验证**：地基 + Auth、Groups / Projects / Tasks、Users、Plan Views、Attachments、Reminders、Audit，以及交付收口（端到端验收、备份恢复演练、部署核对）。
 
-> **2026-10 新规划（未实现）**：Worklane 品牌（用户可见文案/邮件）、MongoDB 7 + GridFS 附件/头像存储、
-> 头像端点和 `/me` 需要的资料字段、邮箱验证重置密码（7 天冷却、5 次/窗口、`session_version`）。
-> 当前代码/迁移/端点计数不变；详见 P01 与 B05 §5.21。
+> **2026-10 状态**：W1 品牌、W2 `/me`、W3 Mongo/GridFS 已落地；W4 头像、W5 邮箱重置密码未开始。
+> 当前迁移 head **7**、HTTP 端点仍为 **61**；详见 P01 与 B05 §5.22。
 
 | 能力 | 状态 |
 | --- | --- |
@@ -24,7 +24,7 @@ Worklane（Work Items & Layered Timelines）的服务端，使用 **Go 1.26 + Gi
 | `platform`：PostgreSQL(pgxpool)、Redis、可注入时钟、UUIDv7/安全令牌、Argon2id、对象存储、SMTP、request id 传递 | ✅ 已实现 |
 | `domain`：错误类型体系、用户规则、时间与逾期规则、权限基线、审计枚举与脱敏 | ✅ 已实现 |
 | `httpapi`：requestID、访问日志、panic 恢复、CORS、会话网关、全局限流、统一信封、错误映射、健康检查 | ✅ 已实现 |
-| 迁移 `000001_init`（9 张表、CHECK、部分唯一索引、外键删除行为）+ `000002`–`000005`（均 up/down 可逆） | ✅ 已实现（head `5`） |
+| 迁移 `000001_init`（9 张表、CHECK、部分唯一索引、外键删除行为）+ `000002`–`000007`（均 up/down 可逆） | ✅ 已实现（head `7`） |
 | Auth：注册、登录、登出、当前用户（Argon2id + Redis 会话 + HttpOnly Cookie） | ✅ 已实现 |
 | Groups / Projects / Tasks | ✅ 已实现（第二阶段） |
 | Users：资料查询/更新、管理员停用、管理员创建/列表/重置密码、按用户时区计算"今天" | ✅ 已实现（第三阶段） |
@@ -35,7 +35,7 @@ Worklane（Work Items & Layered Timelines）的服务端，使用 **Go 1.26 + Gi
 
 已注册端点共 **61 个**（Health 4 / Auth 4 / Users 6 / Groups 11 / Projects 9 / Tasks 11 / Plan Views 3 / Attachments 7 / Reminders 3 / Audit 1 / Registration Requests 2）。
 
-真实依赖验证结果（PostgreSQL 16 + Redis 7，2026-10-12 复跑）：
+真实依赖验证结果（PostgreSQL 16 + Redis 7 + MongoDB GridFS，2026-10-21 复跑）：
 
 - `go test ./... -count=1 -p 1` 全量通过（历史基线顶层 323 项、含子用例 894 项；本轮新增注册审核集成测试），覆盖真实数据库上的迁移可逆性、约束生效性、单一 owner 不变式、审计的同事务与脱敏语义，以及八个域的端到端用例。
 - `scripts/smoke.ps1` 对运行中的服务执行 **207 项断言全部通过**（健康检查、认证全链路、用户资料与管理员端点（含成功路径）、计划视图三端点、持有者与工作组所有权转移、管理员兜底、附件全链路（含 multipart 与两步删除）、提醒生成与派发、**审计的可见性、脱敏与全链路可追溯**、三域 CRUD、分页边界、排序白名单、版本冲突、组合筛选、幂等复制、归档只读）。
@@ -176,13 +176,14 @@ project-builder/                 # 仓库根
 └── backend/                     # 本目录：Go 服务端（模块根，命令都在这里执行）
     ├── cmd/api/main.go          # 唯一入口：装配依赖、启动 HTTP、优雅关闭
     ├── cmd/migrate/main.go      # 迁移入口：up / down / steps / version / force
+    ├── cmd/storage-migrate/     # 附件字节 local ↔ gridfs：copy / verify / rollback
     ├── internal/
     │   ├── config/              # 启动时读取一次，返回不可变配置
-    │   ├── platform/            # 基础设施：postgres、redis、时钟、ID、密码、邮件、对象存储
+    │   ├── platform/            # 基础设施：postgres、redis、mongo、时钟、ID、密码、邮件、对象存储
     │   │   ├── clock/           # 可注入时钟（测试固定时间）
     │   │   ├── idgen/           # UUIDv7 / UUIDv4 / 安全令牌
     │   │   ├── mail/            # Sender 接口 + SMTP 实现 + 未启用实现（+ 显式 tag 的联调程序）
-    │   │   └── storage/         # 对象存储四方法（Put/Open/Delete/Exists）+ 本地实现
+    │   │   └── storage/         # 对象存储四方法 + Local / GridFS + 配置工厂
     │   ├── domain/              # 纯业务规则：无 IO、无 SQL、无 HTTP
     │   ├── listquery/           # 列表分页与排序的唯一实现（SQL 层 LIMIT/OFFSET、白名单、限定 id 次级键）
     │   ├── app/                 # 业务模块：每域 repo.go + service.go + http.go(+ sort.go)

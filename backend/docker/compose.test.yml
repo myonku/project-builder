@@ -1,4 +1,4 @@
-# 集成测试依赖：PostgreSQL 16 / Redis 7 / Mailpit
+# 集成测试依赖：PostgreSQL 16 / Redis 7 / MongoDB / Mailpit
 #
 # 端口与凭据集中在 docker/test.env，并被集成测试的默认 DSN
 # （internal/testsupport）与 Makefile 的测试目标复用，因此同一套依赖
@@ -49,6 +49,22 @@ services:
     networks:
       - project_builder_test
 
+  # MongoDB 7+ 仅供 GridFS 附件/头像测试；默认端口 27018，避免与本机 27017 冲突。
+  mongo:
+    image: mongo:7
+    command: ["mongod", "--bind_ip_all"]
+    ports:
+      - "${MONGO_PORT:-27018}:27017"
+    volumes:
+      - project_builder_go_test_mongo:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+    networks:
+      - project_builder_test
+
   # Mailpit 供 Reminders 的邮件集成测试使用：把 mail.host/port 指向它即可
   # 在不外发的前提下观察真实投递结果（SMTP 127.0.0.1:11025，Web 127.0.0.1:18025）。
   # 注意：scripts/smoke.ps1 断言的是"邮件未启用 → skipped"，因此冒烟不要指向 Mailpit
@@ -64,6 +80,7 @@ services:
 volumes:
   project_builder_go_test_postgres:
   project_builder_go_test_redis:
+  project_builder_go_test_mongo:
 
 networks:
   project_builder_test:

@@ -49,7 +49,7 @@ $TestRedisPort = '16379'
 $BootstrapAdminUsername = 'bootstrap_admin'
 $BootstrapAdminEmail = 'bootstrap_admin@test.local'
 $BootstrapAdminPassword = 'bootstrap_admin_test_password'
-$Services = @('postgres', 'redis', 'mailpit')
+$Services = @('postgres', 'redis', 'mongo', 'mailpit')
 
 function Write-Step {
     param([string]$Message)

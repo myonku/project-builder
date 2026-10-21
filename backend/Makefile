@@ -6,12 +6,14 @@
 SHELL := pwsh
 .DEFAULT_GOAL := help
 
-# 集成测试依赖（PostgreSQL / Redis / Mailpit，见 docker/compose.test.yml）。
+# 集成测试依赖（PostgreSQL / Redis / MongoDB / Mailpit，见 docker/compose.test.yml）。
 TEST_COMPOSE := docker/compose.test.yml
 TEST_ENV     := docker/test.env
 TEST_DATABASE_URL := postgres://project_builder_test:project_builder_test_password@127.0.0.1:15432/project_builder_test?sslmode=disable
 TEST_REDIS_ADDR   := 127.0.0.1:16379
 TEST_REDIS_PASSWORD := project_builder_test_redis_password
+TEST_MONGO_URI := mongodb://127.0.0.1:27018
+TEST_MONGO_DATABASE := project_builder_test
 
 # 测试环境的引导管理员（仅测试凭据，与 docker/config.test.toml 保持一致）。
 # 冒烟脚本用这组凭据覆盖管理员端点的成功路径。
@@ -78,8 +80,8 @@ test-unit: ## 只运行不需要外部依赖的单元测试
 # `$env:` 赋值不会存活到 `go run` / `go test` 那一行（实测：行尾反引号让
 # `pwsh -Command` 以 1 退出）。需要新增变量时继续接在同一行里。
 .PHONY: test-integration
-test-integration: ## 只运行需要真实 PostgreSQL / Redis 的集成测试
-	$$env:TEST_DATABASE_DSN = "$(TEST_DATABASE_URL)"; $$env:TEST_REDIS_ADDR = "$(TEST_REDIS_ADDR)"; $$env:TEST_REDIS_PASSWORD = "$(TEST_REDIS_PASSWORD)"; go test ./internal/testsupport/... ./internal/app/auth/... -count=1 -v -p 1
+test-integration: ## 只运行需要真实 PostgreSQL / Redis / MongoDB 的集成测试
+	$$env:TEST_DATABASE_DSN = "$(TEST_DATABASE_URL)"; $$env:TEST_REDIS_ADDR = "$(TEST_REDIS_ADDR)"; $$env:TEST_REDIS_PASSWORD = "$(TEST_REDIS_PASSWORD)"; $$env:TEST_MONGO_URI = "$(TEST_MONGO_URI)"; $$env:TEST_MONGO_DATABASE = "$(TEST_MONGO_DATABASE)"; go test ./internal/testsupport/... ./internal/app/auth/... ./internal/platform/storage/... -count=1 -v -p 1
 
 .PHONY: test-race
 test-race: ## 以竞态检测器运行测试
@@ -91,7 +93,7 @@ cover: ## 生成覆盖率报告
 	go tool cover -func=coverage.out | Select-Object -Last 1
 
 # ---------------------------------------------------------------------------
-# 测试依赖（PostgreSQL 16 / Redis 7 / Mailpit）
+# 测试依赖（PostgreSQL 16 / Redis 7 / MongoDB / Mailpit）
 # ---------------------------------------------------------------------------
 
 .PHONY: deps-up
@@ -147,8 +149,8 @@ run: ## 以本地开发配置启动 HTTP 服务
 # "调度器已生成提醒"只轮询 30 秒，而 config.toml 的 interval 是 60 秒
 # （见 backend/docs/B05-进度与验证记录.md 7.0.1 第 4 条坑）。
 .PHONY: run-test-config
-run-test-config: ## 以测试依赖启动 HTTP 服务（PostgreSQL 15432 / Redis 16379，监听 127.0.0.1:8000）
-	$$env:DATABASE_URL = "$(TEST_DATABASE_URL)"; $$env:REDIS_HOST = "127.0.0.1"; $$env:REDIS_PORT = "16379"; $$env:REDIS_PASSWORD = "$(TEST_REDIS_PASSWORD)"; $$env:SECURITY_SESSION_SECRET = "local-dev-session-secret-change-me"; $$env:SECURITY_BOOTSTRAP_ADMIN_USERNAME = "$(TEST_BOOTSTRAP_ADMIN_USERNAME)"; $$env:SECURITY_BOOTSTRAP_ADMIN_EMAIL = "$(TEST_BOOTSTRAP_ADMIN_EMAIL)"; $$env:SECURITY_BOOTSTRAP_ADMIN_PASSWORD = "$(TEST_BOOTSTRAP_ADMIN_PASSWORD)"; $$env:SCHEDULER_INTERVAL_SECONDS = "5"; go run ./cmd/api
+run-test-config: ## 以测试依赖启动 HTTP 服务（PostgreSQL 15432 / Redis 16379 / Mongo 27018，监听 127.0.0.1:8000）
+	$$env:DATABASE_URL = "$(TEST_DATABASE_URL)"; $$env:REDIS_HOST = "127.0.0.1"; $$env:REDIS_PORT = "16379"; $$env:REDIS_PASSWORD = "$(TEST_REDIS_PASSWORD)"; $$env:MONGO_URI = "$(TEST_MONGO_URI)"; $$env:MONGO_DATABASE = "$(TEST_MONGO_DATABASE)"; $$env:SECURITY_SESSION_SECRET = "local-dev-session-secret-change-me"; $$env:SECURITY_BOOTSTRAP_ADMIN_USERNAME = "$(TEST_BOOTSTRAP_ADMIN_USERNAME)"; $$env:SECURITY_BOOTSTRAP_ADMIN_EMAIL = "$(TEST_BOOTSTRAP_ADMIN_EMAIL)"; $$env:SECURITY_BOOTSTRAP_ADMIN_PASSWORD = "$(TEST_BOOTSTRAP_ADMIN_PASSWORD)"; $$env:SCHEDULER_INTERVAL_SECONDS = "5"; go run ./cmd/api
 
 .PHONY: smoke
 smoke: ## 对已启动的服务做一次冒烟检查（默认 http://127.0.0.1:8000，即 run-test-config 的地址）

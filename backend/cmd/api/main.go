@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -33,6 +34,7 @@ import (
 	"github.com/myonku/project-builder/internal/platform/idgen"
 	"github.com/myonku/project-builder/internal/platform/mail"
 	"github.com/myonku/project-builder/internal/platform/storage"
+	"go.mongodb.org/mongo-driver/v2/mongo"
 )
 
 func main() {
@@ -85,6 +87,26 @@ func run() error {
 	sessionStore := auth.NewRedisSessionStore(redisRaw, redisClient.Enabled, clk)
 	if !sessionStore.Available() {
 		logger.Warn("会话后端不可用：认证相关端点将返回错误，服务其余部分仍可运行")
+	}
+
+	// MongoDB 只承载附件/头像字节；local 模式完全不建立连接，
+	// 因此默认部署不要求 mongod 存在。gridfs 模式启动即检查连通性。
+	var mongoClient *mongo.Client
+	if strings.EqualFold(strings.TrimSpace(cfg.Storage.Backend), "gridfs") {
+		mongoStore, err := platform.NewMongo(ctx, cfg.Mongo, logger)
+		if err != nil {
+			return err
+		}
+		mongoClient = mongoStore.Client
+		defer func() {
+			closeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if closeErr := mongoStore.Close(closeCtx); closeErr != nil {
+				logger.Warn("关闭 MongoDB 客户端失败", slog.Any("cause", closeErr))
+			}
+		}()
+	} else {
+		logger.Info("对象存储使用 local；MongoDB 不连接")
 	}
 
 	// 审计：写入方由各业务模块在自己的事务里调用（apperr.AuditWriter），
@@ -223,7 +245,7 @@ func run() error {
 
 	// 附件：对象存储适配器由装配点构造（业务模块不依赖具体存储实现）。
 	// 存储层只按 key 读写字节，attachments 模块负责 key 生成、元数据与权限。
-	attachmentStore, err := storage.NewLocal(cfg.Storage.LocalRoot)
+	attachmentStore, err := storage.NewFromConfig(cfg.Storage, mongoClient, cfg.Mongo.Database)
 	if err != nil {
 		return err
 	}
@@ -267,6 +289,14 @@ func run() error {
 				pingCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 				defer cancel()
 				return redisClient.Ping(pingCtx)
+			},
+			MongoPing: func() error {
+				if mongoClient == nil {
+					return nil
+				}
+				pingCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+				defer cancel()
+				return mongoClient.Ping(pingCtx, nil)
 			},
 		},
 		Modules: []httpapi.Registrar{

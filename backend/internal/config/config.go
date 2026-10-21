@@ -36,6 +36,7 @@ type Config struct {
 	Server     ServerConfig    `toml:"server"`
 	Database   DatabaseConfig  `toml:"database"`
 	Redis      RedisConfig     `toml:"redis"`
+	Mongo      MongoConfig     `toml:"mongo"`
 	Mail       MailConfig      `toml:"mail"`
 	Storage    StorageConfig   `toml:"storage"`
 	Security   SecurityConfig  `toml:"security"`
@@ -114,12 +115,37 @@ type MailConfig struct {
 	TaskURLTemplate string `toml:"task_url_template"`
 }
 
-// StorageConfig 描述附件存储。MVP 仅本地文件系统。
+// MongoConfig 描述 MongoDB 7 连接参数。
+//
+// MongoDB 只承担附件/头像的字节存储（GridFS），PostgreSQL 仍是唯一业务事实源。
+// 该配置在 storage.backend = "gridfs" 时必须可用；local 模式下不会建立连接。
+type MongoConfig struct {
+	URI                           string `toml:"uri"`
+	Database                      string `toml:"database"`
+	ConnectTimeoutSeconds         int    `toml:"connect_timeout_seconds"`
+	ServerSelectionTimeoutSeconds int    `toml:"server_selection_timeout_seconds"`
+	MaxPoolSize                   int    `toml:"max_pool_size"`
+}
+
+// ConnectTimeout 返回 Mongo 建连超时。
+func (c MongoConfig) ConnectTimeout() time.Duration {
+	return time.Duration(c.ConnectTimeoutSeconds) * time.Second
+}
+
+// ServerSelectionTimeout 返回 Mongo 选主超时。
+func (c MongoConfig) ServerSelectionTimeout() time.Duration {
+	return time.Duration(c.ServerSelectionTimeoutSeconds) * time.Second
+}
+
+// StorageConfig 描述附件存储。
 type StorageConfig struct {
-	Backend         string `toml:"backend"`
-	LocalRoot       string `toml:"local_root"`
-	MaxFileSize     int64  `toml:"max_file_size"`
-	MaxFilesPerUser int    `toml:"max_files_per_user"`
+	Backend           string `toml:"backend"`
+	LocalRoot         string `toml:"local_root"`
+	GridFSBucket      string `toml:"gridfs_bucket"`
+	AvatarBucket      string `toml:"avatar_bucket"`
+	AvatarMaxFileSize int64  `toml:"avatar_max_file_size"`
+	MaxFileSize       int64  `toml:"max_file_size"`
+	MaxFilesPerUser   int    `toml:"max_files_per_user"`
 	// AllowedExtensions 是允许上传的扩展名白名单（含点号，如 ".pdf"）。
 	//
 	// 空数组或只含 "*" 表示**不限制**（需求文档 §9："扩展名白名单适当宽松"）。
@@ -342,10 +368,20 @@ func defaultConfig() Config {
 			TaskURLTemplate: "http://localhost:8080/tasks/{task_id}",
 		},
 		Storage: StorageConfig{
-			Backend:         "local",
-			LocalRoot:       "./data/uploads",
-			MaxFileSize:     10485760,
-			MaxFilesPerUser: 1000,
+			Backend:           "local",
+			LocalRoot:         "./data/uploads",
+			GridFSBucket:      "attachments",
+			AvatarBucket:      "avatars",
+			AvatarMaxFileSize: 2097152,
+			MaxFileSize:       10485760,
+			MaxFilesPerUser:   1000,
+		},
+		Mongo: MongoConfig{
+			URI:                           "mongodb://127.0.0.1:27017",
+			Database:                      "worklane",
+			ConnectTimeoutSeconds:         10,
+			ServerSelectionTimeoutSeconds: 5,
+			MaxPoolSize:                   20,
 		},
 		Security: SecurityConfig{
 			SessionSecret:                devSessionSecretPlaceholder,
@@ -490,6 +526,12 @@ func envBindings() []envBinding {
 		{"REDIS_DB", intSetter(func(c *Config) *int { return &c.Redis.DB })},
 		{"REDIS_PASSWORD", stringSetter(func(c *Config) *string { return &c.Redis.Password })},
 
+		{"MONGO_URI", stringSetter(func(c *Config) *string { return &c.Mongo.URI })},
+		{"MONGO_DATABASE", stringSetter(func(c *Config) *string { return &c.Mongo.Database })},
+		{"MONGO_CONNECT_TIMEOUT_SECONDS", intSetter(func(c *Config) *int { return &c.Mongo.ConnectTimeoutSeconds })},
+		{"MONGO_SERVER_SELECTION_TIMEOUT_SECONDS", intSetter(func(c *Config) *int { return &c.Mongo.ServerSelectionTimeoutSeconds })},
+		{"MONGO_MAX_POOL_SIZE", intSetter(func(c *Config) *int { return &c.Mongo.MaxPoolSize })},
+
 		{"MAIL_ENABLED", boolSetter(func(c *Config) *bool { return &c.Mail.Enabled })},
 		{"MAIL_HOST", stringSetter(func(c *Config) *string { return &c.Mail.Host })},
 		{"MAIL_PORT", intSetter(func(c *Config) *int { return &c.Mail.Port })},
@@ -501,6 +543,9 @@ func envBindings() []envBinding {
 
 		{"STORAGE_BACKEND", stringSetter(func(c *Config) *string { return &c.Storage.Backend })},
 		{"STORAGE_LOCAL_ROOT", stringSetter(func(c *Config) *string { return &c.Storage.LocalRoot })},
+		{"STORAGE_GRIDFS_BUCKET", stringSetter(func(c *Config) *string { return &c.Storage.GridFSBucket })},
+		{"STORAGE_AVATAR_BUCKET", stringSetter(func(c *Config) *string { return &c.Storage.AvatarBucket })},
+		{"STORAGE_AVATAR_MAX_FILE_SIZE", int64Setter(func(c *Config) *int64 { return &c.Storage.AvatarMaxFileSize })},
 		{"MAIL_AUTH_METHOD", stringSetter(func(c *Config) *string { return &c.Mail.AuthMethod })},
 		{"MAIL_OAUTH2_ACCESS_TOKEN", stringSetter(func(c *Config) *string { return &c.Mail.OAuth2AccessToken })},
 		{"MAIL_IMPLICIT_TLS", boolSetter(func(c *Config) *bool { return &c.Mail.ImplicitTLS })},
@@ -779,10 +824,38 @@ func (c Config) validate() error {
 	}
 	switch strings.ToLower(strings.TrimSpace(c.Storage.Backend)) {
 	case "local":
+	case "gridfs":
+		if strings.TrimSpace(c.Storage.GridFSBucket) == "" {
+			add("storage.gridfs_bucket 在 storage.backend = gridfs 时不能为空")
+		}
+		if strings.TrimSpace(c.Storage.AvatarBucket) == "" {
+			add("storage.avatar_bucket 在 storage.backend = gridfs 时不能为空")
+		}
+		if c.Storage.GridFSBucket == c.Storage.AvatarBucket {
+			add("storage.gridfs_bucket 与 storage.avatar_bucket 不能相同")
+		}
+		if c.Storage.AvatarMaxFileSize <= 0 {
+			add("storage.avatar_max_file_size 必须为正数，实际为 %d", c.Storage.AvatarMaxFileSize)
+		}
+		if strings.TrimSpace(c.Mongo.URI) == "" {
+			add("mongo.uri 在 storage.backend = gridfs 时不能为空")
+		}
+		if strings.TrimSpace(c.Mongo.Database) == "" {
+			add("mongo.database 在 storage.backend = gridfs 时不能为空")
+		}
+		if c.Mongo.ConnectTimeoutSeconds <= 0 {
+			add("mongo.connect_timeout_seconds 必须为正数，实际为 %d", c.Mongo.ConnectTimeoutSeconds)
+		}
+		if c.Mongo.ServerSelectionTimeoutSeconds <= 0 {
+			add("mongo.server_selection_timeout_seconds 必须为正数，实际为 %d", c.Mongo.ServerSelectionTimeoutSeconds)
+		}
+		if c.Mongo.MaxPoolSize <= 0 {
+			add("mongo.max_pool_size 必须为正数，实际为 %d", c.Mongo.MaxPoolSize)
+		}
 	case "":
 		add("storage.backend 不能为空")
 	default:
-		add("storage.backend 当前只支持 local，实际为 %q", c.Storage.Backend)
+		add("storage.backend 只支持 local 或 gridfs，实际为 %q", c.Storage.Backend)
 	}
 
 	if strings.TrimSpace(c.Security.SessionSecret) == "" {
@@ -874,6 +947,11 @@ func (c Config) Summary() []any {
 		slog.String("mail_password", describeSecret(c.Mail.Password)),
 		slog.String("storage_backend", c.Storage.Backend),
 		slog.String("storage_local_root", c.Storage.LocalRoot),
+		slog.String("storage_gridfs_bucket", c.Storage.GridFSBucket),
+		slog.String("storage_avatar_bucket", c.Storage.AvatarBucket),
+		slog.String("mongo_database", c.Mongo.Database),
+		slog.Bool("mongo_uri_set", strings.TrimSpace(c.Mongo.URI) != ""),
+		slog.Int("mongo_connect_timeout_seconds", c.Mongo.ConnectTimeoutSeconds),
 		slog.String("session_secret", describeSecret(c.Security.SessionSecret)),
 		slog.Bool("secure_cookies", c.Security.SecureCookies),
 		slog.Int("session_ttl_seconds", c.Security.SessionTTLSeconds),

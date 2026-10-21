@@ -34,10 +34,10 @@ func TestMigrationsApplyFromEmptyDatabase(t *testing.T) {
 	if dirty {
 		t.Fatal("schema 处于脏状态")
 	}
-	if version != 6 {
-		t.Fatalf("迁移版本 = %d，期望 6（000001 初始 schema + 000002 tasks.updated_by "+
+	if version != 7 {
+		t.Fatalf("迁移版本 = %d，期望 7（000001 初始 schema + 000002 tasks.updated_by "+
 			"+ 000003 attachments + 000004 reminders + 000005 activity_logs "+
-			"+ 000006 registration_requests）", version)
+			"+ 000006 registration_requests + 000007 attachments.storage_backend）", version)
 	}
 
 	// 全部 13 张业务表必须存在。
@@ -151,6 +151,8 @@ func TestSchemaMatchesDocumentedShape(t *testing.T) {
 		{table: "projects", column: "end_date", wantType: "date", nullable: "NO"},
 		{table: "tasks", column: "start_date", wantType: "date", nullable: "NO"},
 		{table: "tasks", column: "end_date", wantType: "date", nullable: "NO"},
+		// 000007：附件字节所在后端的迁移账本。
+		{table: "attachments", column: "storage_backend", wantType: "character varying", nullable: "NO"},
 	}
 
 	for _, tc := range tests {

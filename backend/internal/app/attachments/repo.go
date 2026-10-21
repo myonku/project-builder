@@ -28,28 +28,29 @@ import (
 // （存储布局属于实现细节，客户端用 id 下载）。
 const attachmentColumns = `a.id, a.project_id, a.task_id, a.uploader_id,
 	a.original_name, a.stored_key, a.extension, a.size_bytes, a.mime_type,
-	a.deleted_at, a.created_at, a.updated_at`
+	a.storage_backend, a.deleted_at, a.created_at, a.updated_at`
 
 // attachmentReturningColumns 与 attachmentColumns 相同，但不带表别名
 // （INSERT/UPDATE 的 RETURNING 没有 FROM 别名）。
 const attachmentReturningColumns = `id, project_id, task_id, uploader_id,
 	original_name, stored_key, extension, size_bytes, mime_type,
-	deleted_at, created_at, updated_at`
+	storage_backend, deleted_at, created_at, updated_at`
 
 // Record 是 attachments 表的一行。
 type Record struct {
-	ID           string
-	ProjectID    *string
-	TaskID       *string
-	UploaderID   string
-	OriginalName string
-	StoredKey    string
-	Extension    string
-	SizeBytes    int64
-	MimeType     string
-	DeletedAt    *time.Time
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	ID             string
+	ProjectID      *string
+	TaskID         *string
+	UploaderID     string
+	OriginalName   string
+	StoredKey      string
+	Extension      string
+	SizeBytes      int64
+	MimeType       string
+	StorageBackend string
+	DeletedAt      *time.Time
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
 }
 
 // IsDeleted 报告附件是否已被逻辑删除。
@@ -57,15 +58,16 @@ func (r Record) IsDeleted() bool { return r.DeletedAt != nil }
 
 // CreateParams 是插入附件所需的字段。
 type CreateParams struct {
-	ID           string
-	ProjectID    *string
-	TaskID       *string
-	UploaderID   string
-	OriginalName string
-	StoredKey    string
-	Extension    string
-	SizeBytes    int64
-	MimeType     string
+	ID             string
+	ProjectID      *string
+	TaskID         *string
+	UploaderID     string
+	OriginalName   string
+	StoredKey      string
+	Extension      string
+	SizeBytes      int64
+	MimeType       string
+	StorageBackend string
 	// Audit 是要与插入同事务落库的一条操作记录；nil 表示不记。
 	Audit *apperr.AuditWrite
 }
@@ -105,8 +107,8 @@ func (r *Repository) Create(ctx context.Context, params CreateParams) (Record, e
 	const query = `
 		INSERT INTO attachments (
 			id, project_id, task_id, uploader_id,
-			original_name, stored_key, extension, size_bytes, mime_type
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+			original_name, stored_key, extension, size_bytes, mime_type, storage_backend
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		RETURNING ` + attachmentReturningColumns
 
 	var record Record
@@ -114,7 +116,7 @@ func (r *Repository) Create(ctx context.Context, params CreateParams) (Record, e
 		created, err := scan(tx.QueryRow(ctx, query,
 			params.ID, params.ProjectID, params.TaskID, params.UploaderID,
 			params.OriginalName, params.StoredKey, params.Extension,
-			params.SizeBytes, params.MimeType,
+			params.SizeBytes, params.MimeType, params.StorageBackend,
 		))
 		if err != nil {
 			return apperr.Translate(err, constraintMap)
@@ -323,7 +325,7 @@ func scan(row interface{ Scan(dest ...any) error }) (Record, error) {
 	err := row.Scan(
 		&record.ID, &record.ProjectID, &record.TaskID, &record.UploaderID,
 		&record.OriginalName, &record.StoredKey, &record.Extension,
-		&record.SizeBytes, &record.MimeType,
+		&record.SizeBytes, &record.MimeType, &record.StorageBackend,
 		&record.DeletedAt, &record.CreatedAt, &record.UpdatedAt,
 	)
 	if err != nil {

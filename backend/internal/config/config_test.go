@@ -240,6 +240,20 @@ func TestLoadRejectsInvalidValues(t *testing.T) {
 			wantWord: "storage.backend",
 		},
 		{
+			name:     "gridfs 缺少 Mongo 连接串",
+			env:      map[string]string{"STORAGE_BACKEND": "gridfs", "MONGO_URI": " "},
+			wantWord: "mongo.uri",
+		},
+		{
+			name: "gridfs 两个 bucket 相同",
+			env: map[string]string{
+				"STORAGE_BACKEND":       "gridfs",
+				"STORAGE_GRIDFS_BUCKET": "same",
+				"STORAGE_AVATAR_BUCKET": "same",
+			},
+			wantWord: "storage.avatar_bucket",
+		},
+		{
 			name:     "邮件启用但主机为空",
 			env:      map[string]string{"MAIL_ENABLED": "true", "MAIL_HOST": " "},
 			wantWord: "mail.host",

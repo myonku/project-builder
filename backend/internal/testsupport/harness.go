@@ -344,13 +344,23 @@ func TestConfig() config.Config {
 			Enabled: true, Host: "127.0.0.1", Port: 16379, DB: 15,
 			Password: defaultRedisPass, DialTimeoutSeconds: 3,
 		},
+		Mongo: config.MongoConfig{
+			URI:                           "mongodb://127.0.0.1:27018",
+			Database:                      "project_builder_test",
+			ConnectTimeoutSeconds:         5,
+			ServerSelectionTimeoutSeconds: 3,
+			MaxPoolSize:                   10,
+		},
 		Storage: config.StorageConfig{
 			Backend: "local",
 			// 附件写入包级临时目录：测试不应污染仓库工作区，
 			// 也不能让上一次运行的残留影响本次断言。
-			LocalRoot:       testUploadRoot(),
-			MaxFileSize:     testMaxFileSize,
-			MaxFilesPerUser: testMaxFilesPerUser,
+			LocalRoot:         testUploadRoot(),
+			GridFSBucket:      "attachments",
+			AvatarBucket:      "avatars",
+			AvatarMaxFileSize: 2 << 20,
+			MaxFileSize:       testMaxFileSize,
+			MaxFilesPerUser:   testMaxFilesPerUser,
 			// 默认不限制扩展名（与配置项语义一致：空数组 = 不限制）。
 			// 需要验证白名单的用例自己构造带白名单的服务实例。
 			AllowedExtensions: nil,
