@@ -130,6 +130,7 @@ export interface TaskMember {
   readonly role: TaskMemberRole;
   readonly username: string;
   readonly display_name: string;
+  readonly avatar_updated_at: string | null;
   readonly email: string;
 }
 

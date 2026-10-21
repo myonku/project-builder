@@ -13,12 +13,12 @@
   两者冲突时：**约定**以本文档为准，**字段与结构**以 api/ 的实测为准，冲突即缺陷、应修文档。
 - 容易做错的契约加强项在 §5 汇总（"项"列写 `A0x` 表示该条对应 api/ 里的域文档）。
 
-> **2026-10-20 规划（未生效）**：Worklane 品牌、Mongo/GridFS 附件存储、头像与 `/me`、
-> 邮箱验证重置密码的评估与**未来**接口/错误码/端点计数见
-> [P01-Worklane-规划-2026-10-20.md](P01-Worklane-规划-2026-10-20.md)。本文当前仍是**唯一生效契约**；
-> 在 P01 的端点、202/204、`password_reset_token_invalid`、`password_reset_unavailable`、
-> `avatar_not_found`、`object_storage_unavailable`
-> 等被正式写入本文之前，不得按规划内容调用或实现。
+> **2026-10-21 状态**：**W3 Mongo/GridFS 附件存储与 W4 头像均已落地**。
+> 头像新增 3 个业务端点（`GET /users/{id}/avatar`、`POST/DELETE /me/avatar`），
+> 业务端点总数 57 → **60**；W5 邮箱重置密码的端点、202/204 与
+> `password_reset_token_invalid` / `password_reset_unavailable` **仍待写入本文**。
+> 在正式写入之前，不得按 P01 的规划内容调用或实现 W5 端点。规划与决策见
+> [P01-Worklane-规划-2026-10-20.md](P01-Worklane-规划-2026-10-20.md)。
 
 ## 2. 公共约定
 
@@ -147,7 +147,7 @@
 | `401` | `invalid_credentials` | 凭据错误。**不区分**账号不存在与密码错误 |
 | `403` | `permission_denied` | 已登录但无权操作；也用于停用用户登录 |
 | `404` | `resource_not_found` | 对象不存在或不可见 |
-| `404` | `user_not_found` / `group_not_found` / `project_not_found` / `task_not_found` / `attachment_not_found` / `reminder_not_found` / `registration_request_not_found` | 域内精确不存在 |
+| `404` | `user_not_found` / `group_not_found` / `project_not_found` / `task_not_found` / `attachment_not_found` / `avatar_not_found` / `reminder_not_found` / `registration_request_not_found` | 域内精确不存在 |
 | `409` | `conflict` | 状态、重复或并发冲突 |
 | `409` | `duplicate_member` | 重复成员关系 |
 | `409` | `version_conflict` | `expected_updated_at` 不匹配 |
@@ -240,7 +240,7 @@ RETURNING id, updated_at;
 若对外只渲染到秒，回传值会丢掉微秒部分，原子 CAS 的等值比较必然失败
 （表现为"刚读到的版本立刻被判为冲突"）。
 - 可重试操作使用 `Idempotency-Key`，不得产生重复成员、提醒、上传或状态副作用。
-- **审计记录与业务写在同一个事务里**（见 §4.10）；提醒派发与文件收尾仍在事务提交之后，
+- **审计记录与业务写在同一个事务里**（见 §2.6 与 [api/A09](api/A09-audit.md)）；提醒派发与文件收尾仍在事务提交之后，
   因为它们是外部副作用，不得进入请求路径（需求文档 §9）。
 
 ### 2.7 请求体字段严格性
@@ -289,7 +289,7 @@ RETURNING id, updated_at;
 | --- | --- | --- |
 | Health | 4 | [api/README.md](api/README.md) 的"健康检查"一节 |
 | Auth | 4 | [api/A01-auth.md](api/A01-auth.md) |
-| Users | 6 | [api/A02-users.md](api/A02-users.md) |
+| Users | 9 | [api/A02-users.md](api/A02-users.md) |
 | Groups | 11 | [api/A03-groups.md](api/A03-groups.md) |
 | Projects | 9 | [api/A04-projects.md](api/A04-projects.md) |
 | Tasks | 11 | [api/A05-tasks.md](api/A05-tasks.md) |
@@ -299,7 +299,7 @@ RETURNING id, updated_at;
 | Audit | 1 | [api/A09-audit.md](api/A09-audit.md) |
 | Registration Requests | 2 | [api/A10-registration-requests.md](api/A10-registration-requests.md) |
 
-合计 **57 个业务端点** + 4 个健康检查端点。业务端点一律以 `/api/v1` 为前缀；
+合计 **60 个业务端点** + 4 个健康检查端点（共 64）。业务端点一律以 `/api/v1` 为前缀；
 根级 `/healthz` 供容器/反向代理使用（无版本前缀）。
 
 ## 4. 写接口处理顺序
@@ -340,6 +340,8 @@ API 层只负责请求解析、响应序列化与错误映射，不直接查询�
 | A02–A05 | 项目级不可见返回 `project_not_found`，任务级返回 `task_not_found` | 用同一错误码覆盖两种情况会让前端提示失准 |
 | A02 | 资料更新拒绝"只有版本、无任何可改字段"的请求（422） | 无变更的写同样推进 `updated_at`，让其他客户端手里的版本无谓失效 |
 | A02 | `GET /users/{id}` 的"不可见"与"不存在"使用同一错误码 `user_not_found` | 用 403/404 的差异会让任意登录用户把接口变成账号枚举器 |
+| A02 | 头像上传**只推进 `avatar_updated_at`**，不推进 `users.updated_at` | 否则一次换头像会让个人资料表单的 `expected_updated_at` 无谓失效（409） |
+| A02 | 头像下载每次重新校验可见性，`ETag` 用 `avatar_updated_at`；无头像返回 `avatar_not_found` | 头像 URL 不是带权限的长期链接；缓存必须随头像版本失效，且"用户可见但没头像"要与"用户不可见"区分 |
 | A02 | 系统必须至少保留一个启用中的管理员，否则 409 | 管理员是唯一的管理入口，清零后没有任何接口可以恢复 |
 | A02 | `POST /users/{id}/disable` 对已停用用户返回 409 | 与上一条同理：不让无变更请求推进版本，也不把"本来就已经停用"报成成功 |
 | A02 | `is_overdue` / `overdue_task_count` 按**请求者时区**计算"今天" | 固定时区（服务器 UTC 或硬编码 UTC+8）会让不在该时区的成员看到错误的逾期标记 |
@@ -379,3 +381,5 @@ API 层只负责请求解析、响应序列化与错误映射，不直接查询�
 | 2026-10-12 | 审计的写入时机由"提交后"改为**同事务**；新增 `GET /audit` 的参数、对象类型与动作枚举、脱敏约定 | 提交后写在失败时会留下"业务成功但记录缺失"且无法回滚的空洞 |
 | 2026-10-12 | 审计动作白名单由 16 个收敛为 **13 个**（去掉 `reminder_sent` / `reminder_failed` / `reminder_skipped`） | 不留"登记了但没有产生点"的枚举 |
 | 2026-10-13 | **结构调整**：契约只保留约定性叙述；逐接口的请求/响应结构移入 [api/](api/README.md)，公共资源表示移入 [api/README.md](api/README.md)；章号随之重排（原 §4 移出，原 §5–§8 变为 §4–§7） | 契约要能被前端长期依赖而不随接口数量膨胀；共用文档不记录任何一端的推进过程（推进与证据在服务端 `backend/docs/B05`、将来在前端 `frontend/docs/`） |
+| 2026-10-21 | 状态口径对齐：W3 Mongo/GridFS 已落地、HTTP 契约未变；W4/W5 端点仍待写入本文后再实现 | 避免把已落地的 W3 继续写成“规划”，同时守住“契约先于实现”的边界 |
+| 2026-10-21 | **W4 头像契约生效**：新增 `GET /users/{id}/avatar`、`POST/DELETE /me/avatar`；错误码补 `avatar_not_found`；业务端点 57 → 60（总数 64）；补头像缓存/版本/可见性加强项 | 头像实现与集成测试已完成；契约必须与实现同步，避免前端按旧文档拼 URL 或误用 `updated_at` |

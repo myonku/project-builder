@@ -3,7 +3,7 @@
 > 归属：**前后端共用**（`docs/api/`）。通用约定（基础路径 `/api/v1`、成功/错误信封、认证、分页、并发与幂等、限流、未知字段拒绝）见《S02-HTTP接口契约》§2，本文不重复。
 > 契约正文（约定性叙述）见《A03》；本文补齐每个接口的**请求与响应数据结构**。
 
-> **2026-10-20 规划（未生效）**：工作组成员与加入申请对象将增加 `avatar_updated_at`（仅用于前端拼头像 URL）；
+> **2026-10-21 W4 已落地**：工作组成员与加入申请对象已增加 `avatar_updated_at`（仅用于前端拼头像 URL）；
 > 不新增头像相关的工作组端点。见 [P01](../P01-Worklane-规划-2026-10-20.md) §4。
 
 ## 接口清单
@@ -55,6 +55,7 @@
 | `role` | string | `member` / `manager`（**没有** `owner`：所有者由 `groups.owner_id` 表达） |
 | `status` | string | `active` / `removed` |
 | `joined_at` | string | 加入时刻，UTC ISO 8601 |
+| `avatar_updated_at` | string \| null | 成员头像版本；`null` 表示无头像（W4） |
 | `username` / `display_name` / `email` | string | 用户展示字段；**写接口（添加/修改成员）的响应里为空字符串 `""`**，见 §6、§7 备注 |
 
 加入申请对象：
@@ -66,6 +67,7 @@
 | `status` | string | `pending` / `approved` / `rejected` |
 | `reviewed_by` | UUID \| null | 审核人；未审核为 `null` |
 | `reviewed_at` | string \| null | 审核时刻（UTC ISO 8601）；未审核为 `null` |
+| `avatar_updated_at` | string \| null | 申请人头像版本；`null` 表示无头像（W4） |
 | `username` / `display_name` / `email` | string | 申请人的用户展示字段（列表由服务端一次取出，客户端不必逐行再查用户） |
 
 ## 1. `POST /api/v1/groups`
@@ -117,7 +119,7 @@
 
 - **无版本字段**：创建不参与 `expected_updated_at` 协议（不存在"当前版本"可比较）。
 - **不幂等**：工作组名称没有唯一约束，重复提交会产生两个工作组；需要去重请由客户端保证。
-- 副作用：同一事务写审计 `created`（`object_type=group`，`changes` 至少含 `name`）——审计与业务同生共死（《S02》§2.6、§4.10）。
+- 副作用：同一事务写审计 `created`（`object_type=group`，`changes` 至少含 `name`）——审计与业务同生共死（《S02》§2.6、[A09](A09-audit.md)）。
 - `status` 由服务端固定为 `active`，请求体不接受 `status`（出现即 `422`）。
 
 ## 2. `POST /api/v1/groups/query`

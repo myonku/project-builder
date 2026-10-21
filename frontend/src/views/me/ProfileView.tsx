@@ -1,17 +1,15 @@
 /**
- * 个人信息页（`/me`，P01 §4 W2）。
+ * 个人信息页（`/me`，P01 §4 W2 + W4）。
  *
- * 不新增资料端点：读取用 `GET /auth/me`/`GET /users/{id}`，保存用
+ * 资料读取用 `GET /auth/me`/`GET /users/{id}`，保存用
  * `PATCH /users/{id}` + `useVersionedForm`。本人只允许改 display_name / email /
- * timezone / reminder_enabled；username/status/system_role 只读，避免普通用户
- * 提交管理员字段被 403。
+ * timezone / reminder_enabled；username/status/system_role 只读。
  *
- * 头像上传是 W4，本页先用首字生成头像；W4 接入后把 `<Avatar>` 换成 `UserAvatar`。
+ * 头像上传/删除是 W4：`POST/DELETE /me/avatar`，成功后立即刷新顶栏与页面。
  */
 
 import * as React from 'react';
 import Alert from '@mui/material/Alert';
-import Avatar from '@mui/material/Avatar';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Card from '@mui/material/Card';
@@ -24,13 +22,16 @@ import Stack from '@mui/material/Stack';
 import Switch from '@mui/material/Switch';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
+import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlined';
 import SaveIcon from '@mui/icons-material/Save';
+import UploadIcon from '@mui/icons-material/Upload';
 import { Controller, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { getUser, updateUser } from '@/api/users';
+import { deleteAvatar, getUser, updateUser, uploadAvatar } from '@/api/users';
 import PageContainer from '@/components/common/PageContainer';
 import StatusTag from '@/components/common/StatusTag';
+import UserAvatar from '@/components/common/UserAvatar';
 import { systemRoleMeta, userStatusMeta } from '@/components/user/userMeta';
 import { applyApiFieldErrors, describeApiError } from '@/hooks/useApiError';
 import { useNotifications } from '@/hooks/useNotifications';
@@ -90,6 +91,10 @@ export default function ProfileView() {
   const setUser = useAuthStore((state) => state.setUser);
   const { show } = useNotifications();
   const [serverError, setServerError] = React.useState<unknown>(null);
+  const [avatarVersion, setAvatarVersion] = React.useState<string | null | undefined>(undefined);
+  const [avatarBusy, setAvatarBusy] = React.useState(false);
+  const [avatarError, setAvatarError] = React.useState<unknown>(null);
+  const fileInputRef = React.useRef<HTMLInputElement | null>(null);
 
   const {
     entity: user,
@@ -103,6 +108,9 @@ export default function ProfileView() {
     autoLoad: Boolean(currentUser?.id),
     conflictTitle: '个人信息已被其他人修改',
   });
+
+  const displayedAvatarVersion = avatarVersion === undefined ? user?.avatar_updated_at : avatarVersion;
+  const displayedUser = user ? { ...user, avatar_updated_at: displayedAvatarVersion ?? null } : null;
 
   const {
     control,
@@ -140,6 +148,7 @@ export default function ProfileView() {
     const outcome = await save(patch);
     if (outcome.ok) {
       setUser(outcome.entity);
+      setAvatarVersion(undefined);
       show('个人信息已保存。', { severity: 'success' });
       return;
     }
@@ -153,7 +162,48 @@ export default function ProfileView() {
     }
   });
 
-  const initial = user?.display_name?.trim().charAt(0)?.toUpperCase() || '?';
+  const handleAvatarFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) {
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      setAvatarError(new Error('头像不得超过 2 MiB'));
+      return;
+    }
+    setAvatarBusy(true);
+    setAvatarError(null);
+    try {
+      const saved = await uploadAvatar(file);
+      setUser(saved);
+      setAvatarVersion(saved.avatar_updated_at);
+      show('头像已更新。', { severity: 'success' });
+    } catch (error) {
+      setAvatarError(error);
+    } finally {
+      setAvatarBusy(false);
+    }
+  };
+
+  const handleRemoveAvatar = async () => {
+    if (!user) {
+      return;
+    }
+    setAvatarBusy(true);
+    setAvatarError(null);
+    try {
+      await deleteAvatar();
+      setAvatarVersion(null);
+      setUser({ ...user, avatar_updated_at: null });
+      show('头像已移除。', { severity: 'success' });
+    } catch (error) {
+      setAvatarError(error);
+    } finally {
+      setAvatarBusy(false);
+    }
+  };
+
   const statusMeta = user ? userStatusMeta(user.status) : null;
   const roleMeta = user ? systemRoleMeta(user.system_role) : null;
 
@@ -177,16 +227,37 @@ export default function ProfileView() {
                   </Alert>
                 ) : null}
                 <Stack spacing={2} sx={{ alignItems: 'center', textAlign: 'center' }}>
-                  <Avatar
-                    sx={{
-                      width: 76,
-                      height: 76,
-                      fontSize: 30,
-                      bgcolor: 'primary.main',
-                    }}
-                  >
-                    {initial}
-                  </Avatar>
+                  <UserAvatar user={displayedUser} size={76} />
+                  <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', justifyContent: 'center' }}>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      startIcon={avatarBusy ? <CircularProgress size={14} /> : <UploadIcon />}
+                      disabled={avatarBusy || !user}
+                      onClick={() => fileInputRef.current?.click()}
+                    >
+                      上传头像
+                    </Button>
+                    {displayedAvatarVersion ? (
+                      <Button
+                        size="small"
+                        color="inherit"
+                        startIcon={<DeleteOutlineIcon />}
+                        disabled={avatarBusy}
+                        onClick={handleRemoveAvatar}
+                      >
+                        移除
+                      </Button>
+                    ) : null}
+                  </Stack>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/png,image/jpeg"
+                    hidden
+                    onChange={handleAvatarFile}
+                  />
+                  {avatarError ? <Alert severity="error">{describeApiError(avatarError)}</Alert> : null}
                   <Box>
                     <Typography variant="h6">{user?.display_name ?? '—'}</Typography>
                     <Typography variant="body2" color="text.secondary">

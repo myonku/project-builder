@@ -26,6 +26,7 @@ import SwapHorizIcon from '@mui/icons-material/SwapHoriz';
 import { addTaskMember, queryTaskMembers, removeTaskMember, updateTaskMember } from '@/api/tasks';
 import { toApiError, type ApiError } from '@/api/client';
 import StatusTag from '@/components/common/StatusTag';
+import UserAvatar from '@/components/common/UserAvatar';
 import { describeApiError, useApiError } from '@/hooks/useApiError';
 import { useDialogs } from '@/hooks/useDialogs';
 import { useNotifications } from '@/hooks/useNotifications';
@@ -234,9 +235,12 @@ export default function TaskMembersPanel({
               sx={{ alignItems: 'center', justifyContent: 'space-between' }}
             >
               <Box sx={{ minWidth: 0 }}>
-                <Typography variant="body2" noWrap>
-                  {member.display_name}
-                </Typography>
+                <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+                  <UserAvatar user={{ id: member.user_id, display_name: member.display_name, avatar_updated_at: member.avatar_updated_at }} size={28} />
+                  <Typography variant="body2" noWrap>
+                    {member.display_name}
+                  </Typography>
+                </Stack>
                 {/* truncatedText 自带 <Typography component="span">，不要再套一层（否则字号/颜色被外层覆盖） */}
                 {truncatedText(member.username + (member.email ? ` · ${member.email}` : ''), {
                   typographyProps: { variant: 'caption', color: 'text.secondary' },

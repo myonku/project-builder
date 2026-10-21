@@ -169,14 +169,15 @@ func rejectUnknownParams(c *gin.Context) error {
 // 因此列出的字段与表里的列一一对应，不做额外加工。
 func recordResponse(record Record) gin.H {
 	return gin.H{
-		"id":          record.ID,
-		"actor_id":    record.ActorID,
-		"actor_name":  record.ActorName,
-		"action":      record.Action,
-		"object_type": record.ObjectType,
-		"object_id":   record.ObjectID,
-		"changes":     record.Changes,
-		"request_id":  record.RequestID,
-		"created_at":  domain.FormatTimestamp(record.CreatedAt),
+		"id":                      record.ID,
+		"actor_id":                record.ActorID,
+		"actor_name":              record.ActorName,
+		"actor_avatar_updated_at": domain.FormatOptionalTimestamp(record.ActorAvatarUpdatedAt),
+		"action":                  record.Action,
+		"object_type":             record.ObjectType,
+		"object_id":               record.ObjectID,
+		"changes":                 record.Changes,
+		"request_id":              record.RequestID,
+		"created_at":              domain.FormatTimestamp(record.CreatedAt),
 	}
 }

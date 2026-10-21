@@ -34,6 +34,7 @@ import {
   type GanttTimeWindow,
 } from './ganttModel';
 import { formatNaturalDate } from '@/utils/datetime';
+import UserAvatar from '@/components/common/UserAvatar';
 import type { PlanTask } from '@/types/plan';
 import type { TaskStatus } from '@/types/task';
 
@@ -229,6 +230,11 @@ function TaskRowLabel({ row, collapsed, onToggle, onOpenTask }: TaskRowLabelProp
           fontSize="inherit"
           sx={{ color: 'warning.main', flexShrink: 0, mr: 0.5 }}
         />
+      ) : null}
+      {row.task.owner ? (
+        <Box sx={{ mr: 0.5, display: 'flex', flexShrink: 0 }}>
+          <UserAvatar user={row.task.owner} size={18} />
+        </Box>
       ) : null}
       <Tooltip title={row.task.name}>
         <Box
@@ -582,22 +588,15 @@ export default function GanttChart({
                         <ExpandMoreIcon fontSize="small" />
                       )}
                     </IconButton>
-                    <Box
-                      sx={{
-                        width: 22,
-                        height: 22,
-                        borderRadius: '50%',
-                        flexShrink: 0,
-                        mr: 1,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        backgroundColor: 'primary.main',
-                        color: 'primary.contrastText',
-                        fontSize: 12,
-                      }}
-                    >
-                      {row.displayName.slice(0, 1)}
+                    <Box sx={{ mr: 1, display: 'flex', flexShrink: 0 }}>
+                      <UserAvatar
+                        user={{
+                          id: row.memberId,
+                          display_name: row.displayName,
+                          avatar_updated_at: row.avatarUpdatedAt,
+                        }}
+                        size={22}
+                      />
                     </Box>
                     <Box
                       role="button"

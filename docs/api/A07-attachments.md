@@ -8,6 +8,8 @@
 > 彻底删除仍“先删对象再删行”。旧本地文件由 `cmd/storage-migrate` copy/verify/rollback，
 > 账本在 `attachments.storage_backend`；Mongo 健康检查与备份顺序见
 > [P01-Worklane-规划-2026-10-20.md](../P01-Worklane-规划-2026-10-20.md) §3。
+> **W4 起头像也使用同一 `storage.Store` 抽象**，但走独立的 `avatars` bucket（local 模式为同一根目录下的
+> `avatars/` 前缀）；附件与头像的 key/MIME/大小/权限互不影响。
 
 ## 接口清单
 

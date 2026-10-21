@@ -29,7 +29,8 @@ import (
 // 把摘要列排除在列清单之外，而不是"查出来但记得别返回"，
 // 是让"不泄漏密码摘要"成为结构性保证而不是纪律要求。
 const profileColumns = `id, username, email, display_name, status, system_role,
-	timezone, reminder_enabled, last_login_at, created_at, updated_at`
+	timezone, reminder_enabled, last_login_at, created_at, updated_at,
+	avatar_stored_key, avatar_mime, avatar_size_bytes, avatar_updated_at`
 
 // ProfileRecord 是 users 表的资料行记录。
 //
@@ -47,6 +48,13 @@ type ProfileRecord struct {
 	LastLoginAt     *time.Time
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
+
+	// 头像元数据。avatar_stored_key 永不进入 HTTP 响应；对外只暴露
+	// avatar_updated_at（见 profileResponse）。
+	AvatarStoredKey *string
+	AvatarMime      string
+	AvatarSizeBytes int64
+	AvatarUpdatedAt *time.Time
 }
 
 // ToDomain 转换为领域实体。密码摘要留空：本模块不持有它，也不需要使用它。
@@ -263,6 +271,63 @@ func (r *Repository) updateProfile(ctx context.Context, db apperr.Querier, param
 	return record, nil
 }
 
+// AvatarUpdateParams 是设置或清除头像的写入参数。
+//
+// StoredKey 为 nil 表示清除头像；非 nil 表示设置新对象。头像写入**不推进**
+// users.updated_at，只推进 avatar_updated_at（见 000008 与 P01 §4.2）。
+type AvatarUpdateParams struct {
+	UserID    string
+	StoredKey *string
+	Mime      string
+	SizeBytes int64
+	Audit     *apperr.AuditWrite
+}
+
+// ReplaceAvatar 在同一事务里锁行、替换头像元数据、写审计，并返回旧对象 key。
+//
+// 旧 key 交给调用方在**事务提交后**删除：先写数据库再删旧对象，
+// 保证任何时刻都不会出现"数据库指向一个已被删除的对象"。
+func (r *Repository) ReplaceAvatar(
+	ctx context.Context, params AvatarUpdateParams,
+) (ProfileRecord, *string, error) {
+	var record ProfileRecord
+	var oldKey *string
+
+	err := apperr.InTx(ctx, r.pool, func(ctx context.Context, tx apperr.Querier) error {
+		// 行锁把同一用户的并发上传/删除串行化，避免两次替换各自删掉对方的新对象。
+		if err := tx.QueryRow(ctx,
+			`SELECT avatar_stored_key FROM users WHERE id = $1 FOR UPDATE`,
+			params.UserID,
+		).Scan(&oldKey); err != nil {
+			if apperr.IsNoRows(err) {
+				return notFound()
+			}
+			return fmt.Errorf("锁定用户头像行失败: %w", err)
+		}
+
+		const query = `
+			UPDATE users
+			   SET avatar_stored_key = $2::varchar,
+			       avatar_mime = $3,
+			       avatar_size_bytes = $4,
+			       avatar_updated_at = CASE WHEN $2::varchar IS NULL THEN NULL ELSE now() END
+			 WHERE id = $1
+			RETURNING ` + profileColumns
+
+		updated, err := scanProfile(tx.QueryRow(ctx, query,
+			params.UserID, params.StoredKey, params.Mime, params.SizeBytes))
+		if err != nil {
+			return apperr.Translate(err, profileConstraintMap)
+		}
+		record = updated
+		return params.Audit.Flush(ctx, tx)
+	})
+	if err != nil {
+		return ProfileRecord{}, nil, err
+	}
+	return record, oldKey, nil
+}
+
 // ensureAdminRetained 在事务内复查"更新后系统仍至少保留一个启用中的管理员"。
 //
 // 实现方式（为什么不直接 count）：
@@ -365,6 +430,10 @@ func scanProfile(row pgx.Row) (ProfileRecord, error) {
 		&record.LastLoginAt,
 		&record.CreatedAt,
 		&record.UpdatedAt,
+		&record.AvatarStoredKey,
+		&record.AvatarMime,
+		&record.AvatarSizeBytes,
+		&record.AvatarUpdatedAt,
 	)
 	if err != nil {
 		return ProfileRecord{}, err

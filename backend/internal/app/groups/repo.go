@@ -60,15 +60,16 @@ func (r GroupRecord) ToDomain() domain.Group {
 
 // MemberRecord 是 group_members 的一行，并带上用户的展示字段。
 type MemberRecord struct {
-	ID          string
-	GroupID     string
-	UserID      string
-	Role        string
-	Status      string
-	JoinedAt    time.Time
-	Username    string
-	DisplayName string
-	Email       string
+	ID              string
+	GroupID         string
+	UserID          string
+	Role            string
+	Status          string
+	JoinedAt        time.Time
+	Username        string
+	DisplayName     string
+	Email           string
+	AvatarUpdatedAt *time.Time
 }
 
 // ToDomain 转换为领域实体。
@@ -84,17 +85,18 @@ func (r MemberRecord) ToDomain() domain.GroupMember {
 
 // JoinRequestRecord 是 group_join_requests 的一行，并带上申请人展示字段。
 type JoinRequestRecord struct {
-	ID          string
-	GroupID     string
-	UserID      string
-	Status      string
-	ReviewedBy  *string
-	ReviewedAt  *time.Time
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
-	Username    string
-	DisplayName string
-	Email       string
+	ID              string
+	GroupID         string
+	UserID          string
+	Status          string
+	ReviewedBy      *string
+	ReviewedAt      *time.Time
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	Username        string
+	DisplayName     string
+	Email           string
+	AvatarUpdatedAt *time.Time
 }
 
 // ToDomain 转换为领域实体。
@@ -507,7 +509,7 @@ func (r *Repository) distinguishMissing(ctx context.Context, groupID string) err
 func (r *Repository) FindMember(ctx context.Context, groupID, userID string) (MemberRecord, error) {
 	const query = `
 		SELECT m.id, m.group_id, m.user_id, m.role, m.status, m.joined_at,
-		       u.username, u.display_name, u.email
+		       u.username, u.display_name, u.email, u.avatar_updated_at
 		  FROM group_members m
 		  JOIN users u ON u.id = m.user_id
 		 WHERE m.group_id = $1 AND m.user_id = $2`
@@ -516,6 +518,7 @@ func (r *Repository) FindMember(ctx context.Context, groupID, userID string) (Me
 	err := r.pool.QueryRow(ctx, query, groupID, userID).Scan(
 		&member.ID, &member.GroupID, &member.UserID, &member.Role, &member.Status,
 		&member.JoinedAt, &member.Username, &member.DisplayName, &member.Email,
+		&member.AvatarUpdatedAt,
 	)
 	if err != nil {
 		if apperr.IsNoRows(err) {
@@ -552,7 +555,7 @@ func (r *Repository) CountMembers(ctx context.Context, filter MemberFilter) (int
 func (r *Repository) ListMembers(ctx context.Context, filter MemberFilter, orderBy string, limit, offset int) ([]MemberRecord, error) {
 	query := `
 		SELECT m.id, m.group_id, m.user_id, m.role, m.status, m.joined_at,
-		       u.username, u.display_name, u.email
+		       u.username, u.display_name, u.email, u.avatar_updated_at
 		  FROM group_members m
 		  JOIN users u ON u.id = m.user_id
 		 WHERE m.group_id = $1`
@@ -582,6 +585,7 @@ func (r *Repository) ListMembers(ctx context.Context, filter MemberFilter, order
 		if err := rows.Scan(
 			&member.ID, &member.GroupID, &member.UserID, &member.Role, &member.Status,
 			&member.JoinedAt, &member.Username, &member.DisplayName, &member.Email,
+			&member.AvatarUpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("读取工作组成员行失败: %w", err)
 		}
@@ -685,7 +689,7 @@ func (r *Repository) CountManagers(ctx context.Context, groupID string) (int, er
 // 各写一份迟早会漂移。
 const joinRequestSelect = `
 	SELECT r.id, r.group_id, r.user_id, r.status, r.reviewed_by, r.reviewed_at,
-	       r.created_at, r.updated_at, u.username, u.display_name, u.email
+	       r.created_at, r.updated_at, u.username, u.display_name, u.email, u.avatar_updated_at
 	  FROM group_join_requests r
 	  JOIN users u ON u.id = r.user_id
 	 WHERE r.group_id = $1 AND r.user_id = $2`
@@ -739,7 +743,7 @@ func (r *Repository) CountJoinRequests(ctx context.Context, groupID string, stat
 func (r *Repository) ListJoinRequests(ctx context.Context, groupID string, status *string, orderBy string, limit, offset int) ([]JoinRequestRecord, error) {
 	query := `
 		SELECT r.id, r.group_id, r.user_id, r.status, r.reviewed_by, r.reviewed_at,
-		       r.created_at, r.updated_at, u.username, u.display_name, u.email
+		       r.created_at, r.updated_at, u.username, u.display_name, u.email, u.avatar_updated_at
 		  FROM group_join_requests r
 		  JOIN users u ON u.id = r.user_id
 		 WHERE r.group_id = $1`
@@ -918,7 +922,7 @@ func scanJoinRequest(row pgx.Row) (JoinRequestRecord, error) {
 	err := row.Scan(
 		&record.ID, &record.GroupID, &record.UserID, &record.Status,
 		&record.ReviewedBy, &record.ReviewedAt, &record.CreatedAt, &record.UpdatedAt,
-		&record.Username, &record.DisplayName, &record.Email,
+		&record.Username, &record.DisplayName, &record.Email, &record.AvatarUpdatedAt,
 	)
 	if err != nil {
 		if apperr.IsNoRows(err) {
@@ -936,7 +940,7 @@ func scanJoinRequestRow(rows pgx.Rows) (JoinRequestRecord, error) {
 	err := rows.Scan(
 		&record.ID, &record.GroupID, &record.UserID, &record.Status,
 		&record.ReviewedBy, &record.ReviewedAt, &record.CreatedAt, &record.UpdatedAt,
-		&record.Username, &record.DisplayName, &record.Email,
+		&record.Username, &record.DisplayName, &record.Email, &record.AvatarUpdatedAt,
 	)
 	if err != nil {
 		return JoinRequestRecord{}, fmt.Errorf("读取加入申请行失败: %w", err)

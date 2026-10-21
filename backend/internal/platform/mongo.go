@@ -1,4 +1,4 @@
-// Mongo 包装 MongoDB 7 客户端。
+// Mongo 包装 MongoDB 9 客户端。
 //
 // 定位：**只承载附件/头像的字节（GridFS）**，不保存任何业务事实。
 // PostgreSQL 仍是唯一业务事实源；Mongo 不可用时应由装配层决定是快速失败

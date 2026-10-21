@@ -34,10 +34,11 @@ func TestMigrationsApplyFromEmptyDatabase(t *testing.T) {
 	if dirty {
 		t.Fatal("schema 处于脏状态")
 	}
-	if version != 7 {
-		t.Fatalf("迁移版本 = %d，期望 7（000001 初始 schema + 000002 tasks.updated_by "+
+	if version != 8 {
+		t.Fatalf("迁移版本 = %d，期望 8（000001 初始 schema + 000002 tasks.updated_by "+
 			"+ 000003 attachments + 000004 reminders + 000005 activity_logs "+
-			"+ 000006 registration_requests + 000007 attachments.storage_backend）", version)
+			"+ 000006 registration_requests + 000007 attachments.storage_backend "+
+			"+ 000008 users avatar columns）", version)
 	}
 
 	// 全部 13 张业务表必须存在。
@@ -153,6 +154,11 @@ func TestSchemaMatchesDocumentedShape(t *testing.T) {
 		{table: "tasks", column: "end_date", wantType: "date", nullable: "NO"},
 		// 000007：附件字节所在后端的迁移账本。
 		{table: "attachments", column: "storage_backend", wantType: "character varying", nullable: "NO"},
+		// 000008：用户头像元数据；key/mime/size 永不返回客户端，只有 updated_at 对外。
+		{table: "users", column: "avatar_stored_key", wantType: "character varying", nullable: "YES"},
+		{table: "users", column: "avatar_mime", wantType: "character varying", nullable: "NO"},
+		{table: "users", column: "avatar_size_bytes", wantType: "bigint", nullable: "NO"},
+		{table: "users", column: "avatar_updated_at", wantType: "timestamp with time zone", nullable: "YES"},
 	}
 
 	for _, tc := range tests {

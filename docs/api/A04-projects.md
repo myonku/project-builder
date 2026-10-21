@@ -3,7 +3,7 @@
 > 归属：**前后端共用**（`docs/api/`）。通用约定（基础路径 `/api/v1`、成功/错误信封、认证、分页、并发与幂等、限流、未知字段拒绝）见《S02-HTTP接口契约》§2，本文不重复。
 > 契约的**约定性叙述**（信封、认证、分页、并发与幂等、限流、处理顺序、加强项）见《S02》；本文补齐每个接口的**请求与响应数据结构**。
 
-> **2026-10-20 规划（未生效）**：项目成员对象将增加 `avatar_updated_at`；项目域不新增头像端点。
+> **2026-10-21 W4 已落地**：项目成员对象已增加 `avatar_updated_at`；项目域不新增头像端点。
 > 见 [P01](../P01-Worklane-规划-2026-10-20.md) §4。
 
 全部 9 个端点都要求登录（会话 Cookie，见《S02》§2.2）；未登录返回 `401 authentication_required`。
@@ -102,7 +102,8 @@
     "role": "owner",
     "username": "alice",
     "display_name": "Alice",
-    "email": "alice@example.com"
+    "email": "alice@example.com",
+    "avatar_updated_at": null
   }
 }
 ```
@@ -116,6 +117,7 @@
 | `username` | string | 用户名（登录标识） |
 | `display_name` | string | 显示名 |
 | `email` | string | 邮箱 |
+| `avatar_updated_at` | string \| null | 成员头像版本；`null` 表示无头像（W4） |
 
 刻意**不返回** `created_at`（加入时间）：它可用于 `sort`，但不在响应里。项目成员关系也没有 `status` 字段——项目成员**没有软移除**，移除即删行（端点 9）。
 

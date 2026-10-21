@@ -111,14 +111,15 @@ func (r ProjectRecord) ToDomain() domain.Project {
 
 // MemberRecord 是 project_members 的一行，并带上用户展示字段。
 type MemberRecord struct {
-	ID          string
-	ProjectID   string
-	UserID      string
-	Role        string
-	CreatedAt   time.Time
-	Username    string
-	DisplayName string
-	Email       string
+	ID              string
+	ProjectID       string
+	UserID          string
+	Role            string
+	CreatedAt       time.Time
+	Username        string
+	DisplayName     string
+	Email           string
+	AvatarUpdatedAt *time.Time
 }
 
 // ToDomain 转换为领域实体。
@@ -609,7 +610,7 @@ func (r *Repository) ArchiveProject(
 func (r *Repository) FindMember(ctx context.Context, projectID, userID string) (MemberRecord, error) {
 	const query = `
 		SELECT pm.id, pm.project_id, pm.user_id, pm.role, pm.created_at,
-		       u.username, u.display_name, u.email
+		       u.username, u.display_name, u.email, u.avatar_updated_at
 		  FROM project_members pm
 		  JOIN users u ON u.id = pm.user_id
 		 WHERE pm.project_id = $1 AND pm.user_id = $2`
@@ -617,7 +618,7 @@ func (r *Repository) FindMember(ctx context.Context, projectID, userID string) (
 	var member MemberRecord
 	err := r.pool.QueryRow(ctx, query, projectID, userID).Scan(
 		&member.ID, &member.ProjectID, &member.UserID, &member.Role, &member.CreatedAt,
-		&member.Username, &member.DisplayName, &member.Email,
+		&member.Username, &member.DisplayName, &member.Email, &member.AvatarUpdatedAt,
 	)
 	if err != nil {
 		if apperr.IsNoRows(err) {
@@ -663,7 +664,7 @@ func (r *Repository) CountOwners(ctx context.Context, projectID string) (int, er
 func (r *Repository) ListMembers(ctx context.Context, filter MemberFilter, orderBy string, limit, offset int) ([]MemberRecord, error) {
 	query := `
 		SELECT pm.id, pm.project_id, pm.user_id, pm.role, pm.created_at,
-		       u.username, u.display_name, u.email
+		       u.username, u.display_name, u.email, u.avatar_updated_at
 		  FROM project_members pm
 		  JOIN users u ON u.id = pm.user_id
 		 WHERE pm.project_id = $1`
@@ -688,7 +689,7 @@ func (r *Repository) ListMembers(ctx context.Context, filter MemberFilter, order
 		var member MemberRecord
 		if err := rows.Scan(
 			&member.ID, &member.ProjectID, &member.UserID, &member.Role, &member.CreatedAt,
-			&member.Username, &member.DisplayName, &member.Email,
+			&member.Username, &member.DisplayName, &member.Email, &member.AvatarUpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("读取项目成员行失败: %w", err)
 		}

@@ -118,6 +118,17 @@ func run() error {
 		Logger: logger,
 	})
 
+	// 对象存储适配器由装配点构造（业务模块不依赖具体存储实现）。
+	// 附件与头像使用两个独立 Store：gridfs 模式对应两个 bucket，local 模式共用根目录。
+	attachmentStore, err := storage.NewFromConfig(cfg.Storage, mongoClient, cfg.Mongo.Database)
+	if err != nil {
+		return err
+	}
+	avatarStore, err := storage.NewAvatarFromConfig(cfg.Storage, mongoClient, cfg.Mongo.Database)
+	if err != nil {
+		return err
+	}
+
 	authStore := auth.NewRepository(postgres.Pool)
 	authService := auth.NewService(auth.Options{
 		Users:         authStore,
@@ -176,10 +187,13 @@ func run() error {
 	// `*users.Service` 与 `*auth.Service` 分别直接满足 projects.TimezoneProvider 与
 	// users.Accounts，因此装配点不需要写适配器：接口方法签名与实现完全一致。
 	usersService := users.NewService(users.Options{
-		Store:    users.NewRepository(postgres.Pool),
-		Accounts: authService,
-		Logger:   logger,
-		Audit:    auditService,
+		Store:             users.NewRepository(postgres.Pool),
+		Accounts:          authService,
+		Logger:            logger,
+		Audit:             auditService,
+		Storage:           avatarStore,
+		IDs:               ids,
+		AvatarMaxFileSize: cfg.Storage.AvatarMaxFileSize,
 	})
 
 	// 邮件发送器：未启用时注入 Disabled（它返回错误而不是假装成功，
@@ -243,12 +257,7 @@ func run() error {
 		Audit:     auditService,
 	})
 
-	// 附件：对象存储适配器由装配点构造（业务模块不依赖具体存储实现）。
-	// 存储层只按 key 读写字节，attachments 模块负责 key 生成、元数据与权限。
-	attachmentStore, err := storage.NewFromConfig(cfg.Storage, mongoClient, cfg.Mongo.Database)
-	if err != nil {
-		return err
-	}
+	// 附件：对象存储适配器已在上面构造（与头像分开）。
 	attachmentsService := attachments.NewService(attachments.Options{
 		Store:   attachments.NewRepository(postgres.Pool),
 		Storage: attachmentStore,

@@ -105,6 +105,7 @@ export interface ProjectMember {
   readonly role: ProjectMemberRole;
   readonly username: string;
   readonly display_name: string;
+  readonly avatar_updated_at: string | null;
   readonly email: string;
 }
 

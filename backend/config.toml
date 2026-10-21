@@ -37,7 +37,7 @@ password = ""
 dial_timeout_seconds = 5
 
 [mongo]
-# MongoDB 7+ 只存附件/头像字节（GridFS）；PostgreSQL 仍是唯一业务事实源。
+# MongoDB 9 只存附件/头像字节（GridFS）；PostgreSQL 仍是唯一业务事实源。
 # 本地开发使用 local 后端时不会连接 Mongo；切到 storage.backend = "gridfs" 才会连接。
 uri = "mongodb://127.0.0.1:27017"
 database = "worklane"

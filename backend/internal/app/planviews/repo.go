@@ -128,10 +128,11 @@ func (r ProjectRecord) groupMembership(actorID string) *domain.GroupMember {
 
 // MemberRecord 是任务成员（带展示字段）。
 type MemberRecord struct {
-	UserID      string `json:"user_id"`
-	Role        string `json:"role"`
-	Username    string `json:"username"`
-	DisplayName string `json:"display_name"`
+	UserID          string     `json:"user_id"`
+	Role            string     `json:"role"`
+	Username        string     `json:"username"`
+	DisplayName     string     `json:"display_name"`
+	AvatarUpdatedAt *time.Time `json:"avatar_updated_at"`
 }
 
 // TaskRecord 是任务在计划视图中的投影。
@@ -465,7 +466,8 @@ const taskMembersLateral = `
 	           'user_id', tm.user_id,
 	           'role', tm.role,
 	           'username', mu.username,
-	           'display_name', mu.display_name)
+	           'display_name', mu.display_name,
+	           'avatar_updated_at', mu.avatar_updated_at)
 	       ORDER BY (tm.role = 'owner') DESC, mu.display_name) AS items
 	  FROM task_members tm
 	  JOIN users mu ON mu.id = tm.user_id

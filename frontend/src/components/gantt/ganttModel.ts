@@ -47,6 +47,7 @@ export interface GanttMemberRow {
   readonly memberId: string;
   readonly displayName: string;
   readonly username: string;
+  readonly avatarUpdatedAt: string | null;
   readonly taskCount: number;
   readonly progress: number;
   readonly startDate: string;
@@ -217,6 +218,7 @@ export function buildMemberGanttRows(
     key: string;
     displayName: string;
     username: string;
+    avatarUpdatedAt: string | null;
     tasks: PlanTask[];
   }
 
@@ -228,6 +230,7 @@ export function buildMemberGanttRows(
         key: UNASSIGNED_MEMBER_KEY,
         displayName: '未分配',
         username: '',
+        avatarUpdatedAt: null,
         tasks: [],
       };
       bucket.tasks.push(task);
@@ -239,6 +242,7 @@ export function buildMemberGanttRows(
         key: member.user_id,
         displayName: member.display_name,
         username: member.username,
+        avatarUpdatedAt: member.avatar_updated_at,
         tasks: [],
       };
       if (!bucket.tasks.some((existing) => existing.id === task.id)) {
@@ -288,6 +292,7 @@ export function buildMemberGanttRows(
       memberId: bucket.key,
       displayName: bucket.displayName,
       username: bucket.username,
+      avatarUpdatedAt: bucket.avatarUpdatedAt,
       taskCount: sortedTasks.length,
       progress,
       startDate,

@@ -3,11 +3,11 @@
 > 归属：**前后端共用**（`docs/api/`）。通用约定（基础路径 `/api/v1`、成功/错误信封、认证、分页、并发与幂等、限流、未知字段拒绝）见《S02-HTTP接口契约》§2，本文不重复。
 > 契约正文（约定性叙述）见《A02》；本文补齐每个接口的**请求与响应数据结构**。
 
-> **2026-10-20 规划（未生效）**：将新增 `GET /users/{id}/avatar`、`POST/DELETE /me/avatar`，
-> 公开用户与所有成员投影增加 `avatar_updated_at`；头像存储复用附件对象存储（规划 MongoDB GridFS）。
+> **2026-10-21 状态**：W3 MongoDB GridFS 已落地；**W4 头像已落地**：
+> `GET /users/{id}/avatar`、`POST/DELETE /me/avatar` 与公开用户/成员投影的
+> `avatar_updated_at` 均已实现。头像格式仅 **PNG/JPEG**（不支持 WebP）。
 > `/me` 页面复用现有 `GET/PATCH /users/{id}`，不新增资料端点。详见
-> [P01-Worklane-规划-2026-10-20.md](../P01-Worklane-规划-2026-10-20.md) §4；
-> 在 S02/本文正式更新前，仍按当前 6 个端点实现。
+> [P01-Worklane-规划-2026-10-20.md](../P01-Worklane-规划-2026-10-20.md) §4。W5 重置密码端点仍待激活。
 
 ## 接口清单
 
@@ -19,8 +19,11 @@
 | 4 | `POST` | `/api/v1/users` | 仅系统管理员 | 创建账号（与自助注册同一套实现） |
 | 5 | `POST` | `/api/v1/users/query` | 仅系统管理员 | 分页查询账号清单 |
 | 6 | `POST` | `/api/v1/users/{user_id}/password` | 仅系统管理员 | 重置指定用户密码 |
+| 7 | `GET` | `/api/v1/users/{user_id}/avatar` | 对该用户资料可见 | 读取头像原图；无头像 404 `avatar_not_found` |
+| 8 | `POST` | `/api/v1/me/avatar` | 本人 | 上传/替换头像（multipart 字段 `file`） |
+| 9 | `DELETE` | `/api/v1/me/avatar` | 本人 | 删除头像；幂等 204 |
 
-本域 6 个端点**全部需要登录**（都不在会话网关白名单内）。
+本域 9 个端点**全部需要登录**（都不在会话网关白名单内）。
 `POST /api/v1/users` 的路径**不带尾部斜杠**：服务端关闭了自动重定向，`/api/v1/users/` 不会被纠正，
 而是直接按未命中路由返回 `404 resource_not_found`。
 
@@ -37,6 +40,7 @@
 | `timezone` | string | IANA 时区标识，决定该用户的"今天" |
 | `reminder_enabled` | boolean | 个人全局提醒开关 |
 | `last_login_at` | string \| null | 最后一次登录时刻；从未登录为 `null` |
+| `avatar_updated_at` | string \| null | 头像版本；`null` 表示没有头像。前端拼 `?v=` 破缓存，API **不返回 avatar_url** |
 | `updated_at` | string | 最后变更时刻（UTC ISO 8601，最多 9 位小数秒） |
 
 **密码、密码摘要与会话令牌永不返回**：本域的所有响应结构里都没有 `password_hash`。
@@ -70,6 +74,7 @@
     "timezone": "Asia/Shanghai",
     "reminder_enabled": true,
     "last_login_at": "2026-10-11T09:30:00Z",
+    "avatar_updated_at": null,
     "updated_at": "2026-10-11T09:30:00Z"
   }
 }
@@ -86,6 +91,7 @@
 | `data.timezone` | string | 该用户时区 |
 | `data.reminder_enabled` | boolean | 该用户提醒开关（对他人可见，属公开结构） |
 | `data.last_login_at` | string \| null | 最后登录时刻 |
+| `data.avatar_updated_at` | string \| null | 头像版本；`null` 表示没有头像 |
 | `data.updated_at` | string | 当前版本；修改前必须持有它 |
 
 **错误**：
@@ -520,3 +526,138 @@
   **2026-10-20 规划（未生效）**：自助重置与管理员重置都计划递增 `users.session_version`，
   让旧会话在下次请求时失效；同时管理员重置会作废该用户未消费的自助重置 token。见 P01 §5。
 - 副作用：同一事务内写入一条 `password_reset` 操作记录（只记动作与对象，不记密码）。
+
+## 7. `GET /api/v1/users/{user_id}/avatar`
+
+**用途**：读取目标用户的头像原图。响应体是**图片字节**，不是 JSON 信封。
+**权限**：与 `GET /users/{user_id}` 完全一致（本人 / 系统管理员 / 同工作组成员 / 同项目成员）。
+
+**路径参数**：
+
+| 参数 | 类型 | 说明 |
+| --- | --- | --- |
+| `user_id` | string (UUID) | 目标用户 id；非法 UUID 返回 `400 invalid_request` |
+
+**查询参数**（无则写"无"）：无
+
+**请求体**（无则写"无请求体"）：无请求体
+
+**响应 `200`**：
+
+```text
+Content-Type: image/png
+Content-Length: 12345
+Content-Disposition: inline
+X-Content-Type-Options: nosniff
+Cache-Control: private, max-age=300
+ETag: "1761091200123456789"
+```
+
+| 响应头 | 说明 |
+| --- | --- |
+| `Content-Type` | 服务端保存的 `avatar_mime`（`image/png` 或 `image/jpeg`） |
+| `Content-Length` | `avatar_size_bytes` |
+| `Content-Disposition` | 固定 `inline` |
+| `X-Content-Type-Options` | 固定 `nosniff` |
+| `Cache-Control` | 固定 `private, max-age=300` |
+| `ETag` | `avatar_updated_at` 的 Unix 纳秒值（带引号） |
+
+**错误**：
+
+| 状态码 | `error.code` | 触发条件 |
+| --- | --- | --- |
+| `400` | `invalid_request` | 路径参数不是合法 UUID |
+| `401` | `authentication_required` | 未登录或会话失效 |
+| `404` | `user_not_found` | 用户不存在，**或**对请求者不可见（同码防枚举） |
+| `404` | `avatar_not_found` | 用户可见，但没有上传头像（或对象已缺失） |
+| `500` | `internal_error` | 未预期服务端错误 |
+
+**备注**：
+
+- 带 `If-None-Match: <ETag>` 且匹配时返回 **`304`**（无响应体），浏览器可复用缓存。
+- `avatar_url` **不由服务端返回**：前端用 `API_BASE + /users/{id}/avatar?v=<avatar_updated_at>` 构造。
+- 头像下载**每次重新校验可见性**，因此不能把 URL 当作带权限的长期链接。
+
+## 8. `POST /api/v1/me/avatar`
+
+**用途**：上传或替换**本人**头像（`multipart/form-data`，字段名 `file`）。
+**权限**：登录用户，只能操作本人；没有目标 `user_id` 参数。
+
+**路径参数**（无则写"无"）：无
+
+**查询参数**（无则写"无"）：无
+
+**请求体**：`multipart/form-data`，单文件字段 `file`
+
+| 约束 | 值 |
+| --- | --- |
+| 大小 | ≤ `storage.avatar_max_file_size`（默认 **2 MiB**） |
+| 格式 | **PNG / JPEG**（按内容嗅探 + `image.DecodeConfig`；**不支持 WebP/GIF/SVG**） |
+| 尺寸 | 宽、高均 ≤ **4096** |
+| 扩展名/文件名 | 不参与格式判断，也不进入存储 key |
+
+**响应 `200`**：公开用户结构（含新的 `avatar_updated_at`；`updated_at` **不变**）。
+
+```json
+{
+  "data": {
+    "id": "01a1290b-0ae8-7046-9106-30f2d07815af",
+    "username": "alice",
+    "email": "alice@example.com",
+    "display_name": "Alice",
+    "status": "active",
+    "system_role": "member",
+    "timezone": "Asia/Shanghai",
+    "reminder_enabled": true,
+    "last_login_at": "2026-10-21T03:00:00Z",
+    "avatar_updated_at": "2026-10-21T05:30:00.123456Z",
+    "updated_at": "2026-10-21T03:00:00Z"
+  }
+}
+```
+
+**错误**：
+
+| 状态码 | `error.code` | 触发条件 |
+| --- | --- | --- |
+| `400` | `invalid_request` | 请求不是合法 multipart / 上传内容不完整 |
+| `401` | `authentication_required` | 未登录或会话失效 |
+| `413` | `file_too_large` | 超过 2 MiB（`fields.file`） |
+| `415` | `unsupported_media_type` | 不是 PNG/JPEG，或内容无法解码（`fields.file`） |
+| `422` | `validation_error` | 缺少 `file`、空文件、宽高超过 4096（`fields.file`） |
+| `500` | `internal_error` | 对象存储或数据库写入失败 |
+
+**备注**：
+
+- 头像**不计入**附件配额（`storage.max_files_per_user` 不适用）。
+- 每次上传写**新 key**（`avatars/<user_id>/<uuid>`）；数据库成功后才删除旧对象。
+  数据库失败会删除刚写入的新对象，避免孤儿。
+- 只推进 `avatar_updated_at`，**不推进** `users.updated_at`：否则个人资料表单的
+  `expected_updated_at` 会被头像上传意外作废。
+- 审计：同一事务写 `user/updated`，`changes` 只有 `{"avatar":"set"}`，不记录 key/MIME/内容。
+
+## 9. `DELETE /api/v1/me/avatar`
+
+**用途**：删除本人头像。
+**权限**：登录用户，只能操作本人。
+
+**路径参数**（无则写"无"）：无
+
+**查询参数**（无则写"无"）：无
+
+**请求体**（无则写"无请求体"）：无请求体
+
+**响应 `204`**：无响应体。**幂等**：没有头像时同样返回 `204`。
+
+**错误**：
+
+| 状态码 | `error.code` | 触发条件 |
+| --- | --- | --- |
+| `401` | `authentication_required` | 未登录或会话失效 |
+| `500` | `internal_error` | 数据库写入失败 |
+
+**备注**：
+
+- 先清数据库、后删对象：对象删除失败只记录告警，行已不再引用它，页面不会显示旧图。
+- 有头像时审计写 `user/updated`，`changes` 为 `{"avatar":"cleared"}`；没有头像时不写审计。
+- 同样**不推进** `users.updated_at`。

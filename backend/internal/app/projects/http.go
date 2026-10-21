@@ -138,13 +138,14 @@ type projectResponse struct {
 
 // memberResponse 是项目成员对外表示。
 type memberResponse struct {
-	ID          string `json:"id"`
-	ProjectID   string `json:"project_id"`
-	UserID      string `json:"user_id"`
-	Role        string `json:"role"`
-	Username    string `json:"username"`
-	DisplayName string `json:"display_name"`
-	Email       string `json:"email"`
+	ID              string  `json:"id"`
+	ProjectID       string  `json:"project_id"`
+	UserID          string  `json:"user_id"`
+	Role            string  `json:"role"`
+	Username        string  `json:"username"`
+	DisplayName     string  `json:"display_name"`
+	Email           string  `json:"email"`
+	AvatarUpdatedAt *string `json:"avatar_updated_at"`
 }
 
 // newProjectResponse 把仓储记录投影为对外结构。
@@ -180,13 +181,14 @@ func newProjectResponse(record ProjectRecord) projectResponse {
 // newMemberResponse 把成员记录投影为对外结构。
 func newMemberResponse(record MemberRecord) memberResponse {
 	return memberResponse{
-		ID:          record.ID,
-		ProjectID:   record.ProjectID,
-		UserID:      record.UserID,
-		Role:        record.Role,
-		Username:    record.Username,
-		DisplayName: record.DisplayName,
-		Email:       record.Email,
+		ID:              record.ID,
+		ProjectID:       record.ProjectID,
+		UserID:          record.UserID,
+		Role:            record.Role,
+		Username:        record.Username,
+		DisplayName:     record.DisplayName,
+		Email:           record.Email,
+		AvatarUpdatedAt: domain.FormatOptionalTimestamp(record.AvatarUpdatedAt),
 	}
 }
 

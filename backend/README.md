@@ -4,7 +4,7 @@ Worklane（Work Items & Layered Timelines）的服务端，使用 **Go 1.26 + Gi
 
 应用面向内部网络，不面向公网开放。2026-10 的迁移/对象存储/头像规划见
 [../docs/P01-Worklane-规划-2026-10-20.md](../docs/P01-Worklane-规划-2026-10-20.md)
-（W1 品牌、W2 `/me`、W3 Mongo/GridFS 已落地；W4/W5 未开始）。
+（W1 品牌、W2 `/me`、W3 Mongo/GridFS、W4 头像已落地；W5 未开始）。
 
 > **本文件是服务端的入口文档**（怎么跑、怎么测、代码怎么分层）。
 > 仓库级总览见 [../README.md](../README.md)；前后端共用的文档（业务需求、HTTP 接口契约）在
@@ -15,8 +15,8 @@ Worklane（Work Items & Layered Timelines）的服务端，使用 **Go 1.26 + Gi
 
 **四个阶段已全部完成并经真实依赖验证**：地基 + Auth、Groups / Projects / Tasks、Users、Plan Views、Attachments、Reminders、Audit，以及交付收口（端到端验收、备份恢复演练、部署核对）。
 
-> **2026-10 状态**：W1 品牌、W2 `/me`、W3 Mongo/GridFS 已落地；W4 头像、W5 邮箱重置密码未开始。
-> 当前迁移 head **7**、HTTP 端点仍为 **61**；详见 P01 与 B05 §5.22。
+> **2026-10 状态**：W1 品牌、W2 `/me`、W3 Mongo/GridFS、W4 头像已落地；W5 邮箱重置密码未开始。
+> 当前迁移 head **8**、HTTP 端点 **64**（业务 60 + 健康检查 4）；详见 P01 与 B05 §5.22–§5.24。
 
 | 能力 | 状态 |
 | --- | --- |
@@ -33,13 +33,13 @@ Worklane（Work Items & Layered Timelines）的服务端，使用 **Go 1.26 + Gi
 | Reminders：五种提醒、周期派发、幂等去重、失败原因与重试（3 个端点） | ✅ 已实现（第三阶段） |
 | Audit：操作记录（**与业务同事务写入**，仅系统管理员可查，`GET /api/v1/audit`） | ✅ 已实现（第三阶段，2026-10-12） |
 
-已注册端点共 **61 个**（Health 4 / Auth 4 / Users 6 / Groups 11 / Projects 9 / Tasks 11 / Plan Views 3 / Attachments 7 / Reminders 3 / Audit 1 / Registration Requests 2）。
+已注册端点共 **64 个**（Health 4 / Auth 4 / Users 9 / Groups 11 / Projects 9 / Tasks 11 / Plan Views 3 / Attachments 7 / Reminders 3 / Audit 1 / Registration Requests 2）。
 
-真实依赖验证结果（PostgreSQL 16 + Redis 7 + MongoDB GridFS，2026-10-21 复跑）：
+真实依赖验证结果（PostgreSQL 16 + Redis 7 + **MongoDB 9.0.4**，2026-10-21 复跑）：
 
-- `go test ./... -count=1 -p 1` 全量通过（历史基线顶层 323 项、含子用例 894 项；本轮新增注册审核集成测试），覆盖真实数据库上的迁移可逆性、约束生效性、单一 owner 不变式、审计的同事务与脱敏语义，以及八个域的端到端用例。
+- `go test ./... -count=1 -p 1` 全量通过：顶层 **333** 项、含子用例合计 **917** 项，0 失败、0 跳过（设置 `TEST_MONGO_URI` 后 GridFS 用例一并执行），覆盖真实数据库上的迁移可逆性、约束生效性、单一 owner 不变式、审计的同事务与脱敏语义，以及八个域的端到端用例。
 - `scripts/smoke.ps1` 对运行中的服务执行 **207 项断言全部通过**（健康检查、认证全链路、用户资料与管理员端点（含成功路径）、计划视图三端点、持有者与工作组所有权转移、管理员兜底、附件全链路（含 multipart 与两步删除）、提醒生成与派发、**审计的可见性、脱敏与全链路可追溯**、三域 CRUD、分页边界、排序白名单、版本冲突、组合筛选、幂等复制、归档只读）。
-  **前提是服务用 `make run-test-config` 启动**（其中含 `SCHEDULER_INTERVAL_SECONDS=5`）：换用别的配置会得到 201 通过 / 1 失败，原因见 [backend/docs/B05 §7.0.1](./docs/B05-进度与验证记录.md) 第 4 条坑。
+  **前提**：服务以 `SCHEDULER_INTERVAL_SECONDS=5` 且 `SECURITY_REGISTRATION_REQUIRES_APPROVAL=false` 启动（`config.toml` 的注册审核默认是 `true`，而冒烟会在注册后直接登录）；换用别的配置会得到 201 通过 / 1 失败或 141 项失败，原因见 [backend/docs/B05 §7.0.1](./docs/B05-进度与验证记录.md) 第 4/6 条坑。
 - 关键实现经**变异验证**：逐条注入缺陷并确认对应用例确实失败，见 [backend/docs/B05](./docs/B05-进度与验证记录.md) 5.7。
 - **首个管理员**在系统初始化时按 `security.bootstrap_admin_*` 录入（幂等、绝不覆盖既有密码）；本系统面向内部小组，不做管理员分发。见 [backend/docs/B03](./docs/B03-配置与运行.md) 3.6.1。
 

@@ -24,6 +24,8 @@ type Record struct {
 	Changes    map[string]string
 	RequestID  string
 	CreatedAt  time.Time
+	// ActorAvatarUpdatedAt 是操作人**当前**头像版本，用于前端展示操作人头像。
+	ActorAvatarUpdatedAt *time.Time
 }
 
 // ListFilter 是列表筛选条件。nil 表示不过滤。
@@ -54,7 +56,7 @@ func (r *Repository) Pool() *pgxpool.Pool { return r.pool }
 // recordColumns 是列表查询用到的列（含操作人显示名）。
 const recordColumns = `
 	a.id, a.actor_id, u.display_name, a.action, a.object_type,
-	a.object_id, a.changes, a.request_id, a.created_at`
+	a.object_id, a.changes, a.request_id, a.created_at, u.avatar_updated_at`
 
 // constraintMap 把数据库约束翻译为领域错误。
 //
@@ -158,7 +160,7 @@ func scanRecord(row pgx.Row) (Record, error) {
 	if err := row.Scan(
 		&record.ID, &record.ActorID, &record.ActorName, &record.Action,
 		&record.ObjectType, &record.ObjectID, &changes, &record.RequestID,
-		&record.CreatedAt,
+		&record.CreatedAt, &record.ActorAvatarUpdatedAt,
 	); err != nil {
 		return Record{}, err
 	}

@@ -39,6 +39,7 @@ export interface PlanTaskMember {
   readonly user_id: string;
   readonly username: string;
   readonly display_name: string;
+  readonly avatar_updated_at: string | null;
   readonly role: 'owner' | 'member';
 }
 

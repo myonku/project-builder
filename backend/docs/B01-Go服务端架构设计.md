@@ -54,7 +54,7 @@ Gin/pgx 生态。但必须同时承认：**更换语言不会自动修复逻辑�
 | 数据库驱动 | `github.com/jackc/pgx/v5` | 直接使用 `pgxpool`，显式 SQL |
 | 迁移 | 纯 SQL 迁移文件 + `golang-migrate`（或等价库） | 迁移内容与原 Alembic 语义一一对应 |
 | 主数据库 | PostgreSQL 16 | **唯一业务事实源**；不是唯一数据存储 |
-| 对象存储 | 本地文件系统 / MongoDB 7+ GridFS（**W3 已落地**） | 只存附件/头像字节；元数据、权限、审计仍在 PostgreSQL |
+| 对象存储 | 本地文件系统 / MongoDB 9 GridFS（**W3 已落地**） | 只存附件/头像字节；元数据、权限、审计仍在 PostgreSQL |
 | 短期状态 | Redis 7 | 会话、限流、锁；不保存核心业务唯一数据 |
 | 密码 | `golang.org/x/crypto/argon2` | 与原 Argon2 行为对齐 |
 | ID | `github.com/google/uuid` 的 UUIDv7 | 时间有序，替代早期实现里的 ID 生成模块 |
@@ -68,7 +68,7 @@ Gin/pgx 生态。但必须同时承认：**更换语言不会自动修复逻辑�
 `go.mongodb.org/mongo-driver/v2 v2.5.0` 已提升为 direct 依赖；`local` 模式不建立 Mongo 连接，
 `gridfs` 模式启动时 ping，失败快速退出。
 
-> **2026-10-21 W3 落地**：MongoDB 7+ GridFS 作为可配置对象存储接入，
+> **2026-10-21 W3 落地**：MongoDB 9 GridFS 作为可配置对象存储接入，
 > `storage.Store` 四方法不变、`stored_key` 不变；PostgreSQL 仍是唯一业务事实源。
 > `cmd/storage-migrate` 负责 local ↔ gridfs 的 copy/verify/rollback，账本在
 > `attachments.storage_backend`。设计、迁移、回滚、备份与健康检查见

@@ -61,6 +61,8 @@ export interface GroupMember {
   readonly joined_at: string;
   readonly username: string;
   readonly display_name: string;
+  /** 头像版本；null 时前端回退首字 */
+  readonly avatar_updated_at: string | null;
   /** 写响应里为 `""`（《A03》§6/§7）；要展示用户信息请用成员列表或 `GET /users/{id}` */
   readonly email: string;
 }
@@ -95,6 +97,7 @@ export interface JoinRequest {
   readonly reviewed_at: string | null;
   readonly username: string;
   readonly display_name: string;
+  readonly avatar_updated_at: string | null;
   readonly email: string;
 }
 

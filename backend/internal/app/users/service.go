@@ -10,6 +10,8 @@ import (
 	"github.com/myonku/project-builder/internal/app/apperr"
 	"github.com/myonku/project-builder/internal/domain"
 	"github.com/myonku/project-builder/internal/listquery"
+	"github.com/myonku/project-builder/internal/platform/idgen"
+	"github.com/myonku/project-builder/internal/platform/storage"
 )
 
 // Store 是本模块对持久化的需求。定义在消费方，测试用替身实现。
@@ -17,6 +19,7 @@ type Store interface {
 	FindProfile(ctx context.Context, userID string) (ProfileRecord, error)
 	SharesWorkspace(ctx context.Context, viewerID, targetID string) (bool, error)
 	UpdateProfile(ctx context.Context, params UpdateProfileParams) (ProfileRecord, error)
+	ReplaceAvatar(ctx context.Context, params AvatarUpdateParams) (ProfileRecord, *string, error)
 	ListProfiles(ctx context.Context, filter ListFilter, orderBy string, limit, offset int) ([]ProfileRecord, error)
 	CountProfiles(ctx context.Context, filter ListFilter) (int, error)
 }
@@ -52,6 +55,11 @@ type Service struct {
 	logger   *slog.Logger
 	// audit 是操作记录的写入方，由仓储在业务事务里调用（见 apperr.AuditWrite）。
 	audit apperr.AuditWriter
+
+	// 头像：storage 由装配点注入（local 或 gridfs），ids 用于生成不可覆盖的 key。
+	storage           storage.Store
+	ids               *idgen.Generator
+	avatarMaxFileSize int64
 }
 
 // Options 是 Service 的构造参数。
@@ -62,6 +70,12 @@ type Options struct {
 	Logger   *slog.Logger
 	// Audit 为 nil 时不记操作记录。
 	Audit apperr.AuditWriter
+	// Storage 是头像字节存储；为 nil 时头像端点返回 500（装配遗漏）。
+	Storage storage.Store
+	// IDs 生成头像对象 key；为 nil 时使用默认生成器。
+	IDs *idgen.Generator
+	// AvatarMaxFileSize 是头像文件上限；<=0 时按 2 MiB 兜底。
+	AvatarMaxFileSize int64
 }
 
 // NewService 构造用户资料用例服务。
@@ -70,11 +84,22 @@ func NewService(opts Options) *Service {
 	if logger == nil {
 		logger = slog.Default()
 	}
+	ids := opts.IDs
+	if ids == nil {
+		ids = idgen.New()
+	}
+	maxAvatar := opts.AvatarMaxFileSize
+	if maxAvatar <= 0 {
+		maxAvatar = defaultAvatarMaxFileSize
+	}
 	return &Service{
-		repo:     opts.Store,
-		accounts: opts.Accounts,
-		logger:   logger,
-		audit:    opts.Audit,
+		repo:              opts.Store,
+		accounts:          opts.Accounts,
+		logger:            logger,
+		audit:             opts.Audit,
+		storage:           opts.Storage,
+		ids:               ids,
+		avatarMaxFileSize: maxAvatar,
 	}
 }
 

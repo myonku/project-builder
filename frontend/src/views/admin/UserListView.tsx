@@ -39,6 +39,7 @@ import { toApiError, type ApiError } from '@/api/client';
 import DataTooltip, { textCell } from '@/components/common/DataTooltip';
 import PageContainer from '@/components/common/PageContainer';
 import StatusTag from '@/components/common/StatusTag';
+import UserAvatar from '@/components/common/UserAvatar';
 import ResetPasswordDialog from '@/components/user/ResetPasswordDialog';
 import UserCreateDialog, { type UserCreateValues } from '@/components/user/UserCreateDialog';
 import UserEditDialog from '@/components/user/UserEditDialog';
@@ -218,8 +219,15 @@ export default function UserListView() {
       {
         field: 'username',
         headerName: '用户名',
-        width: 160,
-        renderCell: textCell<User>(),
+        width: 190,
+        renderCell: (params: GridRenderCellParams<User>) => (
+          <Stack direction="row" spacing={1} sx={{ alignItems: 'center', minWidth: 0 }}>
+            <UserAvatar user={params.row} size={28} />
+            <Typography variant="body2" noWrap>
+              {params.row.username}
+            </Typography>
+          </Stack>
+        ),
       },
       {
         field: 'display_name',

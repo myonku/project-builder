@@ -40,6 +40,7 @@ import {
 import { queryUsers } from '@/api/users';
 import { toApiError, type ApiError } from '@/api/client';
 import StatusTag from '@/components/common/StatusTag';
+import UserAvatar from '@/components/common/UserAvatar';
 import { truncatedText } from '@/components/common/TruncatedText';
 import {
   GROUP_MEMBER_ROLE_OPTIONS,
@@ -400,6 +401,7 @@ export default function GroupMembersPanel({
             >
               <Box sx={{ minWidth: 0 }}>
                 <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+                  <UserAvatar user={{ id: member.user_id, display_name: member.display_name, avatar_updated_at: member.avatar_updated_at }} size={28} />
                   <Typography variant="body2" noWrap>
                     {member.display_name || member.username || member.user_id.slice(-8)}
                   </Typography>

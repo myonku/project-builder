@@ -2,7 +2,13 @@ package users
 
 import (
 	"errors"
+	"fmt"
+	"io"
 	"log/slog"
+	"mime/multipart"
+	"net/http"
+	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -42,10 +48,20 @@ func (h *Handler) Register(api *gin.RouterGroup) {
 	group.POST("/query", h.list)
 
 	group.GET("/:user_id", h.detail)
+	group.GET("/:user_id/avatar", h.avatar)
 	group.PATCH("/:user_id", h.update)
 	group.POST("/:user_id/disable", h.disable)
 	group.POST("/:user_id/password", h.resetPassword)
+
+	// 头像上传/删除只作用于本人，因此路径是 /me/avatar，不接收 user_id。
+	// GET /me 属于 auth 模块；这里只注册同一前缀下的两个写方法，互不冲突。
+	me := api.Group("/me")
+	me.POST("/avatar", h.uploadAvatar)
+	me.DELETE("/avatar", h.deleteAvatar)
 }
+
+// maxAvatarMultipartOverhead 是 multipart 分帧本身的开销预留。
+const maxAvatarMultipartOverhead = 1 << 20
 
 // ---------------------------------------------------------------------------
 // 请求与响应结构
@@ -124,6 +140,8 @@ type profileResponse struct {
 	ReminderEnabled bool    `json:"reminder_enabled"`
 	LastLoginAt     *string `json:"last_login_at"`
 	UpdatedAt       string  `json:"updated_at"`
+	// 头像对象 key/mime/size 永不返回；avatar_updated_at 是前端拼 ?v= 的唯一依据。
+	AvatarUpdatedAt *string `json:"avatar_updated_at"`
 }
 
 // newProfileResponse 把仓储记录投影为对外结构。
@@ -132,6 +150,11 @@ func newProfileResponse(record ProfileRecord) profileResponse {
 	if record.LastLoginAt != nil {
 		formatted := domain.FormatTimestamp(*record.LastLoginAt)
 		lastLogin = &formatted
+	}
+	var avatarUpdatedAt *string
+	if record.AvatarUpdatedAt != nil {
+		formatted := domain.FormatTimestamp(*record.AvatarUpdatedAt)
+		avatarUpdatedAt = &formatted
 	}
 	return profileResponse{
 		ID:              record.ID,
@@ -144,6 +167,7 @@ func newProfileResponse(record ProfileRecord) profileResponse {
 		ReminderEnabled: record.ReminderEnabled,
 		LastLoginAt:     lastLogin,
 		UpdatedAt:       domain.FormatTimestamp(record.UpdatedAt),
+		AvatarUpdatedAt: avatarUpdatedAt,
 	}
 }
 
@@ -257,6 +281,143 @@ func (h *Handler) resetPassword(c *gin.Context) {
 	// 响应是公开用户结构：**绝不回显明文密码或摘要**。
 	// updated_at 已推进，客户端应据此更新自己手里的版本。
 	httpapi.RespondOK(c, newProfileResponse(updated))
+}
+
+// avatar 处理 GET /users/{user_id}/avatar（原图，不是 JSON 信封）。
+func (h *Handler) avatar(c *gin.Context) {
+	actor, err := h.actor(c)
+	if err != nil {
+		httpapi.Abort(c, err)
+		return
+	}
+
+	userID, err := userIDParam(c)
+	if err != nil {
+		httpapi.Abort(c, err)
+		return
+	}
+
+	content, err := h.service.Avatar(c.Request.Context(), actor, userID)
+	if err != nil {
+		httpapi.Abort(c, err)
+		return
+	}
+	defer func() { _ = content.Reader.Close() }()
+
+	etag := fmt.Sprintf(`"%d"`, content.UpdatedAt.UnixNano())
+	if etagMatches(c.GetHeader("If-None-Match"), etag) {
+		c.Header("ETag", etag)
+		c.Header("Cache-Control", "private, max-age=300")
+		c.Status(http.StatusNotModified)
+		return
+	}
+
+	c.Header("Content-Type", content.Mime)
+	c.Header("Content-Length", strconv.FormatInt(content.SizeBytes, 10))
+	c.Header("Content-Disposition", "inline")
+	// 头像也是用户提供的字节：禁止浏览器按内容猜类型。
+	c.Header("X-Content-Type-Options", "nosniff")
+	c.Header("Cache-Control", "private, max-age=300")
+	c.Header("ETag", etag)
+	c.Status(http.StatusOK)
+	if _, err := io.Copy(c.Writer, content.Reader); err != nil {
+		// 响应头已发出，只能记录。
+		_ = c.Error(err)
+	}
+}
+
+// uploadAvatar 处理 POST /me/avatar（multipart 字段 file）。
+func (h *Handler) uploadAvatar(c *gin.Context) {
+	actor, err := h.actor(c)
+	if err != nil {
+		httpapi.Abort(c, err)
+		return
+	}
+
+	maxBytes := h.service.AvatarMaxFileSize()
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxBytes+maxAvatarMultipartOverhead)
+
+	fileHeader, err := c.FormFile("file")
+	if err != nil {
+		httpapi.Abort(c, translateAvatarMultipartError(err, maxBytes))
+		return
+	}
+	if fileHeader.Size > maxBytes {
+		httpapi.Abort(c, domain.ErrFileTooLarge.
+			WithField("file", fmt.Sprintf("头像不得超过 %d 字节", maxBytes)))
+		return
+	}
+
+	file, err := fileHeader.Open()
+	if err != nil {
+		httpapi.Abort(c, domain.ErrInternal.WithCause(err))
+		return
+	}
+	defer func() { _ = file.Close() }()
+
+	data, err := io.ReadAll(io.LimitReader(file, maxBytes+1))
+	if err != nil {
+		httpapi.Abort(c, domain.ErrValidation.WithField("file", "读取上传内容失败"))
+		return
+	}
+	if int64(len(data)) > maxBytes {
+		httpapi.Abort(c, domain.ErrFileTooLarge.
+			WithField("file", fmt.Sprintf("头像不得超过 %d 字节", maxBytes)))
+		return
+	}
+
+	record, err := h.service.UploadAvatar(c.Request.Context(), UploadAvatarInput{
+		Actor: actor,
+		Data:  data,
+	})
+	if err != nil {
+		httpapi.Abort(c, err)
+		return
+	}
+	httpapi.RespondOK(c, newProfileResponse(record))
+}
+
+// deleteAvatar 处理 DELETE /me/avatar；没有头像时同样返回 204（幂等）。
+func (h *Handler) deleteAvatar(c *gin.Context) {
+	actor, err := h.actor(c)
+	if err != nil {
+		httpapi.Abort(c, err)
+		return
+	}
+	if err := h.service.RemoveAvatar(c.Request.Context(), actor); err != nil {
+		httpapi.Abort(c, err)
+		return
+	}
+	httpapi.RespondNoContent(c)
+}
+
+// translateAvatarMultipartError 把 multipart 解析错误映射为契约错误码。
+func translateAvatarMultipartError(err error, maxBytes int64) error {
+	var maxBytesErr *http.MaxBytesError
+	if errors.As(err, &maxBytesErr) {
+		return domain.ErrFileTooLarge.
+			WithField("file", fmt.Sprintf("头像不得超过 %d 字节", maxBytes))
+	}
+	if errors.Is(err, multipart.ErrMessageTooLarge) {
+		return domain.ErrFileTooLarge
+	}
+	if errors.Is(err, http.ErrMissingFile) {
+		return domain.ErrValidation.WithField("file", "缺少 file 字段（multipart/form-data）")
+	}
+	if errors.Is(err, io.ErrUnexpectedEOF) {
+		return domain.ErrInvalidRequest.WithField("file", "上传内容不完整")
+	}
+	return domain.ErrInvalidRequest.WithField("file", "无法解析 multipart 请求")
+}
+
+// etagMatches 精确匹配客户端带回的 ETag（支持逗号分隔的多值）。
+func etagMatches(header, etag string) bool {
+	for _, part := range strings.Split(header, ",") {
+		if strings.TrimSpace(part) == etag {
+			return true
+		}
+	}
+	return false
 }
 
 // detail 处理 GET /users/{user_id}。

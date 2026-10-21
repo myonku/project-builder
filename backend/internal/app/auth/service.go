@@ -448,6 +448,7 @@ type PublicUser struct {
 	ReminderEnabled bool    `json:"reminder_enabled"`
 	LastLoginAt     *string `json:"last_login_at"`
 	UpdatedAt       string  `json:"updated_at"`
+	AvatarUpdatedAt *string `json:"avatar_updated_at"`
 }
 
 // NewPublicUser 把数据库行投影为对外结构。
@@ -456,6 +457,11 @@ func NewPublicUser(record UserRecord) PublicUser {
 	if record.LastLoginAt != nil {
 		formatted := domain.FormatTimestamp(*record.LastLoginAt)
 		lastLogin = &formatted
+	}
+	var avatarUpdatedAt *string
+	if record.AvatarUpdatedAt != nil {
+		formatted := domain.FormatTimestamp(*record.AvatarUpdatedAt)
+		avatarUpdatedAt = &formatted
 	}
 	return PublicUser{
 		ID:              record.ID,
@@ -468,6 +474,7 @@ func NewPublicUser(record UserRecord) PublicUser {
 		ReminderEnabled: record.ReminderEnabled,
 		LastLoginAt:     lastLogin,
 		UpdatedAt:       domain.FormatTimestamp(record.UpdatedAt),
+		AvatarUpdatedAt: avatarUpdatedAt,
 	}
 }
 

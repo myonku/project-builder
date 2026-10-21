@@ -6,7 +6,6 @@
  */
 
 import * as React from 'react';
-import Avatar from '@mui/material/Avatar';
 import Divider from '@mui/material/Divider';
 import IconButton from '@mui/material/IconButton';
 import ListItemIcon from '@mui/material/ListItemIcon';
@@ -18,6 +17,7 @@ import LogoutIcon from '@mui/icons-material/Logout';
 import PersonIcon from '@mui/icons-material/Person';
 import { Stack } from '@mui/material';
 import { useNavigate } from 'react-router';
+import UserAvatar from '@/components/common/UserAvatar';
 import { useAuthStore } from '@/stores/auth';
 import { useApiError } from '@/hooks/useApiError';
 
@@ -30,7 +30,6 @@ export default function UserMenu() {
   const [signingOut, setSigningOut] = React.useState(false);
 
   const open = Boolean(anchorEl);
-  const initial = user?.display_name?.trim().charAt(0)?.toUpperCase() || '?';
 
   const handleSignOut = React.useCallback(async () => {
     setSigningOut(true);
@@ -55,7 +54,7 @@ export default function UserMenu() {
           aria-label="打开账号菜单"
           onClick={(event) => setAnchorEl(event.currentTarget)}
         >
-          <Avatar sx={{ width: 30, height: 30, fontSize: 14 }}>{initial}</Avatar>
+          <UserAvatar user={user} size={30} />
         </IconButton>
       </Tooltip>
       <Menu

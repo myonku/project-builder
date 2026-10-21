@@ -76,14 +76,15 @@ func (r TaskRecord) ToDomain() domain.Task {
 
 // MemberRecord 是 task_members 的一行，并带上用户展示字段。
 type MemberRecord struct {
-	ID          string
-	TaskID      string
-	UserID      string
-	Role        string
-	CreatedAt   time.Time
-	Username    string
-	DisplayName string
-	Email       string
+	ID              string
+	TaskID          string
+	UserID          string
+	Role            string
+	CreatedAt       time.Time
+	Username        string
+	DisplayName     string
+	Email           string
+	AvatarUpdatedAt *time.Time
 }
 
 // ToDomain 转换为领域实体。
@@ -622,7 +623,7 @@ func (r *Repository) distinguishMissing(ctx context.Context, taskID string) erro
 func (r *Repository) FindMember(ctx context.Context, taskID, userID string) (MemberRecord, error) {
 	const query = `
 		SELECT tm.id, tm.task_id, tm.user_id, tm.role, tm.created_at,
-		       u.username, u.display_name, u.email
+		       u.username, u.display_name, u.email, u.avatar_updated_at
 		  FROM task_members tm
 		  JOIN users u ON u.id = tm.user_id
 		 WHERE tm.task_id = $1 AND tm.user_id = $2`
@@ -630,7 +631,7 @@ func (r *Repository) FindMember(ctx context.Context, taskID, userID string) (Mem
 	var member MemberRecord
 	err := r.pool.QueryRow(ctx, query, taskID, userID).Scan(
 		&member.ID, &member.TaskID, &member.UserID, &member.Role, &member.CreatedAt,
-		&member.Username, &member.DisplayName, &member.Email,
+		&member.Username, &member.DisplayName, &member.Email, &member.AvatarUpdatedAt,
 	)
 	if err != nil {
 		if apperr.IsNoRows(err) {
@@ -674,7 +675,7 @@ func (r *Repository) CountOwners(ctx context.Context, taskID string) (int, error
 func (r *Repository) ListMembers(ctx context.Context, filter MemberFilter, orderBy string, limit, offset int) ([]MemberRecord, error) {
 	query := `
 		SELECT tm.id, tm.task_id, tm.user_id, tm.role, tm.created_at,
-		       u.username, u.display_name, u.email
+		       u.username, u.display_name, u.email, u.avatar_updated_at
 		  FROM task_members tm
 		  JOIN users u ON u.id = tm.user_id
 		 WHERE tm.task_id = $1`
@@ -699,7 +700,7 @@ func (r *Repository) ListMembers(ctx context.Context, filter MemberFilter, order
 		var member MemberRecord
 		if err := rows.Scan(
 			&member.ID, &member.TaskID, &member.UserID, &member.Role, &member.CreatedAt,
-			&member.Username, &member.DisplayName, &member.Email,
+			&member.Username, &member.DisplayName, &member.Email, &member.AvatarUpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("读取任务成员行失败: %w", err)
 		}

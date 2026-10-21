@@ -32,6 +32,7 @@ import { API_BASE } from '@/api/client';
 import CellText from '@/components/common/CellText';
 import PageContainer from '@/components/common/PageContainer';
 import StatusTag from '@/components/common/StatusTag';
+import UserAvatar from '@/components/common/UserAvatar';
 import PlanSummaryTiles from '@/components/plan/PlanSummaryTiles';
 import { taskPriorityMeta, taskStatusMeta } from '@/components/task/taskMeta';
 import TaskDetailDrawer from '@/components/task/TaskDetailDrawer';
@@ -112,9 +113,12 @@ function MyTaskRow({ task, onClick }: { task: PlanTask; onClick: () => void }) {
       }}
     >
       <Box sx={{ minWidth: 0 }}>
-        <Typography variant="body2" noWrap title={task.name}>
-          {task.name}
-        </Typography>
+        <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center', minWidth: 0 }}>
+          {task.owner ? <UserAvatar user={task.owner} size={20} /> : null}
+          <Typography variant="body2" noWrap title={task.name}>
+            {task.name}
+          </Typography>
+        </Stack>
         <Typography variant="caption" color="text.secondary" noWrap>
           {formatNaturalDate(task.end_date)} 截止
           {task.owner ? ` · ${task.owner.display_name}` : ''}
@@ -310,7 +314,15 @@ export default function DashboardView() {
             >
               {user ? (
                 <Stack spacing={1} divider={<Divider flexItem />}>
-                  <InfoRow label="显示名" value={user.display_name} />
+                  <InfoRow
+                    label="显示名"
+                    value={
+                      <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+                        <UserAvatar user={user} size={28} />
+                        <span>{user.display_name}</span>
+                      </Stack>
+                    }
+                  />
                   <InfoRow label="用户名" value={user.username} />
                   <InfoRow label="邮箱" value={user.email} />
                   <InfoRow

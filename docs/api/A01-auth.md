@@ -3,11 +3,13 @@
 > 归属：**前后端共用**（`docs/api/`）。通用约定（基础路径 `/api/v1`、成功/错误信封、认证、分页、并发与幂等、限流、未知字段拒绝）见《S02-HTTP接口契约》§2，本文不重复。
 > 契约正文（约定性叙述）见《A01》；本文补齐每个接口的**请求与响应数据结构**。
 
-> **2026-10-20 规划（未生效）**：将新增 `POST /auth/password-reset/request` 与
-> `POST /auth/password-reset/confirm`；公开用户结构增加 `avatar_updated_at`。
+> **2026-10-21 状态**：W3 Mongo/GridFS 已落地，不涉及 Auth 端点；**W4 头像已落地**，
+> 公开用户结构增加 `avatar_updated_at`（`login` 与 `/auth/me` 都会返回）。
+> W5 的 `POST /auth/password-reset/request` 与 `POST /auth/password-reset/confirm`
+> **仍待激活**（契约正文待 W5 开工时写入 S02/本文）。
 > 评估、令牌/7 天 5 次策略、会话失效与错误码见
-> [P01-Worklane-规划-2026-10-20.md](../P01-Worklane-规划-2026-10-20.md) §5；
-> 在 S02 正式更新前，本文件的 4 个端点仍是当前契约。
+> [P01-Worklane-规划-2026-10-20.md](../P01-Worklane-规划-2026-10-20.md) §5。
+> 本文件的 4 个端点仍是当前生效契约。
 
 ## 接口清单
 
@@ -35,6 +37,7 @@ Cookie 名由 `security.session_cookie_name` 配置（默认 `pb_session`），�
 | `timezone` | string | IANA 时区标识；决定该用户的"今天"（见《A02》 末段） |
 | `reminder_enabled` | boolean | 个人全局提醒开关 |
 | `last_login_at` | string \| null | 最后一次登录时刻；从未登录为 `null` |
+| `avatar_updated_at` | string \| null | 头像版本；`null` 表示没有头像 |
 | `updated_at` | string | 最后变更时刻（UTC ISO 8601，最多 9 位小数秒，**必须原样回传作为版本**） |
 
 **密码、密码摘要与会话令牌永不出现**在响应体中：会话只通过 `Set-Cookie` 下发。
@@ -156,6 +159,7 @@ Set-Cookie: pb_session=<64 位十六进制随机令牌>; Path=/; Max-Age=<securi
     "timezone": "Asia/Shanghai",
     "reminder_enabled": true,
     "last_login_at": "2026-10-11T09:30:00Z",
+    "avatar_updated_at": null,
     "updated_at": "2026-10-11T09:30:00Z"
   }
 }
@@ -172,6 +176,7 @@ Set-Cookie: pb_session=<64 位十六进制随机令牌>; Path=/; Max-Age=<securi
 | `data.timezone` | string | 该用户当前时区 |
 | `data.reminder_enabled` | boolean | 个人提醒开关 |
 | `data.last_login_at` | string | **本次登录时刻**（成功后写入） |
+| `data.avatar_updated_at` | string \| null | 头像版本；`null` 表示没有头像 |
 | `data.updated_at` | string | 与 `last_login_at` 同一次写入后的最新版本 |
 
 **错误**：
@@ -261,6 +266,7 @@ Set-Cookie: pb_session=; Path=/; Max-Age=-1; HttpOnly; SameSite=Lax
     "timezone": "Asia/Shanghai",
     "reminder_enabled": true,
     "last_login_at": "2026-10-11T09:30:00Z",
+    "avatar_updated_at": null,
     "updated_at": "2026-10-11T09:30:00Z"
   }
 }
@@ -277,6 +283,7 @@ Set-Cookie: pb_session=; Path=/; Max-Age=-1; HttpOnly; SameSite=Lax
 | `data.timezone` | string | 用于前端本地化"今天"的展示 |
 | `data.reminder_enabled` | boolean | 个人提醒开关 |
 | `data.last_login_at` | string \| null | 最后登录时刻 |
+| `data.avatar_updated_at` | string \| null | 头像版本；`null` 表示没有头像 |
 | `data.updated_at` | string | 当前版本，也用于 `PATCH /users/{user_id}` 的 `expected_updated_at` |
 
 字段集合与 `GET /api/v1/users/{user_id}`（见《A02》§1）**完全一致**，前端可以共用同一套类型定义。

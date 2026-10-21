@@ -26,6 +26,7 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 import { queryJoinRequests, reviewJoinRequest } from '@/api/groups';
 import { toApiError, type ApiError } from '@/api/client';
 import StatusTag from '@/components/common/StatusTag';
+import UserAvatar from '@/components/common/UserAvatar';
 import { truncatedText } from '@/components/common/TruncatedText';
 import {
   JOIN_REQUEST_STATUS_OPTIONS,
@@ -225,9 +226,12 @@ export default function GroupJoinRequestsPanel({
               sx={{ alignItems: 'center', justifyContent: 'space-between' }}
             >
               <Box sx={{ minWidth: 0 }}>
-                <Typography variant="body2" noWrap>
-                  {request.display_name || request.username}
-                </Typography>
+                <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+                  <UserAvatar user={{ id: request.user_id, display_name: request.display_name, avatar_updated_at: request.avatar_updated_at }} size={28} />
+                  <Typography variant="body2" noWrap>
+                    {request.display_name || request.username}
+                  </Typography>
+                </Stack>
                 {truncatedText(
                   `${request.username}${request.email ? ` · ${request.email}` : ''}`,
                   {

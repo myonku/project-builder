@@ -96,10 +96,11 @@ type projectResponse struct {
 
 // memberResponse 是任务成员的对外表示。
 type memberResponse struct {
-	UserID      string `json:"user_id"`
-	Username    string `json:"username"`
-	DisplayName string `json:"display_name"`
-	Role        string `json:"role"`
+	UserID          string  `json:"user_id"`
+	Username        string  `json:"username"`
+	DisplayName     string  `json:"display_name"`
+	Role            string  `json:"role"`
+	AvatarUpdatedAt *string `json:"avatar_updated_at"`
 }
 
 // taskResponse 是任务在计划视图中的对外表示。
@@ -219,18 +220,20 @@ func newTaskResponse(view TaskView) taskResponse {
 
 	for _, member := range record.Members {
 		response.Members = append(response.Members, memberResponse{
-			UserID:      member.UserID,
-			Username:    member.Username,
-			DisplayName: member.DisplayName,
-			Role:        member.Role,
+			UserID:          member.UserID,
+			Username:        member.Username,
+			DisplayName:     member.DisplayName,
+			Role:            member.Role,
+			AvatarUpdatedAt: domain.FormatOptionalTimestamp(member.AvatarUpdatedAt),
 		})
 	}
 	if owner := record.Owner(); owner != nil {
 		response.Owner = &memberResponse{
-			UserID:      owner.UserID,
-			Username:    owner.Username,
-			DisplayName: owner.DisplayName,
-			Role:        owner.Role,
+			UserID:          owner.UserID,
+			Username:        owner.Username,
+			DisplayName:     owner.DisplayName,
+			Role:            owner.Role,
+			AvatarUpdatedAt: domain.FormatOptionalTimestamp(owner.AvatarUpdatedAt),
 		}
 	}
 	return response

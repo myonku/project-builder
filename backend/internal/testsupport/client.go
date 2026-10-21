@@ -214,11 +214,21 @@ func (c *Client) Call(method, path string, body any, headers map[string]string) 
 // 与 Call 的区别：Call 只能发 JSON。附件上传是 multipart、下载是任意字节流，
 // 两者都无法用 JSON 表达，因此单开一个入口。
 func (c *Client) CallRaw(method, path string, body []byte, contentType string) Response {
+	return c.CallRawWithHeaders(method, path, body, contentType, nil)
+}
+
+// CallRawWithHeaders 在 CallRaw 基础上附加请求头（如 If-None-Match）。
+func (c *Client) CallRawWithHeaders(
+	method, path string, body []byte, contentType string, headers map[string]string,
+) Response {
 	c.t.Helper()
 
 	request := httptest.NewRequest(method, path, bytes.NewReader(body))
 	if contentType != "" {
 		request.Header.Set("Content-Type", contentType)
+	}
+	for name, value := range headers {
+		request.Header.Set(name, value)
 	}
 	for name, value := range c.cookies {
 		request.AddCookie(&http.Cookie{Name: name, Value: value})

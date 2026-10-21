@@ -115,7 +115,7 @@ type MailConfig struct {
 	TaskURLTemplate string `toml:"task_url_template"`
 }
 
-// MongoConfig 描述 MongoDB 7 连接参数。
+// MongoConfig 描述 MongoDB 9 连接参数。
 //
 // MongoDB 只承担附件/头像的字节存储（GridFS），PostgreSQL 仍是唯一业务事实源。
 // 该配置在 storage.backend = "gridfs" 时必须可用；local 模式下不会建立连接。

@@ -3,7 +3,7 @@
 > 归属：**前后端共用**（`docs/api/`）。通用约定（基础路径 `/api/v1`、成功/错误信封、认证、分页、并发与幂等、限流、未知字段拒绝）见《S02-HTTP接口契约》§2，本文不重复。
 > 契约的**约定性叙述**（信封、认证、分页、并发与幂等、限流、处理顺序、加强项）见《S02》；本文补齐每个接口的**请求与响应数据结构**。
 
-> **2026-10-20 规划（未生效）**：任务成员对象将增加 `avatar_updated_at`；任务响应本身仍不返回 owner/members，
+> **2026-10-21 W4 已落地**：任务成员对象已增加 `avatar_updated_at`；任务响应本身仍不返回 owner/members，
 > 头像展示由成员面板/计划视图投影提供。见 [P01](../P01-Worklane-规划-2026-10-20.md) §4。
 
 全部 11 个端点都要求登录（会话 Cookie，见《S02》§2.2）；未登录返回 `401 authentication_required`。
@@ -123,7 +123,8 @@
     "role": "owner",
     "username": "alice",
     "display_name": "Alice",
-    "email": "alice@example.com"
+    "email": "alice@example.com",
+    "avatar_updated_at": null
   }
 }
 ```
@@ -135,6 +136,7 @@
 | `user_id`                                 | string(UUID) | 成员用户 id                                                   |
 | `role`                                    | string       | `owner` \| `member`；一个任务**恰好一个** `owner` |
 | `username` / `display_name` / `email` | string       | 用户展示字段                                                  |
+| `avatar_updated_at` | string \| null | 成员头像版本；`null` 表示无头像（W4） |
 
 刻意**不返回** `created_at`（可用于 `sort`，但不在响应里）。任务成员关系也没有 `status`：移除即删行。
 

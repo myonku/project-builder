@@ -104,6 +104,15 @@ func FormatDate(t time.Time) string { return t.UTC().Format(DateLayout) }
 // FormatTimestamp 把瞬时时间格式化为 UTC ISO 8601。
 func FormatTimestamp(t time.Time) string { return t.UTC().Format(TimestampLayout) }
 
+// FormatOptionalTimestamp 把可空时间格式化为 *string（nil 保持 nil）。
+func FormatOptionalTimestamp(t *time.Time) *string {
+	if t == nil {
+		return nil
+	}
+	formatted := FormatTimestamp(*t)
+	return &formatted
+}
+
 // ParseDate 解析 YYYY-MM-DD 业务日期。
 func ParseDate(raw string) (time.Time, error) {
 	t, err := time.Parse(DateLayout, raw)

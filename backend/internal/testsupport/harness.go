@@ -496,11 +496,19 @@ func NewHarnessWithOptions(t *testing.T, opts HarnessOptions) *Harness {
 	})
 	// usersService 兼作 projects 的时区来源：与 cmd/api 的装配保持一致，
 	// 否则测试验证的就不是生产行为（见 testsupport/adapter.go 的同类说明）。
+	// 头像与附件共用同一个 local 根目录（与生产 local 模式一致）。
+	avatarStore, err := storage.NewLocal(cfg.Storage.LocalRoot)
+	if err != nil {
+		t.Fatalf("构造头像存储失败: %v", err)
+	}
 	usersService := users.NewService(users.Options{
-		Store:    users.NewRepository(pool),
-		Accounts: authService,
-		Logger:   logger,
-		Audit:    auditService,
+		Store:             users.NewRepository(pool),
+		Accounts:          authService,
+		Logger:            logger,
+		Audit:             auditService,
+		Storage:           avatarStore,
+		IDs:               ids,
+		AvatarMaxFileSize: cfg.Storage.AvatarMaxFileSize,
 	})
 	// 提醒服务：注入**假发送器**，于是全部提醒逻辑都能在没有 SMTP 的情况下验证。
 	fakeSender := &FakeSender{}

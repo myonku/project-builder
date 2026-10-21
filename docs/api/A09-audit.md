@@ -3,7 +3,7 @@
 > 归属：**前后端共用**（`docs/api/`）。通用约定（基础路径 `/api/v1`、成功/错误信封、认证、分页、并发与幂等、限流、未知字段拒绝）见《S02-HTTP接口契约》§2，本文不重复。
 > 契约正文（约定性叙述）见《A09》；本文补齐该接口的**请求与响应数据结构**。
 
-> **2026-10-20 规划（未生效）**：审计记录将增加 `actor_avatar_updated_at`（随 actor 投影 JOIN 取得）；
+> **2026-10-21 W4 已落地**：审计记录已增加 `actor_avatar_updated_at`（随 actor 投影 JOIN 取得）；
 > 头像更新复用 `user/updated` 动作，`changes` 只记 `avatar=set|cleared`。见 [P01](../P01-Worklane-规划-2026-10-20.md) §4。
 
 ## 接口清单
@@ -107,6 +107,7 @@ Cookie: <会话 Cookie>
       "id": "01a12d87-0b3c-7c4d-8e5f-6a7b8c9d0e1f",
       "actor_id": "01a12d87-0b3c-7c4d-8e5f-6a7b8c9d0e30",
       "actor_name": "张三",
+      "actor_avatar_updated_at": null,
       "action": "updated",
       "object_type": "project",
       "object_id": "01a12d87-0b3c-7c4d-8e5f-6a7b8c9d0e20",
@@ -138,6 +139,7 @@ Cookie: <会话 Cookie>
 | `id` | string(UUID) | 记录 id，用于稳定排序与去重 |
 | `actor_id` | string(UUID) | 操作人用户 id |
 | `actor_name` | string | 操作人**当前的**显示名（不是操作时刻的快照）：账号改名后旧记录跟着显示新名字，更符合排查直觉。用户没设显示名时为用户名 |
+| `actor_avatar_updated_at` | string \| null | 操作人**当前**头像版本；`null` 表示无头像（W4 新增） |
 | `action` | string | 动作枚举（见上） |
 | `object_type` | string | 对象类型枚举（见上） |
 | `object_id` | string(UUID) | 被操作对象 id |

@@ -29,6 +29,7 @@ import CellText from '@/components/common/CellText';
 import DataTooltip, { textCell } from '@/components/common/DataTooltip';
 import ProgressCell from '@/components/common/ProgressCell';
 import StatusTag from '@/components/common/StatusTag';
+import UserAvatar from '@/components/common/UserAvatar';
 import { isProjectRow, planRowEnd, planRowStart, type PlanRow } from '@/components/plan/planRows';
 import { projectStatusMeta } from '@/components/project/projectMeta';
 import { taskPriorityMeta, taskStatusMeta } from '@/components/task/taskMeta';
@@ -229,7 +230,10 @@ export default function PlanTable({
           // Tooltip 只用于不展开就能看到完整值。
           return (
             <DataTooltip title={`${owner.display_name}（${owner.username}）`}>
-              <span>{owner.display_name}</span>
+              <Stack direction="row" spacing={1} sx={{ alignItems: 'center', minWidth: 0 }}>
+                <UserAvatar user={owner} size={22} />
+                <span>{owner.display_name}</span>
+              </Stack>
             </DataTooltip>
           );
         },
@@ -250,7 +254,14 @@ export default function PlanTable({
           const names = row.task.members.map((member) => member.display_name).join('、');
           return (
             <DataTooltip title={names}>
-              <span>{names}</span>
+              <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center', minWidth: 0 }}>
+                {row.task.members.slice(0, 4).map((member) => (
+                  <UserAvatar key={member.user_id} user={member} size={22} />
+                ))}
+                <Typography variant="body2" noWrap sx={{ ml: 0.5 }}>
+                  {names}
+                </Typography>
+              </Stack>
             </DataTooltip>
           );
         },

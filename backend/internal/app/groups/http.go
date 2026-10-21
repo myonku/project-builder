@@ -134,28 +134,30 @@ type groupResponse struct {
 
 // memberResponse 是工作组成员对外表示。
 type memberResponse struct {
-	ID          string `json:"id"`
-	GroupID     string `json:"group_id"`
-	UserID      string `json:"user_id"`
-	Role        string `json:"role"`
-	Status      string `json:"status"`
-	JoinedAt    string `json:"joined_at"`
-	Username    string `json:"username"`
-	DisplayName string `json:"display_name"`
-	Email       string `json:"email"`
+	ID              string  `json:"id"`
+	GroupID         string  `json:"group_id"`
+	UserID          string  `json:"user_id"`
+	Role            string  `json:"role"`
+	Status          string  `json:"status"`
+	JoinedAt        string  `json:"joined_at"`
+	Username        string  `json:"username"`
+	DisplayName     string  `json:"display_name"`
+	Email           string  `json:"email"`
+	AvatarUpdatedAt *string `json:"avatar_updated_at"`
 }
 
 // joinRequestResponse 是加入申请对外表示。
 type joinRequestResponse struct {
-	ID          string  `json:"id"`
-	GroupID     string  `json:"group_id"`
-	UserID      string  `json:"user_id"`
-	Status      string  `json:"status"`
-	ReviewedBy  *string `json:"reviewed_by"`
-	ReviewedAt  *string `json:"reviewed_at"`
-	Username    string  `json:"username"`
-	DisplayName string  `json:"display_name"`
-	Email       string  `json:"email"`
+	ID              string  `json:"id"`
+	GroupID         string  `json:"group_id"`
+	UserID          string  `json:"user_id"`
+	Status          string  `json:"status"`
+	ReviewedBy      *string `json:"reviewed_by"`
+	ReviewedAt      *string `json:"reviewed_at"`
+	Username        string  `json:"username"`
+	DisplayName     string  `json:"display_name"`
+	Email           string  `json:"email"`
+	AvatarUpdatedAt *string `json:"avatar_updated_at"`
 }
 
 // newGroupResponse 把仓储记录投影为对外结构。
@@ -180,15 +182,16 @@ func newGroupResponse(record GroupRecord) groupResponse {
 // newMemberResponse 把成员记录投影为对外结构。
 func newMemberResponse(record MemberRecord) memberResponse {
 	return memberResponse{
-		ID:          record.ID,
-		GroupID:     record.GroupID,
-		UserID:      record.UserID,
-		Role:        record.Role,
-		Status:      record.Status,
-		JoinedAt:    domain.FormatTimestamp(record.JoinedAt),
-		Username:    record.Username,
-		DisplayName: record.DisplayName,
-		Email:       record.Email,
+		ID:              record.ID,
+		GroupID:         record.GroupID,
+		UserID:          record.UserID,
+		Role:            record.Role,
+		Status:          record.Status,
+		JoinedAt:        domain.FormatTimestamp(record.JoinedAt),
+		Username:        record.Username,
+		DisplayName:     record.DisplayName,
+		Email:           record.Email,
+		AvatarUpdatedAt: domain.FormatOptionalTimestamp(record.AvatarUpdatedAt),
 	}
 }
 
@@ -200,15 +203,16 @@ func newJoinRequestResponse(record JoinRequestRecord) joinRequestResponse {
 		reviewedAt = &formatted
 	}
 	return joinRequestResponse{
-		ID:          record.ID,
-		GroupID:     record.GroupID,
-		UserID:      record.UserID,
-		Status:      record.Status,
-		ReviewedBy:  record.ReviewedBy,
-		ReviewedAt:  reviewedAt,
-		Username:    record.Username,
-		DisplayName: record.DisplayName,
-		Email:       record.Email,
+		ID:              record.ID,
+		GroupID:         record.GroupID,
+		UserID:          record.UserID,
+		Status:          record.Status,
+		ReviewedBy:      record.ReviewedBy,
+		ReviewedAt:      reviewedAt,
+		Username:        record.Username,
+		DisplayName:     record.DisplayName,
+		Email:           record.Email,
+		AvatarUpdatedAt: domain.FormatOptionalTimestamp(record.AvatarUpdatedAt),
 	}
 }
 

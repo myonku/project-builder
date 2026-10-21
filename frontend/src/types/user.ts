@@ -22,6 +22,8 @@ export interface User {
   timezone: string;
   reminder_enabled: boolean;
   last_login_at: string | null;
+  /** 头像版本；null 表示没有上传头像。用于拼 `?v=` 破缓存 */
+  avatar_updated_at: string | null;
   /** 版本字段：**原样**回传作为 `expected_updated_at`（F01 §5.1） */
   updated_at: string;
 }

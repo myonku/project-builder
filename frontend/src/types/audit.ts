@@ -33,6 +33,7 @@ export interface AuditRecord {
   readonly actor_id: string;
   /** 操作人**当前**显示名（不是快照） */
   readonly actor_name: string;
+  readonly actor_avatar_updated_at: string | null;
   readonly action: AuditAction;
   readonly object_type: AuditObjectType;
   readonly object_id: string;

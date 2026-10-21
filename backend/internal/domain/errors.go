@@ -32,6 +32,7 @@ const (
 	CodeProjectNotFound             ErrorCode = "project_not_found"
 	CodeTaskNotFound                ErrorCode = "task_not_found"
 	CodeAttachmentNotFound          ErrorCode = "attachment_not_found"
+	CodeAvatarNotFound              ErrorCode = "avatar_not_found"
 	CodeReminderNotFound            ErrorCode = "reminder_not_found"
 	CodeRegistrationRequestNotFound ErrorCode = "registration_request_not_found"
 	CodeConflict                    ErrorCode = "conflict"
@@ -143,6 +144,8 @@ var (
 	ErrPermissionDenied = New(CodePermissionDenied, "当前用户无权执行该操作")
 	// ErrResourceNotFound 对象不存在或对当前用户不可见。
 	ErrResourceNotFound = New(CodeResourceNotFound, "对象不存在或不可见")
+	// ErrAvatarNotFound 用户存在且可见，但该用户没有头像（404）。
+	ErrAvatarNotFound = New(CodeAvatarNotFound, "头像不存在")
 	// ErrConflict 状态、重复或并发冲突的通用形式。
 	ErrConflict = New(CodeConflict, "操作与当前状态冲突")
 	// ErrDuplicateMember 重复成员关系。

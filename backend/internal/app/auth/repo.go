@@ -23,7 +23,8 @@ import (
 
 // users 表的显式列清单。集中在一处，避免各查询列顺序或字段遗漏不一致。
 const userColumns = `id, username, email, display_name, password_hash,
-	status, system_role, timezone, reminder_enabled, last_login_at, created_at, updated_at`
+	status, system_role, timezone, reminder_enabled, last_login_at, created_at, updated_at,
+	avatar_updated_at`
 
 // UserRecord 是 users 表的行记录。
 //
@@ -42,6 +43,7 @@ type UserRecord struct {
 	LastLoginAt     *time.Time
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
+	AvatarUpdatedAt *time.Time
 }
 
 // ToDomain 转换为领域实体。
@@ -287,6 +289,7 @@ func scanUser(row pgx.Row) (UserRecord, error) {
 		&record.LastLoginAt,
 		&record.CreatedAt,
 		&record.UpdatedAt,
+		&record.AvatarUpdatedAt,
 	)
 	if err != nil {
 		return UserRecord{}, err
