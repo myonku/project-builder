@@ -317,7 +317,7 @@ export default function AuditListView() {
   return (
     <PageContainer
       title="操作记录"
-      breadcrumbs={[{ title: '概览', path: '/' }, { title: '操作记录' }]}
+      breadcrumbs={[{ title: '工作台', path: '/projects' }, { title: '操作记录' }]}
       actions={
         <Button
           variant="outlined"

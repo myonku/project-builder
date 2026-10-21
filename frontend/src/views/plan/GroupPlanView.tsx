@@ -129,7 +129,7 @@ export default function GroupPlanView() {
   return (
     <PageContainer
       title="组内计划"
-      breadcrumbs={[{ title: '概览', path: '/' }, { title: '组内计划' }]}
+      breadcrumbs={[{ title: '计划', path: '/plans/personal' }, { title: '组内计划' }]}
       actions={
         <Button
           variant="outlined"

@@ -349,7 +349,7 @@ export default function UserListView() {
   return (
     <PageContainer
       title="用户管理"
-      breadcrumbs={[{ title: '概览', path: '/' }, { title: '用户管理' }]}
+      breadcrumbs={[{ title: '系统管理', path: '/admin/users' }, { title: '用户管理' }]}
       actions={
         <Stack direction="row" spacing={1}>
           <Button

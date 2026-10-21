@@ -57,6 +57,11 @@ export const router = createBrowserRouter([
             element: page(() => import('@/views/dashboard/DashboardView')),
           },
           {
+            // 个人信息不在侧栏；入口在右上角用户菜单与概览页（P01 §4）
+            path: 'me',
+            element: page(() => import('@/views/me/ProfileView')),
+          },
+          {
             path: 'projects',
             element: page(() => import('@/views/projects/ProjectListView')),
           },

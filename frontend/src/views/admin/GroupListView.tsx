@@ -221,7 +221,7 @@ export default function GroupListView() {
   return (
     <PageContainer
       title="工作组管理"
-      breadcrumbs={[{ title: '概览', path: '/' }, { title: '工作组管理' }]}
+      breadcrumbs={[{ title: '系统管理', path: '/admin/users' }, { title: '工作组管理' }]}
       actions={
         <Stack direction="row" spacing={1}>
           <Button

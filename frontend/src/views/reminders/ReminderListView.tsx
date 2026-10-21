@@ -341,7 +341,7 @@ export default function ReminderListView() {
   return (
     <PageContainer
       title="邮件提醒"
-      breadcrumbs={[{ title: '概览', path: '/' }, { title: '邮件提醒' }]}
+      breadcrumbs={[{ title: '工作台', path: '/projects' }, { title: '邮件提醒' }]}
       actions={
         <Button variant="outlined" startIcon={<RefreshIcon />} onClick={reload} disabled={loading}>
           刷新

@@ -15,6 +15,7 @@ import MenuItem from '@mui/material/MenuItem';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import LogoutIcon from '@mui/icons-material/Logout';
+import PersonIcon from '@mui/icons-material/Person';
 import { Stack } from '@mui/material';
 import { useNavigate } from 'react-router';
 import { useAuthStore } from '@/stores/auth';
@@ -76,6 +77,17 @@ export default function UserMenu() {
           ) : null}
         </Stack>
         <Divider />
+        <MenuItem
+          onClick={() => {
+            setAnchorEl(null);
+            navigate('/me');
+          }}
+        >
+          <ListItemIcon>
+            <PersonIcon fontSize="small" />
+          </ListItemIcon>
+          个人信息
+        </MenuItem>
         <MenuItem onClick={handleSignOut} disabled={signingOut}>
           <ListItemIcon>
             <LogoutIcon fontSize="small" />

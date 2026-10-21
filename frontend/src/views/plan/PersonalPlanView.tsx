@@ -84,7 +84,7 @@ export default function PersonalPlanView() {
   return (
     <PageContainer
       title="个人计划"
-      breadcrumbs={[{ title: '概览', path: '/' }, { title: '个人计划' }]}
+      breadcrumbs={[{ title: '计划', path: '/plans/personal' }, { title: '个人计划' }]}
       actions={
         <Button variant="outlined" startIcon={<RefreshIcon />} onClick={reload} disabled={loading}>
           刷新

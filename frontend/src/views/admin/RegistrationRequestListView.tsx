@@ -235,7 +235,7 @@ export default function RegistrationRequestListView() {
   return (
     <PageContainer
       title="注册申请"
-      breadcrumbs={[{ title: '系统管理' }, { title: '注册申请' }]}
+      breadcrumbs={[{ title: '系统管理', path: '/admin/users' }, { title: '注册申请' }]}
       actions={
         <Button
           variant="outlined"

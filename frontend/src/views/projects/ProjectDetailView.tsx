@@ -440,7 +440,7 @@ export default function ProjectDetailView() {
   );
 
   const breadcrumbs = [
-    { title: '概览', path: '/' },
+    { title: '工作台', path: '/' },
     { title: '项目', path: '/projects' },
     { title: project ? project.name : '详情' },
   ];

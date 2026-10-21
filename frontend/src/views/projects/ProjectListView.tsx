@@ -365,7 +365,7 @@ export default function ProjectListView() {
   return (
     <PageContainer
       title="项目"
-      breadcrumbs={[{ title: '概览', path: '/' }, { title: '项目' }]}
+      breadcrumbs={[{ title: '工作台', path: '/projects' }, { title: '项目' }]}
       actions={
         <Stack direction="row" spacing={1}>
           <Button

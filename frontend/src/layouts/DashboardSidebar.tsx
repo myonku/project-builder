@@ -188,7 +188,7 @@ export default function DashboardSidebar({
               - 二级 = 概览、项目、计划、视图、邮件提醒、操作记录 / 用户管理、工作组管理
               - 三级 = 计划 下的 个人计划、组内计划（默认展开，可点击"计划"收起）
             */}
-            <DashboardSidebarHeaderItem>工作台</DashboardSidebarHeaderItem>
+            <DashboardSidebarHeaderItem>首页</DashboardSidebarHeaderItem>
             <DashboardSidebarPageItem
               id="dashboard"
               title="概览"
@@ -196,6 +196,7 @@ export default function DashboardSidebar({
               href="/"
               selected={pathname === '/'}
             />
+            <DashboardSidebarHeaderItem>工作台</DashboardSidebarHeaderItem>
             <DashboardSidebarPageItem
               id="projects"
               title="项目"

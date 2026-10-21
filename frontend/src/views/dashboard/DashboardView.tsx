@@ -300,7 +300,14 @@ export default function DashboardView() {
         {/* 次要区块：身份与运行信息（联调用，不该占据首屏） */}
         <Grid container spacing={2}>
           <Grid size={{ xs: 12, md: 6 }}>
-            <SectionCard title="当前登录用户">
+            <SectionCard
+              title="当前登录用户"
+              action={
+                <Button size="small" component={RouterLink} to="/me">
+                  个人信息
+                </Button>
+              }
+            >
               {user ? (
                 <Stack spacing={1} divider={<Divider flexItem />}>
                   <InfoRow label="显示名" value={user.display_name} />
