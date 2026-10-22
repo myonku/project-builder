@@ -401,3 +401,14 @@ func TestAttachmentSoftDeleteVisibility(t *testing.T) {
 			RequireStatus(t, http.StatusNoContent)
 	})
 }
+
+func TestAttachmentUploadHiddenContainerErrorCode(t *testing.T) {
+	h := NewHarness(t)
+	owner := h.RegisterAndLogin(t, "hidden_owner")
+	other := h.RegisterAndLogin(t, "hidden_other")
+	group := h.CreateGroup(t, owner, "hidden group")
+	project := h.CreateProject(t, owner, group, "hidden project")
+	task := h.CreateTask(t, owner, project, "hidden task", "2026-10-01", "2026-10-05")
+	uploadAttachment(t, other.Client, "/projects/"+project+"/attachments", "hidden.txt", "text/plain", []byte("private")).RequireStatus(t, 404).RequireCode(t, "project_not_found")
+	uploadAttachment(t, other.Client, "/tasks/"+task+"/attachments", "hidden.txt", "text/plain", []byte("private")).RequireStatus(t, 404).RequireCode(t, "task_not_found")
+}

@@ -200,7 +200,10 @@ func (s *Service) Upload(ctx context.Context, in UploadInput) (Record, error) {
 	// 权限判定的返回约定是 PermNone + nil error（而不是错误），
 	// 因此调用方必须自己把 PermNone 变成 404，否则会用 403 泄漏对象存在性。
 	if container.permission == domain.PermNone {
-		return Record{}, notFound()
+		if in.ProjectID != nil {
+			return Record{}, domain.New(domain.CodeProjectNotFound, "Project not found")
+		}
+		return Record{}, domain.New(domain.CodeTaskNotFound, "Task not found")
 	}
 	if !domain.CanWriteAttachment(container.permission, container.readOnly) {
 		return Record{}, domain.ErrPermissionDenied
