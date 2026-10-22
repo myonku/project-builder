@@ -62,7 +62,7 @@ async function until(expression) {
 }
 async function navigate(path, text) {
  await send('Page.navigate',{url:origin+path});
- await until(`document.body.innerText.includes(${JSON.stringify(text)})`);
+ await until(`(document.body?.innerText ?? '').includes(${JSON.stringify(text)})`);
 }
 async function fill(values) {
  await evaluate(`(() => { const values = ${JSON.stringify(values)};
@@ -82,7 +82,7 @@ const oldCookie=login.headers.get('set-cookie').split(';')[0];
 await navigate('/login','忘记密码');
 await evaluate(`[...document.querySelectorAll('button')].find(e=>e.textContent.includes('忘记密码')).click()`);
 await until(`location.pathname==='/forgot-password' && !!document.querySelector('input[type=email]')`);
-await fill([email]);await submit();await until(`document.body.innerText.includes('如果该邮箱符合找回条件')`);
+await fill([email]);await submit();await until(`(document.body?.innerText ?? '').includes('如果该邮箱符合找回条件')`);
 let token='';
 for(let i=0;i<50&&!token;i++){
  const listing=await (await fetch(mailpit+'/api/v1/search?query='+encodeURIComponent('to:'+email))).json();
@@ -93,18 +93,18 @@ assert.match(token,/^[0-9a-f]{64}$/);
 await navigate('/reset-password?token='+token,'设置新密码');
 await until(`location.search===''`);
 assert.equal(await evaluate(`document.referrer.includes('token=')`),false);
-await fill(['new password 1234','mismatched password']);await submit();await until(`document.body.innerText.includes('两次输入的密码不一致')`);
+await fill(['new password 1234','mismatched password']);await submit();await until(`(document.body?.innerText ?? '').includes('两次输入的密码不一致')`);
 mkdirSync('.verify/password-reset',{recursive:true});
 const screenshot=async(name)=>{const shot=await send('Page.captureScreenshot',{format:'png'});writeFileSync('.verify/password-reset/'+name+'.png',Buffer.from(shot.data,'base64'))};
 await screenshot('reset-wide');
 await send('Emulation.setDeviceMetricsOverride',{width:480,height:900,deviceScaleFactor:1,mobile:true});
 await until(`document.documentElement.scrollWidth<=innerWidth`);await screenshot('reset-narrow');
-await fill(['new password 1234','new password 1234']);await submit();await until(`document.body.innerText.includes('密码已重置')`);
+await fill(['new password 1234','new password 1234']);await submit();await until(`(document.body?.innerText ?? '').includes('密码已重置')`);
 assert.equal((await api('/auth/me',undefined,oldCookie)).status,401);
 assert.equal((await api('/auth/login',{identifier:username,password})).status,401);
 assert.equal((await api('/auth/login',{identifier:username,password:'new password 1234'})).status,200);
-await navigate('/reset-password?token='+token,'设置新密码');await fill(['another new password','another new password']);await submit();await until(`document.body.innerText.includes('重置链接已失效')`);
-await navigate('/reset-password','设置新密码');await until(`document.body.innerText.includes('重置链接无效')`);
+await navigate('/reset-password?token='+token,'设置新密码');await fill(['another new password','another new password']);await submit();await until(`(document.body?.innerText ?? '').includes('重置链接已失效')`);
+await navigate('/reset-password','设置新密码');await until(`(document.body?.innerText ?? '').includes('重置链接无效')`);
 assert.equal(await evaluate(`document.querySelector('button[type=submit]').disabled`),true);
 assert.equal(exceptions,0);
 console.log('W5 browser + SMTP acceptance passed: email, mismatch, reset, replay, invalid link, old session 401, new login, wide/narrow, URL cleanup, zero runtime exceptions.');
