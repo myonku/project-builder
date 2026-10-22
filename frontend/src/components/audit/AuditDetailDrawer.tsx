@@ -20,6 +20,7 @@ import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 import CloseIcon from '@mui/icons-material/Close';
 import StatusTag from '@/components/common/StatusTag';
+import UserAvatar from '@/components/common/UserAvatar';
 import {
   auditActionMeta,
   auditChangeEntries,
@@ -104,7 +105,21 @@ export default function AuditDetailDrawer({ record, onClose }: AuditDetailDrawer
                 </Typography>
               </Field>
               <Field label="操作人">
-                <Typography variant="body2">{record.actor_name || '—'}</Typography>
+                <Stack
+                  direction="row"
+                  spacing={1}
+                  sx={{ alignItems: 'center', justifyContent: 'flex-end' }}
+                >
+                  <UserAvatar
+                    user={{
+                      id: record.actor_id,
+                      display_name: record.actor_name,
+                      avatar_updated_at: record.actor_avatar_updated_at,
+                    }}
+                    size={24}
+                  />
+                  <Typography variant="body2">{record.actor_name || '—'}</Typography>
+                </Stack>
                 <Typography
                   variant="caption"
                   color="text.secondary"
