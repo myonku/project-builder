@@ -218,10 +218,14 @@ export default function UserListView() {
     () => [
       {
         field: 'username',
-        headerName: '用户名',
+        headerName: '用户',
         width: 190,
         renderCell: (params: GridRenderCellParams<User>) => (
-          <Stack direction="row" spacing={1} sx={{ alignItems: 'center', minWidth: 0 }}>
+          <Stack
+            direction="row"
+            spacing={1}
+            sx={{ alignItems: 'center', minWidth: 0, height: '100%' }}
+          >
             <UserAvatar user={params.row} size={28} />
             <Typography variant="body2" noWrap>
               {params.row.username}
