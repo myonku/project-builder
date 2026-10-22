@@ -323,3 +323,17 @@ func WouldRemoveLastAdmin(wasActiveAdmin, willBeActiveAdmin bool, otherActiveAdm
 	}
 	return otherActiveAdmins == 0
 }
+
+// NormalizeEmail shares the existing account email bounds and pattern with reset requests.
+func NormalizeEmail(value string) (string, map[string]string) {
+	value = strings.ToLower(strings.TrimSpace(value))
+	switch {
+	case value == "":
+		return value, map[string]string{"email": "邮箱不能为空"}
+	case len(value) > EmailMaxLength:
+		return value, map[string]string{"email": "邮箱长度不得超过 320 个字符"}
+	case !emailPattern.MatchString(value):
+		return value, map[string]string{"email": "邮箱格式不正确"}
+	}
+	return value, nil
+}

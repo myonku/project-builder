@@ -23,3 +23,14 @@ func TestPasswordResetConfiguration(t *testing.T) {
 		})
 	}
 }
+
+func TestMailpitDevelopmentConfigUsesPlainSMTP(t *testing.T) {
+	clearConfigEnv(t)
+	cfg, err := Load("../../docker/config.test.toml", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Mail.UseTLS || cfg.Mail.ImplicitTLS {
+		t.Fatal("Mailpit config inherited provider TLS defaults")
+	}
+}

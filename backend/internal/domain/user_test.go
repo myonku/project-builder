@@ -643,3 +643,16 @@ func TestPasswordRuleIsSharedBetweenRegistrationAndReset(t *testing.T) {
 		}
 	}
 }
+
+func TestNormalizeResetEmailUsesAccountBounds(t *testing.T) {
+	valid := strings.Repeat("a", EmailMaxLength-len("@example.com")) + "@example.com"
+	if _, fields := NormalizeEmail(valid); len(fields) > 0 {
+		t.Fatal("registered email bound rejected")
+	}
+	if _, fields := NormalizeEmail("a" + valid); len(fields) == 0 {
+		t.Fatal("email bound not enforced")
+	}
+	if value, fields := NormalizeEmail(" USER@EXAMPLE.COM "); value != "user@example.com" || len(fields) > 0 {
+		t.Fatal("normalization failed")
+	}
+}

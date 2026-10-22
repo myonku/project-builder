@@ -124,6 +124,7 @@ func TestErrorCodesAllHaveStatusAndMessage(t *testing.T) {
 	t.Parallel()
 
 	allCodes := []domain.ErrorCode{
+		domain.CodePasswordResetTokenInvalid, domain.CodePasswordResetUnavailable,
 		domain.CodeInvalidRequest,
 		domain.CodeInvalidDateRange,
 		domain.CodeValidationError,

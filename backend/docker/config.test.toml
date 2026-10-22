@@ -64,6 +64,7 @@ password = ""
 from_address = "project-builder@test.local"
 from_name = "项目计划管理系统（测试）"
 use_tls = false
+implicit_tls = false
 
 [storage]
 # 扩展名白名单：空数组表示不限制（集成测试上传各种扩展名，因此保持放开）。

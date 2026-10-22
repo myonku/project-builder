@@ -6,7 +6,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"net/mail"
 	"strings"
 	"time"
 
@@ -38,10 +37,9 @@ type ResetConfirm struct {
 }
 
 func (s *Service) RequestPasswordReset(ctx context.Context, email string) error {
-	email = strings.ToLower(strings.TrimSpace(email))
-	address, err := mail.ParseAddress(email)
-	if err != nil || address.Address != email || len(email) > 254 {
-		return domain.ErrValidation.WithField("email", "请输入有效邮箱")
+	email, fields := domain.NormalizeEmail(email)
+	if len(fields) > 0 {
+		return domain.ErrValidation.WithFields(fields)
 	}
 	if !s.security.PasswordResetEnabled || !s.mailConfig.Enabled || s.sender == nil || s.resets == nil {
 		return domain.ErrPasswordResetUnavailable
