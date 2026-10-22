@@ -383,3 +383,14 @@ API 层只负责请求解析、响应序列化与错误映射，不直接查询�
 | 2026-10-13 | **结构调整**：契约只保留约定性叙述；逐接口的请求/响应结构移入 [api/](api/README.md)，公共资源表示移入 [api/README.md](api/README.md)；章号随之重排（原 §4 移出，原 §5–§8 变为 §4–§7） | 契约要能被前端长期依赖而不随接口数量膨胀；共用文档不记录任何一端的推进过程（推进与证据在服务端 `backend/docs/B05`、将来在前端 `frontend/docs/`） |
 | 2026-10-21 | 状态口径对齐：W3 Mongo/GridFS 已落地、HTTP 契约未变；W4/W5 端点仍待写入本文后再实现 | 避免把已落地的 W3 继续写成“规划”，同时守住“契约先于实现”的边界 |
 | 2026-10-21 | **W4 头像契约生效**：新增 `GET /users/{id}/avatar`、`POST/DELETE /me/avatar`；错误码补 `avatar_not_found`；业务端点 57 → 60（总数 64）；补头像缓存/版本/可见性加强项 | 头像实现与集成测试已完成；契约必须与实现同步，避免前端按旧文档拼 URL 或误用 `updated_at` |
+
+## W5 邮箱重置密码契约（2026-10-22）
+
+- 新增公开精确路径 `POST /auth/password-reset/request` 与 `POST /auth/password-reset/confirm`，前缀仍为 `/api/v1`；子路径不进入白名单。
+- request 接收 `{email}`；格式错误 422，功能关闭/邮件关闭 503 `password_reset_unavailable`；其他账号状态一律 202 `{"data":{"status":"accepted"}}`。仅 active 且有邮箱、未冷却、未超配额的账号发信。
+- confirm 接收 `{token,new_password}`；成功 204；无效/过期/已使用/撤销/冷却/停用统一 422 `password_reset_token_invalid`；形状和密码强度失败仍为 422 `validation_error`。功能关闭返回 503，邮件临时关闭不影响已发链接确认。
+- 令牌为 32 字节随机数的 64 位 hex，数据库仅存 SHA-256；30 分钟有效、单次使用，最新链接撤销旧链接。请求端点默认每 IP 10 次/小时（令牌桶，0 关闭），超限 429，带 Retry-After；不信任 X-Forwarded-For。
+- 每用户滚动 7 天内最多签发 5 次（发送失败也计数）；两次成功自助重置间隔至少 7 天。冷却和超配额请求仍统一 202，不发信也不新增计数。
+- 自助与管理员重置均递增 `session_version`，旧会话下一次请求 401；旧会话缺字段按 0。管理员重置、邮箱变化、停用均撤销未使用令牌；事务锁顺序 users → tokens。
+- 自助成功与密码更新同事务写 user/password_reset，changes 仅 `{source:self_service}`。日志、审计、错误和数据库不得包含原始令牌、密码或完整重置链接。
+- 同步 SMTP 的计时差异为内部网络 MVP 已接受取舍；邮件发送失败仍统一 202。
