@@ -233,6 +233,11 @@ func (r *Repository) UpdateProfile(ctx context.Context, params UpdateProfilePara
 			return err
 		}
 		record = updated
+		if params.Email != nil || (params.Status != nil && *params.Status == domain.UserStatusDisabled) {
+			if _, err := tx.Exec(ctx, `UPDATE password_reset_tokens SET consumed_at=now(), updated_at=now() WHERE user_id=$1 AND consumed_at IS NULL`, params.ID); err != nil {
+				return err
+			}
+		}
 		return params.Audit.Flush(ctx, tx)
 	})
 	if err != nil {

@@ -50,6 +50,9 @@ func (g *SessionGateway) IsPublic(path string) bool {
 			path = "/" + trimmed
 		}
 	}
+	if path == "/auth/password-reset/request" || path == "/auth/password-reset/confirm" {
+		return true
+	}
 	for _, prefix := range g.publicPrefixes {
 		if path == prefix || strings.HasPrefix(path, prefix+"/") {
 			return true

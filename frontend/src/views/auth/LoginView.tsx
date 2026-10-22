@@ -13,8 +13,7 @@
  * - 新增"记住登录信息"勾选：**只把用户名存在本机浏览器**用于下次预填，
  *   并通过 `autoComplete` 告诉浏览器"可以保存这个站点的表单"。
  *   **它不延长会话**——会话有效期由服务端 Cookie / Redis 决定（《S02》§2.2），后端也没有"记住我"语义；
- * - "注册新账号"进入 `/register`（提交注册申请，管理员审核）；"忘记密码"仍是
- *   有明确反馈的占位入口（F04 D18）。
+ * - "注册新账号"进入 `/register`（提交注册申请，管理员审核）；"忘记密码"进入 `/forgot-password`。
  *
  * 校验用 React Hook Form + Zod，只做**结构校验**，语义判定交给后端（F02 §9）。
  */
@@ -37,7 +36,6 @@ import { useNavigate, useSearchParams } from 'react-router';
 import { z } from 'zod';
 import { toApiError } from '@/api/client';
 import AppBrand from '@/components/common/AppBrand';
-import { useNotifications } from '@/hooks/useNotifications';
 import { useAuthStore } from '@/stores/auth';
 import {
   STORAGE_KEY_LOGIN_IDENTIFIER,
@@ -60,7 +58,6 @@ export default function LoginView() {
   const signIn = useAuthStore((state) => state.signIn);
   const status = useAuthStore((state) => state.status);
   const authError = useAuthStore((state) => state.error);
-  const { show } = useNotifications();
   const [submitError, setSubmitError] = React.useState<string | null>(null);
   const [remember, setRemember] = React.useState(true);
 
@@ -111,14 +108,6 @@ export default function LoginView() {
 
   // 会话探测失败（例如后端没起）时也把原因显示出来，否则用户只看到"登录失败"
   const probeError = authError && !authError.isUnauthorized ? authError.message : null;
-
-  /** 占位入口：不假装能跳转，也不毫无反应——直接说明现状与替代路径 */
-  const notifyPlaceholder = React.useCallback(
-    (title: string, detail: string) => {
-      show(`${title}：${detail}`, { severity: 'info' });
-    },
-    [show],
-  );
 
   return (
     <Box
@@ -235,12 +224,7 @@ export default function LoginView() {
               component="button"
               type="button"
               variant="body2"
-              onClick={() =>
-                notifyPlaceholder(
-                  '忘记密码尚未实现',
-                  '系统不提供自助找回密码，请联系管理员在「用户管理」中重置（POST /users/{id}/password）。',
-                )
-              }
+              onClick={() => navigate('/forgot-password')}
             >
               忘记密码？
             </Link>

@@ -152,7 +152,7 @@ func (r *RateLimiter) sweepLocked(now time.Time) {
 	}
 	r.lastSweep = now
 	for key, b := range r.buckets {
-		if now.Sub(b.last) > staleBucketTTL {
+		if now.Sub(b.last) > max(staleBucketTTL, time.Duration(math.Ceil(r.burst/r.rate))*time.Second) {
 			delete(r.buckets, key)
 		}
 	}
@@ -194,3 +194,6 @@ func clientKey(c *gin.Context) string {
 	}
 	return remote
 }
+
+// SetHourlyRate configures the password-reset bucket before routes are served.
+func (r *RateLimiter) SetHourlyRate(requests int) { r.rate = float64(requests) / 3600 }

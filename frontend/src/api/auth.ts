@@ -33,3 +33,10 @@ export function logout(): Promise<void> {
 export function me(signal?: AbortSignal): Promise<User> {
   return apiGet<User>('/auth/me', { signal });
 }
+
+export function requestPasswordReset(body: { email: string }): Promise<{ status: 'accepted' }> {
+  return apiPost('/auth/password-reset/request', body);
+}
+export function confirmPasswordReset(body: { token: string; new_password: string }): Promise<void> {
+  return apiPost('/auth/password-reset/confirm', body);
+}

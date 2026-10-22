@@ -86,13 +86,14 @@ type RedisConfig struct {
 
 // MailConfig 描述 SMTP 适配器参数。默认面向 Outlook 官方 SMTP。
 type MailConfig struct {
-	Enabled     bool   `toml:"enabled"`
-	Host        string `toml:"host"`
-	Port        int    `toml:"port"`
-	Username    string `toml:"username"`
-	Password    string `toml:"password"`
-	FromAddress string `toml:"from_address"`
-	FromName    string `toml:"from_name"`
+	PasswordResetURLTemplate string `toml:"password_reset_url_template"`
+	Enabled                  bool   `toml:"enabled"`
+	Host                     string `toml:"host"`
+	Port                     int    `toml:"port"`
+	Username                 string `toml:"username"`
+	Password                 string `toml:"password"`
+	FromAddress              string `toml:"from_address"`
+	FromName                 string `toml:"from_name"`
 	// UseTLS 为真时在明文连接之上协商 STARTTLS（端口 587 的常规做法）。
 	UseTLS bool `toml:"use_tls"`
 	// ImplicitTLS 为真时直接以 TLS 连接（端口 465 的做法）。
@@ -169,6 +170,13 @@ func (c StorageConfig) ExtensionsUnrestricted() bool {
 
 // SecurityConfig 描述会话、密码策略与引导管理员。
 type SecurityConfig struct {
+	PasswordResetEnabled           bool `toml:"password_reset_enabled"`
+	PasswordResetTokenTTLSeconds   int  `toml:"password_reset_token_ttl_seconds"`
+	PasswordResetCooldownSeconds   int  `toml:"password_reset_cooldown_seconds"`
+	PasswordResetWindowSeconds     int  `toml:"password_reset_window_seconds"`
+	PasswordResetMaxRequests       int  `toml:"password_reset_max_requests"`
+	PasswordResetIPRequestsPerHour int  `toml:"password_reset_ip_requests_per_hour"`
+
 	SessionSecret     string `toml:"session_secret"`
 	SessionTTLSeconds int    `toml:"session_ttl_seconds"`
 	PasswordMinLength int    `toml:"password_min_length"`
@@ -351,6 +359,7 @@ func defaultConfig() Config {
 			DialTimeoutSeconds: 5,
 		},
 		Mail: MailConfig{
+			PasswordResetURLTemplate: "http://localhost:5173/reset-password?token={token}",
 			// 默认**关闭**：打开邮件就必须提供账号与发件地址，
 			// 否则"启动成功但每封都发不出去"是最难排查的一种状态。
 			// 因此启用邮件是一次显式动作（见 backend/docs/B03 §3.5.1）。
@@ -384,6 +393,7 @@ func defaultConfig() Config {
 			MaxPoolSize:                   20,
 		},
 		Security: SecurityConfig{
+			PasswordResetEnabled: true, PasswordResetTokenTTLSeconds: 1800, PasswordResetCooldownSeconds: 604800, PasswordResetWindowSeconds: 604800, PasswordResetMaxRequests: 5, PasswordResetIPRequestsPerHour: 10,
 			SessionSecret:                devSessionSecretPlaceholder,
 			SessionTTLSeconds:            28800,
 			PasswordMinLength:            8,
@@ -497,6 +507,13 @@ func int64Setter(dst func(c *Config) *int64) func(*Config, string) error {
 // envBindings 是环境变量绑定表。新增配置项必须在此登记，否则无法通过环境变量覆盖。
 func envBindings() []envBinding {
 	return []envBinding{
+		{"SECURITY_PASSWORD_RESET_ENABLED", boolSetter(func(c *Config) *bool { return &c.Security.PasswordResetEnabled })},
+		{"SECURITY_PASSWORD_RESET_TOKEN_TTL_SECONDS", intSetter(func(c *Config) *int { return &c.Security.PasswordResetTokenTTLSeconds })},
+		{"SECURITY_PASSWORD_RESET_COOLDOWN_SECONDS", intSetter(func(c *Config) *int { return &c.Security.PasswordResetCooldownSeconds })},
+		{"SECURITY_PASSWORD_RESET_WINDOW_SECONDS", intSetter(func(c *Config) *int { return &c.Security.PasswordResetWindowSeconds })},
+		{"SECURITY_PASSWORD_RESET_MAX_REQUESTS", intSetter(func(c *Config) *int { return &c.Security.PasswordResetMaxRequests })},
+		{"SECURITY_PASSWORD_RESET_IP_REQUESTS_PER_HOUR", intSetter(func(c *Config) *int { return &c.Security.PasswordResetIPRequestsPerHour })},
+		{"MAIL_PASSWORD_RESET_URL_TEMPLATE", stringSetter(func(c *Config) *string { return &c.Mail.PasswordResetURLTemplate })},
 		{"API_VERSION", stringSetter(func(c *Config) *string { return &c.APIVersion })},
 
 		{"SERVER_HOST", stringSetter(func(c *Config) *string { return &c.Server.Host })},
@@ -863,6 +880,21 @@ func (c Config) validate() error {
 	}
 	if c.Security.SessionTTLSeconds <= 0 {
 		add("security.session_ttl_seconds 必须为正数，实际为 %d", c.Security.SessionTTLSeconds)
+	}
+	if c.Security.PasswordResetEnabled {
+		if c.Security.PasswordResetTokenTTLSeconds <= 0 || c.Security.PasswordResetCooldownSeconds <= 0 || c.Security.PasswordResetWindowSeconds <= 0 || c.Security.PasswordResetMaxRequests <= 0 {
+			add("security.password_reset 时间与配额必须为正数")
+		}
+		if c.Mail.Enabled {
+			template := c.Mail.PasswordResetURLTemplate
+			u, err := url.Parse(strings.ReplaceAll(template, "{token}", strings.Repeat("0", 64)))
+			if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") || strings.Count(template, "{token}") != 1 || u.User != nil || u.Fragment != "" {
+				add("mail.password_reset_url_template 必须为含一个 {token} 的 HTTP(S) URL")
+			}
+		}
+	}
+	if c.Security.PasswordResetIPRequestsPerHour < 0 {
+		add("security.password_reset_ip_requests_per_hour 不得为负数")
 	}
 	if c.Security.PasswordMinLength < 8 {
 		add("security.password_min_length 不得小于 8，实际为 %d", c.Security.PasswordMinLength)

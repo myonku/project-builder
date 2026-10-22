@@ -302,3 +302,12 @@ Set-Cookie: pb_session=; Path=/; Max-Age=-1; HttpOnly; SameSite=Lax
 - 停用导致的 `401` 会**顺手清理**该会话；孤儿会话（用户已被删除）同样会被清理。
 - 前端把本端点当作"登录态探针"是正确用法；它不返回权限清单，
   具体能否操作某个对象由各业务端点判定（`403` / `404`）。
+
+## 邮箱验证重置密码（W5）
+
+| 方法/路径 | 请求 | 成功 | 错误 |
+| --- | --- | --- | --- |
+| POST /auth/password-reset/request | `{email: string}` | 202 `{data:{status:"accepted"}}` | 422 validation_error；429 rate_limited；503 password_reset_unavailable |
+| POST /auth/password-reset/confirm | `{token: string,new_password: string}` | 204 空响应 | 422 validation_error/password_reset_token_invalid；503 password_reset_unavailable |
+
+均无需登录，拒绝未知字段。邮箱按 trim/lower 归一化，只按邮箱查找。请求不返回账号存在性。GET 邮件链接不消费 token，必须 POST confirm。密码强度复用既有规则；强度不合格不消费 token。其余限额、吊销、审计与精确白名单见 S02「W5 邮箱重置密码契约」。

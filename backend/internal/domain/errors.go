@@ -18,6 +18,16 @@ import (
 // 由 httpapi/problem.go 单点映射为状态码。
 type ErrorCode string
 
+const (
+	CodePasswordResetUnavailable  ErrorCode = "password_reset_unavailable"
+	CodePasswordResetTokenInvalid ErrorCode = "password_reset_token_invalid"
+)
+
+var (
+	ErrPasswordResetUnavailable  = New(CodePasswordResetUnavailable, "Password reset unavailable")
+	ErrPasswordResetTokenInvalid = New(CodePasswordResetTokenInvalid, "Invalid password reset token")
+)
+
 // 与 docs/S02-HTTP接口契约.md 2.4 错误码表逐条对应。
 const (
 	CodeInvalidRequest              ErrorCode = "invalid_request"

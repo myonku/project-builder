@@ -44,6 +44,8 @@ export const router = createBrowserRouter([
     children: [
       { path: '/login', element: <LoginView /> },
       { path: '/register', element: <RegisterView /> },
+      { path: '/forgot-password', element: page(() => import('@/views/auth/PasswordResetView')) },
+      { path: '/reset-password', element: page(() => import('@/views/auth/ResetPasswordView')) },
     ],
   },
   {

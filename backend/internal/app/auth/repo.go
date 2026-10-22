@@ -24,13 +24,14 @@ import (
 // users 表的显式列清单。集中在一处，避免各查询列顺序或字段遗漏不一致。
 const userColumns = `id, username, email, display_name, password_hash,
 	status, system_role, timezone, reminder_enabled, last_login_at, created_at, updated_at,
-	avatar_updated_at`
+	avatar_updated_at, session_version`
 
 // UserRecord 是 users 表的行记录。
 //
 // 命名遵循"数据库类型不得出现在 HTTP 响应结构中"的边界要求：
 // HTTP 层使用自己的响应结构，由 handler 显式投影，不直接序列化本结构。
 type UserRecord struct {
+	SessionVersion  int
 	ID              string
 	Username        string
 	Email           string
@@ -211,9 +212,9 @@ func (r *Repository) TouchLastLogin(ctx context.Context, id string, at time.Time
 }
 
 // UpdatePasswordHash 更新密码摘要，用于登录后按需升级弱参数摘要。
-func (r *Repository) UpdatePasswordHash(ctx context.Context, id, hash string) error {
-	const query = `UPDATE users SET password_hash = $2, updated_at = now() WHERE id = $1`
-	tag, err := r.pool.Exec(ctx, query, id, hash)
+func (r *Repository) UpdatePasswordHash(ctx context.Context, id, hash, expectedHash string) error {
+	const query = `UPDATE users SET password_hash = $2, updated_at = now() WHERE id = $1 AND password_hash = $3`
+	tag, err := r.pool.Exec(ctx, query, id, hash, expectedHash)
 	if err != nil {
 		return fmt.Errorf("更新密码摘要失败: %w", err)
 	}
@@ -233,7 +234,7 @@ func (r *Repository) UpdatePasswordWithCAS(
 ) (UserRecord, error) {
 	const query = `
 		UPDATE users
-		   SET password_hash = $2,
+		   SET password_hash = $2, session_version = session_version + 1,
 		       updated_at = now()
 		 WHERE id = $1 AND updated_at = $3
 		RETURNING ` + userColumns
@@ -245,6 +246,9 @@ func (r *Repository) UpdatePasswordWithCAS(
 			return translateUserWriteError(err)
 		}
 		record = updated
+		if _, err := tx.Exec(ctx, `UPDATE password_reset_tokens SET consumed_at=now(), updated_at=now() WHERE user_id=$1 AND consumed_at IS NULL`, id); err != nil {
+			return err
+		}
 		return audit.Flush(ctx, tx)
 	})
 	if err != nil {
@@ -290,6 +294,7 @@ func scanUser(row pgx.Row) (UserRecord, error) {
 		&record.CreatedAt,
 		&record.UpdatedAt,
 		&record.AvatarUpdatedAt,
+		&record.SessionVersion,
 	)
 	if err != nil {
 		return UserRecord{}, err

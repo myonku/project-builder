@@ -76,7 +76,7 @@ func TestAuditCoversUserWrites(t *testing.T) {
 	}
 
 	// 管理员停用账号：disabled。
-	target = member.Client.Get(URL("/users/"+member.UserID)).RequireStatus(t, 200)
+	target = admin.Client.Get(URL("/users/"+member.UserID)).RequireStatus(t, 200)
 	targetUpdatedAt = Str(target.Data(t), "updated_at")
 	admin.Client.Post(URL("/users/"+member.UserID+"/disable"), map[string]any{
 		"expected_updated_at": targetUpdatedAt,
