@@ -38,7 +38,7 @@ export default function UserMenu() {
       navigate('/login', { replace: true });
     } catch (error) {
       // 即便后端失败，store 也已回到未登录态；这里只提示原因
-      handle(error, { message: '退出登录时出现异常，本地会话已清除。' });
+      handle(error, { message: '退出登录未能完成，请稍后重试。' });
       navigate('/login', { replace: true });
     } finally {
       setSigningOut(false);

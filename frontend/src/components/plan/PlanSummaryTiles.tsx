@@ -92,7 +92,7 @@ export default function PlanSummaryTiles({ summary }: PlanSummaryTilesProps) {
               <LinearProgress variant="determinate" value={overall} sx={{ height: 8, borderRadius: 4 }} />
             </Box>
             <Typography variant="caption" color="text.secondary">
-              有效任务进度的平均值（已取消任务不参与）
+              任务平均进度，不含已取消任务
             </Typography>
           </CardContent>
         </Card>

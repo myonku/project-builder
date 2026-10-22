@@ -77,7 +77,7 @@ export function useVersionedForm<TEntity, TBody extends VersionedBody>(
     save: saveFn,
     versionOf = defaultVersionOf,
     autoLoad = true,
-    conflictTitle = '检测到并发修改',
+    conflictTitle = '信息已被其他人修改',
   } = options;
 
   const dialogs = useDialogs();
@@ -131,7 +131,7 @@ export function useVersionedForm<TEntity, TBody extends VersionedBody>(
           error: new ApiError({
             status: 0,
             code: 'version_unavailable',
-            message: '本地还没有对象版本号，请先加载对象。',
+            message: '信息尚未加载完成，请刷新后重试。',
           }),
           resolution: 'aborted',
         };
@@ -152,10 +152,10 @@ export function useVersionedForm<TEntity, TBody extends VersionedBody>(
         }
 
         const previousEntity = entity;
-        const requestHint = apiError.requestId ? `（request_id: ${apiError.requestId}）` : '';
+        const requestHint = apiError.requestId ? `（问题编号：${apiError.requestId}）` : '';
         const discard = await dialogs.confirm(
-          `这个对象在你编辑期间已被其他人修改。可以放弃你的修改并加载最新数据，` +
-            `也可以保留你的修改、刷新版本号后再提交一次。${requestHint}`,
+          `这条信息已被其他人修改。你可以放弃当前修改并查看最新内容，` +
+            `也可以保留当前修改，检查后再次保存。${requestHint}`,
           {
             title: conflictTitle,
             okText: '放弃我的修改并刷新',

@@ -142,14 +142,14 @@ export default function GroupDetailDrawer({
         return;
       }
       if (outcome.resolution === 'reloaded') {
-        show('已刷新为服务端最新数据。', { severity: 'info' });
+        show('已加载最新信息。', { severity: 'info' });
         setEditOpen(false);
         onChanged?.();
         return;
       }
       setEditError(outcome.error);
       if (outcome.resolution === 'kept') {
-        show('版本号已刷新为服务端最新值，可以再次提交。', { severity: 'warning' });
+        show('已保留你的修改，请检查后再次保存。', { severity: 'warning' });
       }
     },
     [group, onChanged, reloadGroup, saveGroup, show],
@@ -170,7 +170,7 @@ export default function GroupDetailDrawer({
         return false;
       }
       if (outcome.resolution === 'kept') {
-        show('版本号已刷新，请再次确认转移。', { severity: 'warning' });
+        show('信息已更新，请再次确认转移。', { severity: 'warning' });
         return false;
       }
       const apiError = outcome.error;

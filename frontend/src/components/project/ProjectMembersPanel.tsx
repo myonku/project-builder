@@ -200,7 +200,7 @@ export default function ProjectMembersPanel({
           </Typography>
         </Typography>
         <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-          <Tooltip title="重新加载成员与候选（例如刚把某人加进工作组）">
+          <Tooltip title="刷新成员和可添加的用户">
             <span>
               <IconButton size="small" aria-label="刷新成员列表" onClick={() => void load()} disabled={loading}>
                 <RefreshIcon fontSize="small" />

@@ -138,7 +138,7 @@ export default function AuditDetailDrawer({ record, onClose }: AuditDetailDrawer
               <Field label="对象类型">
                 <StatusTag label={auditObjectTypeLabel(record.object_type)} variant="outlined" />
               </Field>
-              <Field label="对象 id">
+              <Field label="对象编号">
                 <Typography
                   variant="caption"
                   sx={{ fontFamily: 'monospace', wordBreak: 'break-all' }}
@@ -146,7 +146,7 @@ export default function AuditDetailDrawer({ record, onClose }: AuditDetailDrawer
                   {record.object_id}
                 </Typography>
               </Field>
-              <Field label="request_id">
+              <Field label="追踪编号">
                 <Typography
                   variant="caption"
                   sx={{ fontFamily: 'monospace', wordBreak: 'break-all' }}
@@ -162,13 +162,11 @@ export default function AuditDetailDrawer({ record, onClose }: AuditDetailDrawer
               变更明细（仅新值）
             </Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-              服务端只记录新值、不记录旧值；敏感键的值已脱敏为 <code>[redacted]</code>，
-              单个值最多保留 200 个字符。
+              这里展示修改后的内容；敏感信息已隐藏，较长内容仅展示摘要。
             </Typography>
             {changes.some(([, value]) => value === '<由请求提供>') ? (
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
-                <code>&lt;由请求提供&gt;</code> 表示该自由文本字段的正文未写入审计，
-                不是实际内容（后端只留占位，避免把描述类长文本写进记录）。
+                部分描述只标记为“已更新”，不展示具体内容。
               </Typography>
             ) : null}
 
@@ -206,14 +204,14 @@ export default function AuditDetailDrawer({ record, onClose }: AuditDetailDrawer
                         wordBreak: 'break-word',
                       }}
                     >
-                      {value === '' ? '（空串）' : value}
+                      {value === '' ? '（未填写）' : value === '[redacted]' ? '（已隐藏）' : value === '<由请求提供>' ? '（已更新）' : value}
                     </Box>
                   </React.Fragment>
                 ))}
               </Box>
             ) : (
               <Typography variant="body2" color="text.secondary">
-                无字段变更。上传、密码类操作只记录动作与对象；提醒重试只记录状态与原因。
+                此操作没有可展示的修改内容。
               </Typography>
             )}
           </Box>

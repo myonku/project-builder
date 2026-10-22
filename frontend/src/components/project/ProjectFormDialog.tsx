@@ -180,7 +180,7 @@ export default function ProjectFormDialog({
                     error={Boolean(errors.group_id)}
                     helperText={
                       errors.group_id?.message ??
-                      '只能建在你是活跃成员的工作组下（《A04》端点 1：系统管理员也不豁免）'
+                      '请选择你已加入且未被移除的工作组'
                     }
                   >
                     {groups.map((group) => (
@@ -197,7 +197,7 @@ export default function ProjectFormDialog({
                 value={groups.find((group) => group.id === project?.group_id)?.name ?? '—'}
                 fullWidth
                 disabled
-                helperText="项目归属工作组不可修改（《A04》的更新端点没有该字段）"
+                helperText="创建后不能更换工作组"
               />
             )}
 
@@ -288,7 +288,7 @@ export default function ProjectFormDialog({
                   ),
                 },
               }}
-              helperText="自由文本（≤32 字符），留空表示清空"
+              helperText="最多 32 个字符，可留空"
             />
 
             <TextField
@@ -297,7 +297,7 @@ export default function ProjectFormDialog({
               fullWidth
               multiline
               minRows={3}
-              helperText="留空表示清空（后端存 null）"
+              helperText="填写补充说明，可留空"
             />
           </Stack>
         </DialogContent>

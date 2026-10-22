@@ -24,22 +24,22 @@ const STATUS_META: Record<ReminderStatus, ReminderStatusMeta> = {
   pending: {
     label: '待发送',
     tone: 'info',
-    hint: '已排队：计划时间未到，或还没被派发循环取走。不能重试（已在队列里）。',
+    hint: '提醒正在等待发送，无需重复操作。',
   },
   sent: {
     label: '已发送',
     tone: 'success',
-    hint: '发送成功。不能重试——重试等于重复发送。',
+    hint: '提醒已发送，无需重复发送。',
   },
   failed: {
     label: '发送失败',
     tone: 'error',
-    hint: '发送尝试失败（SMTP 报错、超时等），需要人排查。可以重试。',
+    hint: '提醒未能发送，请查看失败原因，处理后可重试。',
   },
   skipped: {
     label: '已跳过',
     tone: 'warning',
-    hint: '按规则不应发生发送（没有邮箱、已停用、关闭了邮件提醒、任务已完成/取消、邮件功能未启用）。可以重试。',
+    hint: '提醒已跳过，请查看原因，确认仍需发送后再重试。',
   },
 };
 

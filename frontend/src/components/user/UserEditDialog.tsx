@@ -165,14 +165,14 @@ export default function UserEditDialog({ userId, onClose, onSaved }: UserEditDia
       return;
     }
     if (outcome.resolution === 'reloaded') {
-      show('已刷新为服务端最新数据。', { severity: 'info' });
+      show('已加载最新信息。', { severity: 'info' });
       onSaved();
       onClose();
       return;
     }
     setServerError(outcome.error);
     if (outcome.resolution === 'kept') {
-      show('版本号已刷新为服务端最新值，可以再次提交。', { severity: 'warning' });
+      show('已保留你的修改，请检查后再次保存。', { severity: 'warning' });
     }
   });
 
@@ -252,7 +252,7 @@ export default function UserEditDialog({ userId, onClose, onSaved }: UserEditDia
                     name={field.name}
                     inputRef={field.ref}
                     error={Boolean(errors.timezone)}
-                    helperText={errors.timezone?.message ?? 'IANA 时区，例如 Asia/Shanghai'}
+                    helperText={errors.timezone?.message ?? '例如 Asia/Shanghai'}
                     fullWidth
                   />
                 )}

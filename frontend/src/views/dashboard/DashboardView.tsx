@@ -8,8 +8,7 @@
  *   行点击仍走 `?taskId=` + `TaskDetailDrawer`（与项目详情、计划视图同一套，F01 §5.7）；
  * - "我的项目"取投影里的项目（服务端已按 `end_date` 排序）。
  *
- * 身份与运行信息（`GET /auth/me` 的字段、API 前缀）保留在页面底部：联调时一眼确认
- * "登录的是谁、打到哪个后端"仍然有用，但它不该占据首屏——所以降为次要区块。
+ * 账号信息与使用提示放在页面底部，便于查看个人资料、理解日期与进度的展示方式。
  */
 
 import * as React from 'react';
@@ -28,7 +27,6 @@ import Typography from '@mui/material/Typography';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import { Link as RouterLink, useSearchParams } from 'react-router';
-import { API_BASE } from '@/api/client';
 import CellText from '@/components/common/CellText';
 import PageContainer from '@/components/common/PageContainer';
 import StatusTag from '@/components/common/StatusTag';
@@ -301,7 +299,7 @@ export default function DashboardView() {
           </Grid>
         </Grid>
 
-        {/* 次要区块：身份与运行信息（联调用，不该占据首屏） */}
+        {/* 次要区块：账号信息与使用提示 */}
         <Grid container spacing={2}>
           <Grid size={{ xs: 12, md: 6 }}>
             <SectionCard
@@ -349,17 +347,17 @@ export default function DashboardView() {
             </SectionCard>
           </Grid>
           <Grid size={{ xs: 12, md: 6 }}>
-            <SectionCard title="运行信息">
+            <SectionCard title="使用提示">
               <Stack spacing={1} divider={<Divider flexItem />}>
-                <InfoRow label="API 前缀" value={<code>{API_BASE}</code>} />
+                <InfoRow label="日期时间" value="按个人时区显示" />
                 <InfoRow
-                  label="开发代理"
-                  value="/api 由 Vite 转发（目标可配 API_PROXY_TARGET）"
+                  label="项目进度"
+                  value="已取消的任务不计入"
                 />
-                <InfoRow label="主题" value="MUI 默认 Material Design 2（亮/暗）" />
+                <InfoRow label="组内计划" value="查看工作组共享的内容" />
                 <InfoRow
-                  label="数据来源"
-                  value={<code>GET /plan-views/personal</code>}
+                  label="个人资料"
+                  value="在个人信息中查看和修改"
                 />
               </Stack>
             </SectionCard>

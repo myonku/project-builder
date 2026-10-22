@@ -120,9 +120,9 @@ export default function AuditListView() {
   const [selected, setSelected] = React.useState<AuditRecord | null>(null);
 
   const objectIdError =
-    draft.objectId !== '' && !isUuid(draft.objectId) ? '对象 id 必须是 UUID' : null;
+    draft.objectId !== '' && !isUuid(draft.objectId) ? '请输入完整的对象编号' : null;
   const actorIdError =
-    draft.actorId !== '' && !isUuid(draft.actorId) ? '操作人 id 必须是 UUID' : null;
+    draft.actorId !== '' && !isUuid(draft.actorId) ? '请输入完整的操作人编号' : null;
   const fromError = validateLocalDateTime(draft.from);
   const toError = validateLocalDateTime(draft.to);
   const rangeError =
@@ -241,7 +241,7 @@ export default function AuditListView() {
       },
       {
         field: 'object_id',
-        headerName: '对象 id',
+        headerName: '对象编号',
         width: 150,
         sortable: false,
         renderCell: (params: GridRenderCellParams<AuditRecord, string>) => {
@@ -273,7 +273,7 @@ export default function AuditListView() {
       },
       {
         field: 'request_id',
-        headerName: 'request_id',
+        headerName: '追踪编号',
         width: 140,
         sortable: false,
         renderCell: (params: GridRenderCellParams<AuditRecord, string>) => {
@@ -292,7 +292,7 @@ export default function AuditListView() {
         sortable: false,
         disableColumnMenu: true,
         renderCell: (params: GridRenderCellParams<AuditRecord>) => (
-          <DataTooltip title="查看完整变更与 request_id">
+          <DataTooltip title="查看修改内容和追踪编号">
             <IconButton
               size="small"
               aria-label={`查看操作记录 ${params.row.id}`}
@@ -384,8 +384,8 @@ export default function AuditListView() {
 
               <TextField
                 size="small"
-                label="对象 id"
-                placeholder="UUID，可留空"
+                label="对象编号"
+                placeholder="完整编号，可留空"
                 value={draft.objectId}
                 onChange={(event) =>
                   setDraft({ ...draft, objectId: event.target.value.trim() })
@@ -397,8 +397,8 @@ export default function AuditListView() {
 
               <TextField
                 size="small"
-                label="操作人 id"
-                placeholder="UUID，可留空"
+                label="操作人编号"
+                placeholder="完整编号，可留空"
                 value={draft.actorId}
                 onChange={(event) =>
                   setDraft({ ...draft, actorId: event.target.value.trim() })

@@ -130,7 +130,7 @@ export default function ResetPasswordDialog({
           <Stack spacing={2}>
             <Alert severity="info" variant="outlined">
               目标用户：{user?.display_name}（{user?.username}）。重置后旧密码立即失效；
-              该用户已有会话将失效，需要重新登录。
+              该用户需要在所有设备上重新登录。
             </Alert>
             {serverError ? (
               <Alert severity="error">{describeApiError(serverError)}</Alert>

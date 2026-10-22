@@ -167,7 +167,7 @@ export default function UserListView() {
   const handleDisable = React.useCallback(
     async (user: User) => {
       const confirmed = await dialogs.confirm(
-        `停用「${user.display_name}」？停用后该账号不能再登录，已有会话立即失效；` +
+        `停用「${user.display_name}」？停用后该账号不能再登录，已登录的设备也将无法继续访问；` +
           '数据与操作记录都会保留。系统至少要保留一个启用中的管理员。',
         {
           title: '停用账号',
@@ -387,8 +387,7 @@ export default function UserListView() {
     >
       <Stack spacing={2}>
         <Typography variant="body2" color="text.secondary">
-          系统管理员可管理全部账号。A02 的列表接口只支持“含停用账号”、分页与排序
-          （没有文本筛选）；停用账号默认不显示。
+          可在此维护账号资料、角色和登录权限；勾选“含停用账号”可查看已停用的账号。
         </Typography>
 
         <Stack direction="row" spacing={2} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>

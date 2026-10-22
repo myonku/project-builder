@@ -197,8 +197,8 @@ export default function GroupMembersPanel({
   const handleRemove = React.useCallback(
     async (member: GroupMember) => {
       const confirmed = await dialogs.confirm(
-        `把「${member.display_name}」移出工作组？这是软移除：个人数据与历史记录保留，` +
-          '之后可以用“恢复”把成员关系重新置为 active。',
+        `把「${member.display_name}」移出工作组？移除后仍保留个人数据与历史记录，` +
+          '之后可通过“恢复”让该成员重新加入。',
         {
           title: '移除工作组成员',
           okText: '移除',
@@ -212,7 +212,7 @@ export default function GroupMembersPanel({
       setBusyId(member.user_id);
       await run(
         () => removeGroupMember(groupId, member.user_id),
-        '成员已软移除（status=removed）。',
+        '成员已移除，可在需要时恢复。',
       );
       setBusyId(null);
     },
@@ -235,7 +235,7 @@ export default function GroupMembersPanel({
     async (member: GroupMember) => {
       const confirmed = await dialogs.confirm(
         `把工作组所有者转移给「${member.display_name}」？当前所有者会保留成员身份并降为普通成员；` +
-          '其余字段不会在这次请求里修改。',
+          '其他工作组信息保持不变。',
         {
           title: '转移工作组所有权',
           okText: '确认转移',
@@ -287,7 +287,7 @@ export default function GroupMembersPanel({
             }
             label={<Typography variant="body2">含已移除</Typography>}
           />
-          <Tooltip title="重新加载成员与候选用户">
+          <Tooltip title="刷新成员和可添加的用户">
             <span>
               <IconButton size="small" aria-label="刷新工作组成员" onClick={reload} disabled={loading}>
                 <RefreshIcon fontSize="small" />
@@ -334,8 +334,8 @@ export default function GroupMembersPanel({
           sx={{ minWidth: 240, flex: '1 1 240px' }}
           helperText={
             candidateTotal > 100
-              ? `共 ${candidateTotal} 个账号，候选只取前 100 个`
-              : '候选为未停用且不在本组的账号'
+              ? `仅显示前 100 个可用账号`
+              : '选择尚未加入的可用账号'
           }
           disabled={loading || Boolean(error)}
           slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true } }}
@@ -377,12 +377,12 @@ export default function GroupMembersPanel({
 
       {candidates.length === 0 && !loading ? (
         <Typography variant="caption" color="text.secondary">
-          前 100 个可用账号里没有候选（都已在该组，或账号数量超过候选窗口）。
+          当前可选列表中没有可添加的账号。
         </Typography>
       ) : null}
       {memberTotal > 100 ? (
         <Typography variant="caption" color="text.secondary">
-          成员关系共 {memberTotal} 条，本面板只加载前 100 条；更早的成员请直接用成员列表接口查询。
+          共 {memberTotal} 条成员记录，当前仅显示前 100 条。
         </Typography>
       ) : null}
 
@@ -453,7 +453,7 @@ export default function GroupMembersPanel({
                   </Tooltip>
                 ) : null}
                 {isRemoved ? (
-                  <Tooltip title="恢复成员关系（status=active）">
+                  <Tooltip title="恢复成员身份">
                     <span>
                       <Button
                         onClick={() => void handleRestore(member)}
@@ -464,7 +464,7 @@ export default function GroupMembersPanel({
                     </span>
                   </Tooltip>
                 ) : !isOwner ? (
-                  <Tooltip title="软移除（个人数据保留）">
+                  <Tooltip title="移除成员（保留个人数据）">
                     <span>
                       <IconButton
                         size="small"

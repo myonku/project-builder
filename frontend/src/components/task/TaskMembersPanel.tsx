@@ -169,7 +169,7 @@ export default function TaskMembersPanel({
           任务成员（{members.length}）
         </Typography>
         <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-          <Tooltip title="重新加载成员与候选">
+          <Tooltip title="刷新成员和可添加的用户">
             <span>
               <IconButton size="small" aria-label="刷新任务成员" onClick={() => void load()} disabled={loading}>
                 <RefreshIcon fontSize="small" />

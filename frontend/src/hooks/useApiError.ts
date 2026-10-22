@@ -54,8 +54,8 @@ export function describeApiError(error: unknown): string {
     default:
       if (apiError.status >= 500) {
         return apiError.requestId
-          ? `服务端异常，请稍后重试（request_id: ${apiError.requestId}）`
-          : '服务端异常，请稍后重试。';
+          ? `服务暂时不可用，请稍后重试（问题编号：${apiError.requestId}）`
+          : '服务暂时不可用，请稍后重试。';
       }
       return apiError.message;
   }

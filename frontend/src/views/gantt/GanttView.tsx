@@ -442,7 +442,7 @@ export default function GanttView() {
         </Box>
 
         <Alert severity="info" variant="outlined" icon={false}>
-          初版只读：任务条仅用于展示，拖拽改期尚未开放；点击任务条或左侧任务名可打开任务详情。
+          点击任务条或左侧任务名查看详情；如需调整日期，请在任务详情中编辑。
         </Alert>
 
         {optionsError ? (
@@ -531,10 +531,10 @@ export default function GanttView() {
           <Typography variant="caption" color="text.secondary" component="p">
             {view === 'projects'
               ? '项目视图按父子任务层级展示；任务条颜色表示状态，深色覆盖部分为已完成进度，菱形为里程碑。'
-              : '同一任务有多名成员时，会分别出现在各成员的泳道里；顶部汇总仍以服务端任务数为准。'}
+              : '多人参与的任务会在每位成员名下显示；顶部任务总数不重复计算。'}
           </Typography>
           <Typography variant="caption" color="text.secondary" component="p" sx={{ mt: 0.5 }}>
-            本页为初版只读：拖拽改期尚未开放，任务状态/日期范围筛选也会在后续补充。
+            任务条用于查看时间安排；任务日期可在详情中调整。
           </Typography>
         </Box>
       </Stack>

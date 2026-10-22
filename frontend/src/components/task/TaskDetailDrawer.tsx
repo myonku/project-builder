@@ -156,12 +156,12 @@ export default function TaskDetailDrawer({
       if (outcome.resolution === 'reloaded') {
         setEditOpen(false);
         onChanged?.();
-        show('已刷新为服务端最新数据。', { severity: 'info' });
+        show('已加载最新信息。', { severity: 'info' });
         return;
       }
       setSaveError(outcome.error);
       if (outcome.resolution === 'kept') {
-        show('版本号已刷新为服务端最新值，可以再次提交。', { severity: 'warning' });
+        show('已保留你的修改，请检查后再次保存。', { severity: 'warning' });
       }
     },
     [onChanged, saveTask, show, task],
@@ -254,8 +254,8 @@ export default function TaskDetailDrawer({
 
               {task.deleted_at ? (
                 <Alert severity="warning">
-                  该任务已被逻辑删除（{formatForDisplay(task.deleted_at, userTimeZone)}），
-                  默认不出现在列表里。
+                  该任务已删除（{formatForDisplay(task.deleted_at, userTimeZone)}），
+                  默认列表中不再显示。
                 </Alert>
               ) : null}
 

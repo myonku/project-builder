@@ -191,11 +191,11 @@ export default function AttachmentPanel({
   const handleDelete = React.useCallback(
     async (attachment: Attachment) => {
       const confirmed = await dialogs.confirm(
-        `逻辑删除「${attachment.original_name}」？文件字节与配额仍然保留，` +
-          '必须在「含已删除」里再执行一次“彻底删除”才会释放。',
+        `删除「${attachment.original_name}」？删除后仍占用存储空间，` +
+          '可在“含已删除”中找到并彻底删除，以释放空间。',
         {
-          title: '逻辑删除附件',
-          okText: '逻辑删除',
+          title: '删除附件',
+          okText: '删除',
           cancelText: '取消',
           severity: 'warning',
         },
@@ -206,7 +206,7 @@ export default function AttachmentPanel({
       setBusyId(attachment.id);
       try {
         await deleteAttachment(attachment.id);
-        show('已逻辑删除；文件仍在磁盘上，彻底删除后才释放配额。', { severity: 'success' });
+        show('附件已删除；如需释放空间，请在“含已删除”中彻底删除。', { severity: 'success' });
         refreshFromFirstPage();
       } catch (caught) {
         handle(toApiError(caught));
@@ -220,7 +220,7 @@ export default function AttachmentPanel({
   const handlePurge = React.useCallback(
     async (attachment: Attachment) => {
       const confirmed = await dialogs.confirm(
-        `彻底删除「${attachment.original_name}」？此操作不可恢复，并会释放该账号的一份附件配额。`,
+        `彻底删除「${attachment.original_name}」？此操作不可恢复，删除后将释放该附件占用的空间。`,
         {
           title: '彻底删除附件',
           okText: '彻底删除',
@@ -298,7 +298,7 @@ export default function AttachmentPanel({
           </Typography>
           {!dense ? (
             <Typography variant="caption" color="text.secondary">
-              单文件上传；大小与扩展名以服务端配置为准。逻辑删除不释放配额，彻底删除才释放。
+              每次上传一个文件。删除后仍占用空间，彻底删除后才会释放。
             </Typography>
           ) : null}
         </Box>
@@ -450,11 +450,11 @@ export default function AttachmentPanel({
               </Tooltip>
 
               {!attachment.deleted_at && canWrite ? (
-                <Tooltip title="逻辑删除（文件仍占磁盘与配额）">
+                <Tooltip title="删除附件（仍占用空间）">
                   <span>
                     <IconButton
                       size="small"
-                      aria-label={`逻辑删除 ${attachment.original_name}`}
+                      aria-label={`删除 ${attachment.original_name}`}
                       onClick={() => void handleDelete(attachment)}
                       disabled={busyId === attachment.id}
                     >
@@ -465,7 +465,7 @@ export default function AttachmentPanel({
               ) : null}
 
               {attachment.deleted_at && canPurge(attachment) ? (
-                <Tooltip title="彻底删除（不可恢复，释放配额）">
+                <Tooltip title="彻底删除（不可恢复，释放空间）">
                   <span>
                     <IconButton
                       size="small"

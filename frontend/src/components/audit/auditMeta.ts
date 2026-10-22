@@ -21,7 +21,7 @@ const ACTION_META: Record<AuditAction, AuditActionMeta> = {
   created: { label: '创建', tone: 'success' },
   updated: { label: '修改', tone: 'info' },
   archived: { label: '归档', tone: 'warning' },
-  deleted: { label: '逻辑删除', tone: 'warning' },
+  deleted: { label: '删除', tone: 'warning' },
   purged: { label: '彻底删除', tone: 'error' },
   member_added: { label: '成员加入', tone: 'primary' },
   member_role_changed: { label: '成员角色变更', tone: 'secondary' },

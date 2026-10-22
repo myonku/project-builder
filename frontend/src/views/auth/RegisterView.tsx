@@ -187,7 +187,7 @@ export default function RegisterView() {
                   label="时区（可选）"
                   placeholder="Asia/Shanghai"
                   fullWidth
-                  helperText={errors.timezone?.message ?? 'IANA 时区；留空按 UTC'}
+                  helperText={errors.timezone?.message ?? '例如 Asia/Shanghai；留空为 UTC'}
                   error={Boolean(errors.timezone)}
                 />
 

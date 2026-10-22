@@ -313,7 +313,7 @@ export default function TaskFormDialog({
                     )}
                   />
                   <Alert severity="info" variant="outlined">
-                    新任务固定为"未开始 / 0%"，这两项在创建后到详情里调整。
+                    新任务从“未开始、0%”开始，可在创建后调整。
                   </Alert>
                 </>
               )}
@@ -357,7 +357,7 @@ export default function TaskFormDialog({
                     disabled={parentLoading}
                     value={field.value}
                     onChange={(event) => field.onChange(event.target.value)}
-                    helperText="留空表示顶层任务；最多 3 层（候选只取前 100 个任务）"
+                    helperText="不选则为顶层任务，最多 3 层；仅列出前 100 项"
                     slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true } }}
                   >
                     <MenuItem value={NO_PARENT}>（顶层任务）</MenuItem>
@@ -409,7 +409,7 @@ export default function TaskFormDialog({
                 fullWidth
                 multiline
                 minRows={3}
-                helperText="任务的空串存为空字符串（与项目「空串清空为 null」不同，《A05》§端点 4）"
+                helperText="填写补充说明，可留空"
               />
             </Stack>
           </DialogContent>

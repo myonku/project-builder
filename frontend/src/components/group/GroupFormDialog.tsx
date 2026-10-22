@@ -109,7 +109,7 @@ export default function GroupFormDialog({
               multiline
               minRows={3}
               error={Boolean(errors.description)}
-              helperText={errors.description?.message ?? '可留空；清空会存成 null'}
+              helperText={errors.description?.message ?? '填写补充说明，可留空'}
               fullWidth
             />
             {mode === 'edit' ? (

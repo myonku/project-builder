@@ -153,12 +153,12 @@ export default function ProfileView() {
       return;
     }
     if (outcome.resolution === 'reloaded') {
-      show('已刷新为服务端最新数据。', { severity: 'info' });
+      show('已加载最新信息。', { severity: 'info' });
       return;
     }
     setServerError(outcome.error);
     if (outcome.resolution === 'kept') {
-      show('版本号已刷新为服务端最新值，可以再次提交。', { severity: 'warning' });
+      show('已保留你的修改，请检查后再次保存。', { severity: 'warning' });
     }
   });
 
@@ -313,7 +313,7 @@ export default function ProfileView() {
                       编辑资料
                     </Typography>
                     <Typography variant="body2" color="text.secondary">
-                      用户名、状态和系统角色由管理员维护；这里只修改本人可编辑的字段。
+                      可修改显示名、邮箱、时区和提醒偏好；账号权限由管理员维护。
                     </Typography>
                   </Box>
 
@@ -335,7 +335,7 @@ export default function ProfileView() {
                             name={field.name}
                             inputRef={field.ref}
                             error={Boolean(errors.display_name)}
-                            helperText={errors.display_name?.message ?? '在列表、甘特图和成员面板中展示'}
+                            helperText={errors.display_name?.message ?? '用于向其他成员展示'}
                             fullWidth
                           />
                         )}
@@ -370,7 +370,7 @@ export default function ProfileView() {
                             name={field.name}
                             inputRef={field.ref}
                             error={Boolean(errors.timezone)}
-                            helperText={errors.timezone?.message ?? 'IANA 时区，例如 Asia/Shanghai'}
+                            helperText={errors.timezone?.message ?? '例如 Asia/Shanghai'}
                             fullWidth
                           />
                         )}

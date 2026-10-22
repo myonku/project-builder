@@ -238,13 +238,13 @@ export default function ProjectDetailView() {
       if (outcome.resolution === 'reloaded') {
         // 用户选了"放弃我的修改并刷新"：Hook 已重新加载，直接关掉对话框
         setEditOpen(false);
-        show('已刷新为服务端最新数据。', { severity: 'info' });
+        show('已加载最新信息。', { severity: 'info' });
         return;
       }
       // 'kept'：版本号已刷新，保留用户输入让他再提交一次；'aborted'：其它错误
       setSaveError(outcome.error);
       if (outcome.resolution === 'kept') {
-        show('版本号已刷新为服务端最新值，可以再次提交。', { severity: 'warning' });
+        show('已保留你的修改，请检查后再次保存。', { severity: 'warning' });
       }
     },
     [project, saveProject, show],
@@ -255,7 +255,7 @@ export default function ProjectDetailView() {
       return;
     }
     const confirmed = await dialogs.confirm(
-      `归档后该项目及其下任务将变为只读，而且没有解除归档的端点（《A04》§端点 5）。确认归档「${project.name}」吗？`,
+      `归档后无法撤销，项目及其任务将不能再修改。确认归档「${project.name}」吗？`,
       { title: '归档项目', okText: '确认归档', cancelText: '取消', severity: 'warning' },
     );
     if (!confirmed) {
@@ -526,15 +526,14 @@ export default function ProjectDetailView() {
         {readOnly ? (
           <Alert severity="warning">
             <AlertTitle>项目已归档（只读）</AlertTitle>
-            归档不可逆，项目及其下任务都不能再修改：《A04》§端点 5 没有提供解除归档的端点，
-            写入一律返回 <code>409 conflict</code>。
+            归档后无法撤销，项目及其任务仅供查看，不能再修改。
           </Alert>
         ) : null}
 
         {!canManage && !readOnly ? (
           <Alert severity="info" variant="outlined">
             你在该项目里的角色是「{membershipMeta?.label ?? '非成员'}」；只有项目持有者或系统管理员
-            能修改项目本身（《A04》§权限速查）。
+            能修改项目信息。
           </Alert>
         ) : null}
 
@@ -572,7 +571,7 @@ export default function ProjectDetailView() {
               <Typography variant="body2">{project.progress}%</Typography>
             </Stack>
             <Typography variant="caption" color="text.secondary">
-              派生字段：有效任务进度的平均值（《A04》）
+              任务的平均进度，不含已取消的任务
             </Typography>
           </Stack>
           <Stack spacing={1} sx={{ minWidth: 240 }}>

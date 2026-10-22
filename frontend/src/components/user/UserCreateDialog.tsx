@@ -133,7 +133,7 @@ export default function UserCreateDialog({
               label="时区"
               placeholder="Asia/Shanghai"
               error={Boolean(errors.timezone)}
-              helperText={errors.timezone?.message ?? 'IANA 时区，留空为 UTC'}
+              helperText={errors.timezone?.message ?? '例如 Asia/Shanghai；留空为 UTC'}
               fullWidth
             />
           </Stack>

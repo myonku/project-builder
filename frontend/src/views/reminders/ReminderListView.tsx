@@ -80,7 +80,7 @@ export default function ReminderListView() {
   const [draft, setDraft] = React.useState<ReminderFilters>(INITIAL_FILTERS);
   const [retryingId, setRetryingId] = React.useState<string | null>(null);
 
-  const taskIdError = draft.task_id !== '' && !isUuid(draft.task_id) ? '任务 id 必须是 UUID' : null;
+  const taskIdError = draft.task_id !== '' && !isUuid(draft.task_id) ? '请输入完整的任务编号' : null;
 
   const {
     rows,
@@ -292,7 +292,7 @@ export default function ReminderListView() {
           const retryable = canRetryReminder(reminder.status);
           return (
             <Stack direction="row" spacing={0.5}>
-              <DataTooltip title="查看详情（完整失败原因与时间戳）">
+              <DataTooltip title="查看详情（发送时间与失败原因）">
                 <IconButton
                   size="small"
                   aria-label={`查看提醒 ${reminder.id}`}
@@ -308,7 +308,7 @@ export default function ReminderListView() {
                 title={
                   retryable
                     ? '重新排入待发送队列'
-                    : `「${reminderStatusMeta(reminder.status).label}」不能重试（服务端会返回 409）`
+                    : `「${reminderStatusMeta(reminder.status).label}」无需重试`
                 }
               >
                 <span>
@@ -365,7 +365,7 @@ export default function ReminderListView() {
                 onChange={(event) => setDraft({ ...draft, kind: event.target.value })}
                 sx={filterItemSx(150, 360)}
                 slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true } }}
-                helperText="服务端不校验取值，此处只提供枚举"
+                helperText="按提醒类型筛选"
               >
                 <MenuItem value="">全部类型</MenuItem>
                 {REMINDER_KIND_OPTIONS.map((option) => (
@@ -377,7 +377,7 @@ export default function ReminderListView() {
 
               <TextField
                 size="small"
-                label="任务 id"
+                label="任务编号"
                 value={draft.task_id}
                 onChange={(event) => setDraft({ ...draft, task_id: event.target.value.trim() })}
                 error={Boolean(taskIdError)}
@@ -424,8 +424,8 @@ export default function ReminderListView() {
 
         {filters.pageStatus ? (
           <Alert severity="info" variant="outlined">
-            「状态」是<strong>当前页</strong>的客户端筛选：接口没有 <code>status</code> 参数（传了会 400），
-            所以本页 {rows.length} 条里只有 {visibleRows.length} 条符合；总数仍是服务端的 {rowCount} 条。
+            状态筛选仅作用于<strong>当前页</strong>：本页 {rows.length} 条中有 {visibleRows.length} 条符合，
+            全部记录共 {rowCount} 条。
             想按状态归拢全部数据，请点「状态」列头排序。
           </Alert>
         ) : null}

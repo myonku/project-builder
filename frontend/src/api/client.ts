@@ -166,7 +166,7 @@ const STATUS_FALLBACK_MESSAGE: Record<number, string> = {
   415: '不支持该文件类型。',
   422: '提交的内容未通过校验。',
   429: '请求过于频繁，请稍后再试。',
-  500: '服务端出现异常，请稍后重试。',
+  500: '服务暂时不可用，请稍后重试。',
 };
 
 function errorFromResponse(response: Response, payload: unknown): ApiError {
@@ -222,7 +222,7 @@ async function send(
     throw new ApiError({
       status: 0,
       code: 'network_error',
-      message: '无法连接到服务端，请确认后端已启动、代理配置正确。',
+      message: '暂时无法连接，请检查网络后重试。',
     });
   }
 }
@@ -245,7 +245,7 @@ export async function request<T>(config: RequestConfig): Promise<Envelope<T>> {
     throw new ApiError({
       status: response.status,
       code: 'invalid_response',
-      message: '服务端返回了非预期的响应结构。',
+      message: '暂时无法读取信息，请稍后重试。',
       requestId: response.headers.get('X-Request-ID'),
     });
   }
@@ -359,7 +359,7 @@ export async function apiUpload<T>(
     throw new ApiError({
       status: response.status,
       code: 'invalid_response',
-      message: '服务端返回了非预期的响应结构。',
+      message: '暂时无法读取信息，请稍后重试。',
     });
   }
   return (payload as Envelope<T>).data;

@@ -149,7 +149,7 @@ export default function ReminderDetailDrawer({
               title={
                 retryable
                   ? '重新排入待发送队列'
-                  : '只有"发送失败"与"已跳过"可以重试（其它状态服务端会返回 409）'
+                  : '只有“发送失败”或“已跳过”的提醒可以重试'
               }
             >
               <span>
@@ -205,8 +205,8 @@ export default function ReminderDetailDrawer({
 
               {reminder.status === 'skipped' ? (
                 <Alert severity="warning" variant="outlined">
-                  跳过不是失败：服务端按规则认为这条不该发（例如收件人没有邮箱、关闭了邮件提醒，
-                  或<strong>邮件功能未启用</strong>）。若原因已经消失，可以重试。
+                  这条提醒未发送，可能是收件人未填写邮箱、关闭了提醒，或邮件服务暂不可用。
+                  请先查看下方原因，处理后再重试。
                 </Alert>
               ) : null}
 

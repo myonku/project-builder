@@ -154,8 +154,7 @@ export default function GroupPlanView() {
 
         {noGroup ? (
           <Alert severity="info" variant="outlined">
-            先在上面选择一个工作组。组内计划只展示**已共享**的项目与**已共享**任务，
-            因此它看起来会比"个人计划"或少或多：私有的、以及没共享的任务都不会出现。
+            请选择工作组，查看组内已共享的项目与任务。未共享的内容不会出现在这里。
           </Alert>
         ) : null}
 
