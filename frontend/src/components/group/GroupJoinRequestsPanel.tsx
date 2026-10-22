@@ -210,7 +210,7 @@ export default function GroupJoinRequestsPanel({
       ) : null}
 
       <Typography variant="caption" color="text.secondary">
-        A03 的申请列表响应不返回申请时间；这里只展示审核人/审核时间。
+        可查看待处理或已审核的加入申请。
         {total > PAGE_SIZE ? ` 共 ${total} 条，当前只加载前 ${PAGE_SIZE} 条。` : ''}
       </Typography>
 

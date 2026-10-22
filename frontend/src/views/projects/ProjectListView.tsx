@@ -38,6 +38,7 @@ import { useNavigate } from 'react-router';
 import { createProject, queryProjects } from '@/api/projects';
 import { toApiError, type ApiError } from '@/api/client';
 import CellText from '@/components/common/CellText';
+import ProgressCell from '@/components/common/ProgressCell';
 import DataTooltip, { textCell } from '@/components/common/DataTooltip';
 import { filterItemSx, filterRowSx } from '@/components/common/filterLayout';
 import ProjectFormDialog, {
@@ -296,11 +297,12 @@ export default function ProjectListView() {
       {
         field: 'progress',
         headerName: '进度',
-        width: 90,
+        width: 130,
         sortable: false, // 派生字段，不在白名单里
         valueFormatter: (value: number) => `${value}%`,
-        // 百分比一眼能看全，不给提示（同时去掉原生 title 的噪点）
-        renderCell: textCell<Project>({ tooltip: false }),
+        renderCell: (params: GridRenderCellParams<Project, number>) => (
+          <ProgressCell value={params.value} />
+        ),
       },
       {
         field: 'overdue_task_count',

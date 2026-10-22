@@ -281,7 +281,7 @@ export default function UserEditDialog({ userId, onClose, onSaved }: UserEditDia
                     label="系统角色"
                     value={field.value}
                     onChange={(event) => field.onChange(event.target.value)}
-                    helperText="系统至少要保留一个启用中的管理员；降级最后一个管理员会返回 409"
+                    helperText="请至少保留一位启用中的管理员"
                     fullWidth
                   >
                     {SYSTEM_ROLE_OPTIONS.map((option) => (
