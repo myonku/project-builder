@@ -353,7 +353,7 @@ export default function ProfileView() {
                             name={field.name}
                             inputRef={field.ref}
                             error={Boolean(errors.email)}
-                            helperText={errors.email?.message ?? '用于提醒邮件与后续的密码找回'}
+                            helperText={errors.email?.message ?? '用于提醒邮件与密码找回'}
                             fullWidth
                           />
                         )}
@@ -391,6 +391,7 @@ export default function ProfileView() {
                         )}
                       />
                       <Stack direction="row" spacing={1} sx={{ justifyContent: 'flex-end' }}>
+ <Button href="/forgot-password">通过邮箱重置密码</Button>
                         <Button
                           type="button"
                           onClick={() => {

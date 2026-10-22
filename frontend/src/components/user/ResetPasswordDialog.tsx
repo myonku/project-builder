@@ -2,7 +2,7 @@
  * 管理员重置用户密码（《A02》§6）。
  *
  * 字段名是 `new_password`（不是 `password`）；必须带目标当前的 `updated_at`。
- * 重置**不会吊销目标已有会话**（A02 已知限制），界面上不承诺"立即踢下线"。
+ * 重置后旧密码与既有会话失效。
  */
 
 import * as React from 'react';
@@ -130,7 +130,7 @@ export default function ResetPasswordDialog({
           <Stack spacing={2}>
             <Alert severity="info" variant="outlined">
               目标用户：{user?.display_name}（{user?.username}）。重置后旧密码立即失效；
-              <strong>不会</strong>吊销该用户已有会话（A02 已知限制）。
+              该用户已有会话将失效，需要重新登录。
             </Alert>
             {serverError ? (
               <Alert severity="error">{describeApiError(serverError)}</Alert>
