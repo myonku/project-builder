@@ -219,3 +219,30 @@ func TestRateLimitDoesNotTrustForwardedFor(t *testing.T) {
 		map[string]string{"X-Forwarded-For": "203.0.113.2"})
 	requireErrorEnvelope(t, second, http.StatusTooManyRequests, domain.CodeRateLimited)
 }
+
+func TestPasswordResetHourlyBucketSurvivesSweep(t *testing.T) {
+	clk := clock.NewFixed(time.Date(2026, 10, 22, 0, 0, 0, 0, time.UTC))
+	limiter := newTestLimiter(t, clk, 60, 1)
+	limiter.SetHourlyRate(1)
+	if ok, _ := limiter.Allow("ip"); !ok {
+		t.Fatal("initial request rejected")
+	}
+	clk.Advance(11 * time.Minute)
+	if ok, retry := limiter.Allow("ip"); ok || retry <= 0 {
+		t.Fatal("sweep incorrectly reset hourly quota")
+	}
+	clk.Advance(49 * time.Minute)
+	if ok, _ := limiter.Allow("ip"); !ok {
+		t.Fatal("hourly token not replenished")
+	}
+}
+func TestPasswordResetPublicPathsAreExact(t *testing.T) {
+	gateway := NewSessionGateway("pb_session")
+	gateway.PublicPathPrefix = "/api/v1"
+	for _, path := range []string{"request", "confirm"} {
+		base := "/api/v1/auth/password-reset/" + path
+		if !gateway.IsPublic(base) || gateway.IsPublic(base+"/child") || gateway.IsPublic(base+"extra") {
+			t.Fatal("reset whitelist is not exact")
+		}
+	}
+}

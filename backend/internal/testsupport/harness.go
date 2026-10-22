@@ -474,8 +474,17 @@ func NewHarnessWithOptions(t *testing.T, opts HarnessOptions) *Harness {
 		Logger: logger,
 	})
 
+	fakeSender := &FakeSender{}
+	cfg.Security.PasswordResetEnabled = true
+	cfg.Security.PasswordResetTokenTTLSeconds = 1800
+	cfg.Security.PasswordResetCooldownSeconds = 604800
+	cfg.Security.PasswordResetWindowSeconds = 604800
+	cfg.Security.PasswordResetMaxRequests = 5
+	cfg.Mail.Enabled = true
+	cfg.Mail.PasswordResetURLTemplate = "http://localhost:5173/reset-password?token={token}"
 	authService := auth.NewService(auth.Options{
-		Users:         authUsers,
+		Users:  authUsers,
+		Resets: authUsers, Sender: fakeSender, Mail: cfg.Mail,
 		Registrations: authUsers,
 		Sessions:      store,
 		Hasher:        hasher,
@@ -511,7 +520,7 @@ func NewHarnessWithOptions(t *testing.T, opts HarnessOptions) *Harness {
 		AvatarMaxFileSize: cfg.Storage.AvatarMaxFileSize,
 	})
 	// 提醒服务：注入**假发送器**，于是全部提醒逻辑都能在没有 SMTP 的情况下验证。
-	fakeSender := &FakeSender{}
+
 	remindersService := reminders.NewService(reminders.Options{
 		Store:           reminders.NewRepository(pool),
 		Sender:          fakeSender,

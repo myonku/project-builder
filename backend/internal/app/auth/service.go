@@ -12,6 +12,7 @@ import (
 	"github.com/myonku/project-builder/internal/platform"
 	"github.com/myonku/project-builder/internal/platform/clock"
 	"github.com/myonku/project-builder/internal/platform/idgen"
+	"github.com/myonku/project-builder/internal/platform/mail"
 )
 
 // UserRepository 是本模块对用户的持久化需求。
@@ -25,13 +26,16 @@ type UserRepository interface {
 	FindByIdentifier(ctx context.Context, identifier string) (UserRecord, error)
 	FindByUsername(ctx context.Context, username string) (UserRecord, error)
 	TouchLastLogin(ctx context.Context, id string, at time.Time) (UserRecord, error)
-	UpdatePasswordHash(ctx context.Context, id, hash string) error
+	UpdatePasswordHash(ctx context.Context, id, hash, expectedHash string) error
 	UpdatePasswordWithCAS(ctx context.Context, id, hash string, expectedUpdated time.Time, audit *apperr.AuditWrite) (UserRecord, error)
 	UpdateSystemRole(ctx context.Context, id, role string) (UserRecord, error)
 }
 
 // Service 承载认证用例。
 type Service struct {
+	resets        PasswordResetStore
+	sender        mail.Sender
+	mailConfig    config.MailConfig
 	users         UserRepository
 	registrations RegistrationStore
 	store         SessionStore
@@ -47,6 +51,9 @@ type Service struct {
 
 // Options 是 Service 的构造参数。
 type Options struct {
+	Resets        PasswordResetStore
+	Sender        mail.Sender
+	Mail          config.MailConfig
 	Users         UserRepository
 	Registrations RegistrationStore
 	Sessions      SessionStore
@@ -74,6 +81,7 @@ func NewService(opts Options) *Service {
 		hasher = platform.NewPasswordHasher()
 	}
 	return &Service{
+		resets: opts.Resets, sender: opts.Sender, mailConfig: opts.Mail,
 		users:         opts.Users,
 		registrations: opts.Registrations,
 		store:         opts.Sessions,
@@ -288,7 +296,7 @@ func (s *Service) Login(ctx context.Context, in domain.LoginInput) (LoginResult,
 				slog.String("user_id", record.ID),
 				slog.Any("cause", hashErr),
 			)
-		} else if updErr := s.users.UpdatePasswordHash(ctx, record.ID, newHash); updErr != nil {
+		} else if updErr := s.users.UpdatePasswordHash(ctx, record.ID, newHash, record.PasswordHash); updErr != nil {
 			s.logger.Warn("密码摘要写回失败，本次登录继续",
 				slog.String("user_id", record.ID),
 				slog.Any("cause", updErr),
@@ -308,10 +316,11 @@ func (s *Service) Login(ctx context.Context, in domain.LoginInput) (LoginResult,
 	}
 
 	session := Session{
-		Token:     token,
-		UserID:    record.ID,
-		CreatedAt: now,
-		ExpiresAt: expiresAt,
+		SessionVersion: record.SessionVersion,
+		Token:          token,
+		UserID:         record.ID,
+		CreatedAt:      now,
+		ExpiresAt:      expiresAt,
 	}
 	if err := s.store.Save(ctx, session); err != nil {
 		return LoginResult{}, err
@@ -370,7 +379,7 @@ func (s *Service) CurrentUser(ctx context.Context, token string) (UserRecord, er
 		return UserRecord{}, err
 	}
 
-	if !record.ToDomain().IsActive() {
+	if !record.ToDomain().IsActive() || record.SessionVersion != session.SessionVersion {
 		// 停用用户的既有会话立即失效。
 		if delErr := s.store.Delete(ctx, token); delErr != nil {
 			s.logger.Warn("撤销停用用户会话失败", slog.Any("cause", delErr))

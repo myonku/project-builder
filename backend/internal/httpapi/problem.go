@@ -85,6 +85,7 @@ func NewListResponse[T any](items []T, pagination Pagination) ListResponse[T] {
 // 全部退化为 500（见 backend/docs/B01-Go服务端架构设计.md 5.7）。这里用一张显式表格
 // 覆盖全部错误码，并由 problem_test.go 断言"每个错误码都有映射"。
 var errorStatus = map[domain.ErrorCode]int{
+	domain.CodePasswordResetUnavailable: 503, domain.CodePasswordResetTokenInvalid: 422,
 	domain.CodeInvalidRequest:              http.StatusBadRequest,
 	domain.CodeInvalidDateRange:            http.StatusBadRequest,
 	domain.CodeValidationError:             http.StatusUnprocessableEntity,
@@ -114,6 +115,7 @@ var errorStatus = map[domain.ErrorCode]int{
 // 领域错误自带的 Message 是面向开发者的中文描述，用于日志；
 // 这里的英文文案是对外契约的一部分，改动等于改契约。
 var errorMessage = map[domain.ErrorCode]string{
+	domain.CodePasswordResetUnavailable: "Password reset unavailable.", domain.CodePasswordResetTokenInvalid: "Invalid or expired password reset link.",
 	domain.CodeInvalidRequest:              "The request is invalid.",
 	domain.CodeInvalidDateRange:            "The end date must not be earlier than the start date.",
 	domain.CodeValidationError:             "One or more fields are invalid.",
@@ -243,6 +245,10 @@ func writeErrorEnvelope(c *gin.Context, logger *slog.Logger) {
 // respondOK 写入单对象成功响应。各模块通过本包导出的辅助函数保持一致形状。
 func respondOK[T any](c *gin.Context, data T) {
 	c.JSON(http.StatusOK, DataResponse[T]{Data: data})
+}
+
+func RespondAccepted[T any](c *gin.Context, data T) {
+	c.JSON(http.StatusAccepted, DataResponse[T]{Data: data})
 }
 
 // RespondCreated 写入 201 成功响应，用于创建型端点。

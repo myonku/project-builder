@@ -45,10 +45,7 @@ func (s *Service) CreateAccount(
 // audit 由调用方提供：日志与操作记录都需要同时记录"哪个管理员重置了哪个用户"，
 // 而本方法拿不到操作者——调用方（users 端点）才持有当前用户。
 //
-// 注意：本方法**不**使该用户已有的会话失效。这是**已确认的决策**（2026-10-11）：
-// 本系统面向少数人员的内部小组，安全性要求不高，重置后由用户重新登录即可；
-// 若确需立即踢下线，可先停用再启用该账号（停用会让既有会话在下一次请求时立即失效）。
-// 详见 backend/docs/B05-进度与验证记录.md 7.3。
+// 重置后递增会话版本并撤销自助令牌，既有会话下一次请求失效。
 func (s *Service) ResetPassword(
 	ctx context.Context, userID, newPassword string, expectedUpdated time.Time,
 	audit *apperr.AuditWrite,

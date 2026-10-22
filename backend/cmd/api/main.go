@@ -129,9 +129,35 @@ func run() error {
 		return err
 	}
 
+	// 邮件发送器：未启用时注入 Disabled（它返回错误而不是假装成功，
+	// 于是"没配邮件"会如实记成 skipped 而不是 sent）。
+	var mailSender mail.Sender = mail.Disabled{}
+	if cfg.Mail.Enabled {
+		smtpSender, smtpErr := mail.NewSMTP(mail.SMTPConfig{
+			Host:              cfg.Mail.Host,
+			Port:              cfg.Mail.Port,
+			Username:          cfg.Mail.Username,
+			Password:          cfg.Mail.Password,
+			FromAddress:       cfg.Mail.FromAddress,
+			FromName:          cfg.Mail.FromName,
+			UseTLS:            cfg.Mail.UseTLS,
+			ImplicitTLS:       cfg.Mail.ImplicitTLS,
+			AuthMethod:        cfg.Mail.AuthMethod,
+			OAuth2AccessToken: cfg.Mail.OAuth2AccessToken,
+		})
+		if smtpErr != nil {
+			return smtpErr
+		}
+		mailSender = smtpSender
+		logger.Info("邮件发送已启用", slog.String("host", cfg.Mail.Host), slog.Int("port", cfg.Mail.Port))
+	} else {
+		logger.Info("邮件发送未启用；提醒仍会生成并记录为 skipped")
+	}
+
 	authStore := auth.NewRepository(postgres.Pool)
 	authService := auth.NewService(auth.Options{
-		Users:         authStore,
+		Users:  authStore,
+		Resets: authStore, Sender: mailSender, Mail: cfg.Mail,
 		Registrations: authStore,
 		Sessions:      sessionStore,
 		Hasher:        platform.NewPasswordHasher(),
@@ -195,31 +221,6 @@ func run() error {
 		IDs:               ids,
 		AvatarMaxFileSize: cfg.Storage.AvatarMaxFileSize,
 	})
-
-	// 邮件发送器：未启用时注入 Disabled（它返回错误而不是假装成功，
-	// 于是"没配邮件"会如实记成 skipped 而不是 sent）。
-	var mailSender mail.Sender = mail.Disabled{}
-	if cfg.Mail.Enabled {
-		smtpSender, smtpErr := mail.NewSMTP(mail.SMTPConfig{
-			Host:              cfg.Mail.Host,
-			Port:              cfg.Mail.Port,
-			Username:          cfg.Mail.Username,
-			Password:          cfg.Mail.Password,
-			FromAddress:       cfg.Mail.FromAddress,
-			FromName:          cfg.Mail.FromName,
-			UseTLS:            cfg.Mail.UseTLS,
-			ImplicitTLS:       cfg.Mail.ImplicitTLS,
-			AuthMethod:        cfg.Mail.AuthMethod,
-			OAuth2AccessToken: cfg.Mail.OAuth2AccessToken,
-		})
-		if smtpErr != nil {
-			return smtpErr
-		}
-		mailSender = smtpSender
-		logger.Info("邮件发送已启用", slog.String("host", cfg.Mail.Host), slog.Int("port", cfg.Mail.Port))
-	} else {
-		logger.Info("邮件发送未启用；提醒仍会生成并记录为 skipped")
-	}
 
 	remindersService := reminders.NewService(reminders.Options{
 		Store:           reminders.NewRepository(postgres.Pool),

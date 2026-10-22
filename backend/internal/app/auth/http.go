@@ -43,6 +43,7 @@ func (h *Handler) Register(api *gin.RouterGroup) {
 	group.POST("/login", h.login)
 	group.POST("/logout", h.logout)
 	group.GET("/me", h.me)
+	h.registerPasswordResetRoutes(group)
 
 	// 注册申请审核：仅系统管理员；权限在 service 层再次校验。
 	h.registerRegistrationRoutes(api)

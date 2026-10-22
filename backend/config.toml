@@ -46,6 +46,7 @@ server_selection_timeout_seconds = 5
 max_pool_size = 20
 
 [mail]
+password_reset_url_template = "http://localhost:5173/reset-password?token={token}"
 # 邮件默认关闭。启用需要同时提供账号、密码与发件地址，
 # 且**凭据不要写在这个文件里**（它已入库）：用环境变量注入
 #   MAIL_USERNAME / MAIL_PASSWORD / MAIL_FROM_ADDRESS
@@ -81,6 +82,12 @@ max_files_per_user = 1000
 allowed_extensions = [".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".txt", ".csv", ".png", ".jpg", ".jpeg", ".zip"]
 
 [security]
+password_reset_enabled = true
+password_reset_token_ttl_seconds = 1800
+password_reset_cooldown_seconds = 604800
+password_reset_window_seconds = 604800
+password_reset_max_requests = 5
+password_reset_ip_requests_per_hour = 10
 # 生产环境必须通过 SECURITY_SESSION_SECRET 注入真实随机值。
 session_secret = "dev-only-change-me"
 session_ttl_seconds = 28800

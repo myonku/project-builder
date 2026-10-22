@@ -53,6 +53,7 @@ server_selection_timeout_seconds = 5
 max_pool_size = 20
 
 [mail]
+password_reset_url_template = "http://localhost:5173/reset-password?token={token}"
 # 集成测试注入假发送器，因此这里保持关闭。
 # 指向 Mailpit，便于后续 Reminders 阶段直接观察邮件而不真的外发。
 enabled = true
@@ -76,6 +77,12 @@ max_file_size = 10485760
 max_files_per_user = 1000
 
 [security]
+password_reset_enabled = true
+password_reset_token_ttl_seconds = 1800
+password_reset_cooldown_seconds = 604800
+password_reset_window_seconds = 604800
+password_reset_max_requests = 5
+password_reset_ip_requests_per_hour = 10
 session_secret = "project-builder-test-session-secret-value"
 session_ttl_seconds = 28800
 password_min_length = 8

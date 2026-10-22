@@ -160,13 +160,16 @@ func (r *FakeUserRepository) UpdateSystemRole(_ context.Context, id, role string
 }
 
 // UpdatePasswordHash 实现 UserRepository。
-func (r *FakeUserRepository) UpdatePasswordHash(_ context.Context, id, hash string) error {
+func (r *FakeUserRepository) UpdatePasswordHash(_ context.Context, id, hash, expectedHash string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	record, ok := r.byID[id]
 	if !ok {
 		return domain.New(domain.CodeUserNotFound, "User not found")
+	}
+	if record.PasswordHash != expectedHash {
+		return domain.ErrVersionConflict
 	}
 	record.PasswordHash = hash
 	r.byID[id] = record

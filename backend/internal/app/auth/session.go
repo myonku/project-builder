@@ -22,10 +22,11 @@ const sessionKeyPrefix = "pb:session:"
 
 // Session 是会话状态。
 type Session struct {
-	Token     string    `json:"token"`
-	UserID    string    `json:"user_id"`
-	CreatedAt time.Time `json:"created_at"`
-	ExpiresAt time.Time `json:"expires_at"`
+	SessionVersion int       `json:"session_version"`
+	Token          string    `json:"token"`
+	UserID         string    `json:"user_id"`
+	CreatedAt      time.Time `json:"created_at"`
+	ExpiresAt      time.Time `json:"expires_at"`
 }
 
 // ErrSessionBackendDisabled 表示 Redis 未启用，会话功能不可用。

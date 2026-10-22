@@ -959,8 +959,7 @@ func TestUserListRequiresAdminAndHonoursIncludeDisabled(t *testing.T) {
 
 // TestAdminResetPassword 覆盖重置密码端点。
 //
-// 同时把"重置不吊销既有会话"这一**已知限制**变成被测试的行为，
-// 而不是没人知道的意外：若日后加上会话吊销，这条断言会失败，
+// 验证重置后旧密码与既有会话立即失效，
 // 从而强制同时更新文档（backend/docs/B05 7.4 第 1 项）。
 func TestAdminResetPassword(t *testing.T) {
 	harness := NewHarness(t)
@@ -1027,10 +1026,10 @@ func TestAdminResetPassword(t *testing.T) {
 		"identifier": victim.Username, "password": newPassword,
 	}).RequireStatus(t, 200)
 
-	// **已知限制**：重置不吊销既有会话。
+	// W5：重置吊销既有会话。
 	//
 	// 上面那次 logout 已撤销旧会话，因此这里重新建立一条会话再重置一次，
-	// 以证明"改动密码不会让已发出的会话失效"。
+	// 以证明改动密码会让已发出的会话失效。
 	active := harness.RegisterAndLogin(t, "session_reset")
 	active.Client.Get(URL("/auth/me")).RequireStatus(t, 200)
 
@@ -1040,8 +1039,8 @@ func TestAdminResetPassword(t *testing.T) {
 		"expected_updated_at": Str(activeCurrent.Data(t), "updated_at"),
 	}).RequireStatus(t, 200)
 
-	active.Client.Get(URL("/auth/me")).RequireStatus(t, 200)
-	// 若需要立即踢下线，现行做法是先停用再启用（停用会让既有会话立即失效）。
+	active.Client.Get(URL("/auth/me")).RequireStatus(t, 401)
+	// 停用同样拒绝旧会话。
 	disableVersion := Str(admin.Client.Get(URL("/users/"+active.UserID)).
 		RequireStatus(t, 200).Data(t), "updated_at")
 	admin.Client.Post(URL("/users/"+active.UserID+"/disable"),
