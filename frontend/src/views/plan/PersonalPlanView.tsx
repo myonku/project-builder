@@ -26,15 +26,13 @@ import PlanFilters, {
 } from '@/components/plan/PlanFilters';
 import PlanSummaryTiles from '@/components/plan/PlanSummaryTiles';
 import PlanTable from '@/components/plan/PlanTable';
+import PlanTableSection from '@/components/plan/PlanTableSection';
 import { buildPlanRows } from '@/components/plan/planRows';
 import TaskDetailDrawer from '@/components/task/TaskDetailDrawer';
 import { describeApiError } from '@/hooks/useApiError';
 import { usePlanView } from '@/hooks/usePlanView';
 import { useAuthStore } from '@/stores/auth';
 import type { PlanViewQuery } from '@/types/plan';
-
-/** 计划视图的表格高度：页面比列表页多了筛选栏与汇总卡片，所以基准也更大 */
-export const PLAN_TABLE_HEIGHT = 'clamp(360px, calc(100dvh - 470px), 860px)';
 
 export default function PersonalPlanView() {
   const navigate = useNavigate();
@@ -118,7 +116,7 @@ export default function PersonalPlanView() {
 
         <Divider />
 
-        <Stack sx={{ height: PLAN_TABLE_HEIGHT, width: '100%', scrollbarGutter: 'stable' }}>
+        <PlanTableSection>
           <PlanTable
             rows={rows}
             loading={loading}
@@ -128,7 +126,7 @@ export default function PersonalPlanView() {
             onOpenProject={(projectId) => navigate(`/projects/${projectId}`)}
             emptyHint="你还没有参与任何项目（个人计划只包含你是项目成员的项目）"
           />
-        </Stack>
+        </PlanTableSection>
       </Stack>
 
       <TaskDetailDrawer

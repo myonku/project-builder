@@ -1,11 +1,11 @@
 /**
- * 个人信息页（`/me`，P01 §4 W2 + W4）。
+ * 个人信息页（`/me`，交互与头像规则见 F01 §5.12）。
  *
  * 资料读取用 `GET /auth/me`/`GET /users/{id}`，保存用
  * `PATCH /users/{id}` + `useVersionedForm`。本人只允许改 display_name / email /
  * timezone / reminder_enabled；username/status/system_role 只读。
  *
- * 头像上传/删除是 W4：`POST/DELETE /me/avatar`，成功后立即刷新顶栏与页面。
+ * 头像经前端方形裁剪后上传；`POST/DELETE /me/avatar` 成功后立即刷新顶栏与页面。
  */
 
 import * as React from 'react';
@@ -39,6 +39,8 @@ import { useVersionedForm } from '@/hooks/useVersionedForm';
 import { useAuthStore } from '@/stores/auth';
 import type { UpdateUserBody, User } from '@/types/user';
 import { formatForDisplay } from '@/utils/datetime';
+
+const AvatarCropDialog = React.lazy(() => import('@/components/user/AvatarCropDialog'));
 
 const schema = z.object({
   display_name: z.string().trim().min(1, '请输入显示名').max(128, '显示名不超过 128 字符'),
@@ -92,6 +94,7 @@ export default function ProfileView() {
   const { show } = useNotifications();
   const [serverError, setServerError] = React.useState<unknown>(null);
   const [avatarVersion, setAvatarVersion] = React.useState<string | null | undefined>(undefined);
+  const [avatarFile, setAvatarFile] = React.useState<File | null>(null);
   const [avatarBusy, setAvatarBusy] = React.useState(false);
   const [avatarError, setAvatarError] = React.useState<unknown>(null);
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
@@ -168,16 +171,31 @@ export default function ProfileView() {
     if (!file) {
       return;
     }
-    if (file.size > 2 * 1024 * 1024) {
-      setAvatarError(new Error('头像不得超过 2 MiB'));
+    setAvatarError(null);
+    if (file.size > 10 * 1024 * 1024) {
+      setAvatarError(new Error('原图不得超过 10 MiB，请选择较小的图片。'));
       return;
     }
+    let header: Uint8Array;
+    try { header = new Uint8Array(await file.slice(0, 8).arrayBuffer()); }
+    catch { setAvatarError(new Error('图片无法读取，请重新选择。')); return; }
+    const png = [137, 80, 78, 71, 13, 10, 26, 10].every((value, i) => header[i] === value);
+    const jpeg = header[0] === 255 && header[1] === 216 && header[2] === 255;
+    if (!png && !jpeg) {
+      setAvatarError(new Error('请选择 PNG 或 JPEG 图片。'));
+      return;
+    }
+    setAvatarFile(file);
+  };
+
+  const handleSaveAvatar = async (file: File) => {
     setAvatarBusy(true);
     setAvatarError(null);
     try {
       const saved = await uploadAvatar(file);
       setUser(saved);
       setAvatarVersion(saved.avatar_updated_at);
+      setAvatarFile(null);
       show('头像已更新。', { severity: 'success' });
     } catch (error) {
       setAvatarError(error);
@@ -227,7 +245,7 @@ export default function ProfileView() {
                   </Alert>
                 ) : null}
                 <Stack spacing={2} sx={{ alignItems: 'center', textAlign: 'center' }}>
-                  <UserAvatar user={displayedUser} size={76} />
+                  <UserAvatar user={displayedUser} size={144} />
                   <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', justifyContent: 'center' }}>
                     <Button
                       size="small"
@@ -257,7 +275,8 @@ export default function ProfileView() {
                     hidden
                     onChange={handleAvatarFile}
                   />
-                  {avatarError ? <Alert severity="error">{describeApiError(avatarError)}</Alert> : null}
+                  <Typography variant="caption" color="text.secondary">支持 PNG/JPEG，原图不超过 10 MiB；裁剪后保存。</Typography>
+                  {avatarError && !avatarFile ? <Alert severity="error">{describeApiError(avatarError)}</Alert> : null}
                   <Box>
                     <Typography variant="h6">{user?.display_name ?? '—'}</Typography>
                     <Typography variant="body2" color="text.secondary">
@@ -421,6 +440,10 @@ export default function ProfileView() {
           </Grid>
         </Grid>
       )}
+      {avatarFile && <React.Suspense fallback={<CircularProgress size={24} aria-label="正在准备裁剪" />}>
+        <AvatarCropDialog file={avatarFile} busy={avatarBusy} error={avatarError}
+          onCancel={() => { setAvatarFile(null); setAvatarError(null); }} onSave={handleSaveAvatar} />
+      </React.Suspense>}
     </PageContainer>
   );
 }

@@ -27,6 +27,7 @@ import PlanFilters, {
 } from '@/components/plan/PlanFilters';
 import PlanSummaryTiles from '@/components/plan/PlanSummaryTiles';
 import PlanTable from '@/components/plan/PlanTable';
+import PlanTableSection from '@/components/plan/PlanTableSection';
 import { buildPlanRows } from '@/components/plan/planRows';
 import TaskDetailDrawer from '@/components/task/TaskDetailDrawer';
 import { describeApiError } from '@/hooks/useApiError';
@@ -35,8 +36,6 @@ import { usePlanView } from '@/hooks/usePlanView';
 import { useAuthStore } from '@/stores/auth';
 import { useUiStore } from '@/stores/ui';
 import type { PlanViewQuery } from '@/types/plan';
-
-const TABLE_HEIGHT = 'clamp(360px, calc(100dvh - 470px), 860px)';
 
 export default function GroupPlanView() {
   const navigate = useNavigate();
@@ -175,7 +174,7 @@ export default function GroupPlanView() {
 
         <Divider />
 
-        <Stack sx={{ height: TABLE_HEIGHT, width: '100%', scrollbarGutter: 'stable' }}>
+        <PlanTableSection>
           <PlanTable
             rows={rows}
             loading={loading}
@@ -185,7 +184,7 @@ export default function GroupPlanView() {
             onOpenProject={(projectId) => navigate(`/projects/${projectId}`)}
             emptyHint="这个工作组里还没有共享出来的项目或任务"
           />
-        </Stack>
+        </PlanTableSection>
       </Stack>
 
       <TaskDetailDrawer
