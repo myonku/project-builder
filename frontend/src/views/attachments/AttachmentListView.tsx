@@ -130,7 +130,7 @@ export default function AttachmentListView() {
         : <Tooltip title={row.permissions.can_delete ? '删除' : row.source.read_only ? '归档项目只读' : '当前没有删除权限'}><span><IconButton aria-label={`删除 ${row.original_name}`} size="small" disabled={busyId !== null || !row.permissions.can_delete} onClick={() => void act(row, 'delete')}><DeleteIcon fontSize="small" /></IconButton></span></Tooltip>}
     </Stack> },
   ];
-  return <PageContainer title="我的附件" breadcrumbs={[{ title: '工作台' }, { title: '附件管理' }]}
+  return <PageContainer title="我的附件" breadcrumbs={[{ title: '工作台', path: '/projects' }, { title: '附件管理' }]}
     actions={<Button variant="outlined" startIcon={<RefreshIcon />} onClick={list.reload} disabled={list.loading}>刷新</Button>}>
     <Stack spacing={2} sx={{ minWidth: 0 }}>
       <Typography variant="body2" color="text.secondary">集中管理你上传且当前可访问的附件。删除后仍占用空间，彻底删除后才会释放。</Typography>

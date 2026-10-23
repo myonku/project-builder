@@ -206,13 +206,6 @@ export default function DashboardSidebar({
               selected={pathname === '/projects' || pathname.startsWith('/projects/')}
             />
             <DashboardSidebarPageItem
-              id="attachments"
-              title="附件管理"
-              icon={<AttachFileIcon />}
-              href="/attachments"
-              selected={pathname === '/attachments'}
-            />
-            <DashboardSidebarPageItem
               id="plan"
               title="计划"
               icon={<EventNoteIcon />}
@@ -254,6 +247,13 @@ export default function DashboardSidebar({
               icon={<TimelineIcon />}
               href="/gantt"
               selected={pathname === '/gantt'}
+            />
+            <DashboardSidebarPageItem
+              id="attachments"
+              title="附件管理"
+              icon={<AttachFileIcon sx={{ transform: 'rotate(45deg)' }} />}
+              href="/attachments"
+              selected={pathname === '/attachments'}
             />
             <DashboardSidebarPageItem
               id="reminders"
