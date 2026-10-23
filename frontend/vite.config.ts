@@ -20,7 +20,9 @@ export default defineConfig(({ mode }) => {
       react(),
       viteStaticCopy({
         targets: ['cmaps', 'standard_fonts', 'wasm'].map(dir => ({
-          src: fileURLToPath(new URL(`./node_modules/pdfjs-dist/${dir}/*`, import.meta.url)),
+          // tinyglobby 把 `\` 当作转义符；Windows 上必须把绝对路径规范成 `/`，
+          // 否则 `...\cmaps\*` 匹配不到任何文件（Linux 上不会暴露这个问题）。
+          src: fileURLToPath(new URL(`./node_modules/pdfjs-dist/${dir}/*`, import.meta.url)).replace(/\\/g, '/'),
           dest: `pdfjs/${dir}`,
           rename: { stripBase: true },
         })),
