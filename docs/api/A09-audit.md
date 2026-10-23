@@ -4,7 +4,7 @@
 > 契约正文（约定性叙述）见《A09》；本文补齐该接口的**请求与响应数据结构**。
 
 > **2026-10-21 W4 已落地**：审计记录已增加 `actor_avatar_updated_at`（随 actor 投影 JOIN 取得）；
-> 头像更新复用 `user/updated` 动作，`changes` 只记 `avatar=set|cleared`。见 [P01](../P01-Worklane-规划-2026-10-20.md) §4。
+> 头像更新复用 `user/updated` 动作，`changes` 只记 `avatar=set|cleared`。见 [P00](../P00-项目统筹与实施总览.md)。
 
 ## 接口清单
 

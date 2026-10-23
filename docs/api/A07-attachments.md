@@ -7,7 +7,7 @@
 > （`storage.backend=gridfs`），**HTTP 契约不变**：`stored_key` 仍是实现细节、下载仍按附件 id、
 > 彻底删除仍“先删对象再删行”。旧本地文件由 `cmd/storage-migrate` copy/verify/rollback，
 > 账本在 `attachments.storage_backend`；Mongo 健康检查与备份顺序见
-> [P01-Worklane-规划-2026-10-20.md](../P01-Worklane-规划-2026-10-20.md) §3。
+> [P00](../P00-项目统筹与实施总览.md)。
 > **W4 起头像也使用同一 `storage.Store` 抽象**，但走独立的 `avatars` bucket（local 模式为同一根目录下的
 > `avatars/` 前缀）；附件与头像的 key/MIME/大小/权限互不影响。
 

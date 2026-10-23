@@ -3,11 +3,7 @@
 > 归属：**前后端共用**（`docs/api/`）。通用约定（基础路径 `/api/v1`、成功/错误信封、认证、分页、并发与幂等、限流、未知字段拒绝）见《S02-HTTP接口契约》§2，本文不重复。
 > 契约正文（约定性叙述）见《A02》；本文补齐每个接口的**请求与响应数据结构**。
 
-> **2026-10-21 状态**：W3 MongoDB GridFS 已落地；**W4 头像已落地**：
-> `GET /users/{id}/avatar`、`POST/DELETE /me/avatar` 与公开用户/成员投影的
-> `avatar_updated_at` 均已实现。头像格式仅 **PNG/JPEG**（不支持 WebP）。
-> `/me` 页面复用现有 `GET/PATCH /users/{id}`，不新增资料端点。详见
-> [P01-Worklane-规划-2026-10-20.md](../P01-Worklane-规划-2026-10-20.md) §4。W5 重置密码端点仍待激活。
+> 头像使用 GET /users/{id}/avatar、POST/DELETE /me/avatar，公开结构及成员投影含 avatar_updated_at；仅支持 PNG/JPEG。个人资料复用既有 GET/PATCH /users/{id}，密码重置完整规则见 A01。前端方形裁剪只改变保存前交互，不改变本接口的 2 MiB 上限。
 
 ## 接口清单
 

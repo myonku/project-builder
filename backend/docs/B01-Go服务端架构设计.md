@@ -72,7 +72,7 @@ Gin/pgx 生态。但必须同时承认：**更换语言不会自动修复逻辑�
 > `storage.Store` 四方法不变、`stored_key` 不变；PostgreSQL 仍是唯一业务事实源。
 > `cmd/storage-migrate` 负责 local ↔ gridfs 的 copy/verify/rollback，账本在
 > `attachments.storage_backend`。设计、迁移、回滚、备份与健康检查见
-> [P01-Worklane-规划-2026-10-20.md](../../docs/P01-Worklane-规划-2026-10-20.md) §3。
+> [P00](../../docs/P00-项目统筹与实施总览.md)。
 
 应用面向内部网络，不引入微服务、独立搜索服务、独立消息队列或配置中心；
 MongoDB 仅作为**对象存储**，不承载业务事实。

@@ -2,9 +2,9 @@
 
 Worklane（Work Items & Layered Timelines）的服务端，使用 **Go 1.26 + Gin + pgx** 实现。
 
-应用面向内部网络，不面向公网开放。2026-10 的迁移/对象存储/头像规划见
-[../docs/P01-Worklane-规划-2026-10-20.md](../docs/P01-Worklane-规划-2026-10-20.md)
-（W1 品牌、W2 `/me`、W3 Mongo/GridFS、W4 头像已落地；W5 已落地）。
+应用面向内部网络，不面向公网开放。当前全局能力与运行边界见
+[P00](../docs/P00-项目统筹与实施总览.md)
+（品牌、资料/头像、存储与密码重置均纳入现行基线）。
 
 > **本文件是服务端的入口文档**（怎么跑、怎么测、代码怎么分层）。
 > 仓库级总览见 [../README.md](../README.md)；前后端共用的文档（业务需求、HTTP 接口契约）在
@@ -16,7 +16,7 @@ Worklane（Work Items & Layered Timelines）的服务端，使用 **Go 1.26 + Gi
 **四个阶段已全部完成并经真实依赖验证**：地基 + Auth、Groups / Projects / Tasks、Users、Plan Views、Attachments、Reminders、Audit，以及交付收口（端到端验收、备份恢复演练、部署核对）。
 
 > **2026-10 状态**：W1 品牌、W2 `/me`、W3 Mongo/GridFS、W4 头像已落地；W5 邮箱重置密码已落地。
-> 当前迁移 head **9**、HTTP 端点 **67**（业务 63 + 健康检查 4）；详见 P01 与 B05 §5.22–§5.24。
+> 当前迁移 head **9**、HTTP 端点 **67**（业务 63 + 健康检查 4）；详见 P00 与 B05 §5.22–§5.24。
 
 | 能力 | 状态 |
 | --- | --- |
