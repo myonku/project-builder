@@ -1,5 +1,6 @@
 import { fileURLToPath } from 'node:url';
 import react from '@vitejs/plugin-react';
+import { viteStaticCopy } from 'vite-plugin-static-copy';
 import { defineConfig, loadEnv } from 'vite';
 
 // 开发期前端 5173、后端默认 8000；用代理让浏览器眼里前后端同源（见 frontend/docs/F03 §4）。
@@ -15,7 +16,17 @@ export default defineConfig(({ mode }) => {
   const proxyTarget = env.API_PROXY_TARGET?.trim() || DEFAULT_PROXY_TARGET;
 
   return {
-    plugins: [react()],
+    plugins: [
+      react(),
+      viteStaticCopy({
+        targets: ['cmaps', 'standard_fonts', 'wasm'].map(dir => ({
+          src: fileURLToPath(new URL(`./node_modules/pdfjs-dist/${dir}/*`, import.meta.url)),
+          dest: `pdfjs/${dir}`,
+          rename: { stripBase: true },
+        })),
+      }),
+    ],
+    worker: { format: 'es' },
     resolve: {
       alias: {
         '@': fileURLToPath(new URL('./src', import.meta.url)),

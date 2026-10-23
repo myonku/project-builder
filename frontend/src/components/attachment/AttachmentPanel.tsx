@@ -19,6 +19,7 @@ import * as React from 'react';
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
+import Link from '@mui/material/Link';
 import CircularProgress from '@mui/material/CircularProgress';
 import Divider from '@mui/material/Divider';
 import FormControlLabel from '@mui/material/FormControlLabel';
@@ -53,6 +54,7 @@ import { useAuthStore } from '@/stores/auth';
 import type { Attachment, AttachmentQueryBody } from '@/types/attachment';
 import { formatForDisplay } from '@/utils/datetime';
 
+const AttachmentPreview = React.lazy(() => import('./AttachmentPreview'));
 const PAGE_SIZE = 10;
 
 export interface AttachmentPanelProps {
@@ -93,6 +95,7 @@ export default function AttachmentPanel({
   const user = useAuthStore((state) => state.user);
   const userTimeZone = user?.timezone;
 
+  const [preview, setPreview] = React.useState<Attachment | null>(null);
   const [items, setItems] = React.useState<Attachment[]>([]);
   const [total, setTotal] = React.useState(0);
   const [page, setPage] = React.useState(0);
@@ -281,6 +284,9 @@ export default function AttachmentPanel({
 
   return (
     <Stack spacing={1.5}>
+      {preview && <React.Suspense fallback={null}>
+        <AttachmentPreview attachmentId={preview.id} fileName={preview.original_name} knownSize={preview.size_bytes} onClose={() => setPreview(null)} />
+      </React.Suspense>}
       <Stack
         direction="row"
         sx={{ alignItems: 'center', justifyContent: 'space-between', gap: 1, flexWrap: 'wrap' }}
@@ -397,12 +403,13 @@ export default function AttachmentPanel({
               <InsertDriveFileIcon color="action" fontSize="small" />
               <Box sx={{ minWidth: 0 }}>
                 <Stack direction="row" spacing={1} sx={{ alignItems: 'center', minWidth: 0 }}>
-                  {truncatedText(attachment.original_name, {
-                    threshold: 28,
-                    keep: 24,
-                    ellipsis: '…',
-                    typographyProps: { sx: { fontWeight: 500 } },
-                  })}
+                  <Link component="button" type="button" onClick={() => setPreview(attachment)}
+                    aria-label={`预览 ${attachment.original_name}`} sx={{ minWidth: 0, textAlign: 'left' }}>
+                    {truncatedText(attachment.original_name, {
+                      threshold: 28, keep: 24, ellipsis: '…',
+                      typographyProps: { component: 'span', sx: { fontWeight: 500 } },
+                    })}
+                  </Link>
                   {attachment.deleted_at ? (
                     <StatusTag label="已删除" tone="default" variant="outlined" />
                   ) : null}

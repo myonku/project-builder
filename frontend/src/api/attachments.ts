@@ -11,6 +11,7 @@
 import { apiDelete, apiDownload, apiPost, apiPostQuery, apiUpload } from './client';
 import type { DownloadedFile } from './client';
 import type { Page } from '@/types/common';
+import { ATTACHMENT_PREVIEW_MAX_BYTES } from '@/types/attachment';
 import type { Attachment, AttachmentQueryBody } from '@/types/attachment';
 
 /** `POST /projects/{id}/attachments`：multipart，字段名 `file` */
@@ -65,4 +66,9 @@ export function deleteAttachment(attachmentId: string): Promise<Attachment> {
 /** `POST /attachments/{id}/purge`：204；必须先逻辑删除，否则 409 */
 export function purgeAttachment(attachmentId: string): Promise<void> {
   return apiPost<void>(`/attachments/${attachmentId}/purge`);
+}
+
+/** Authenticated, bounded download for browser-local preview. No new API endpoint. */
+export function loadAttachmentPreview(attachmentId: string, signal?: AbortSignal): Promise<DownloadedFile> {
+  return apiDownload(`/attachments/${attachmentId}/download`, { signal, maxBytes: ATTACHMENT_PREVIEW_MAX_BYTES });
 }

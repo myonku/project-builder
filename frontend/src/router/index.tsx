@@ -51,6 +51,7 @@ export const router = createBrowserRouter([
   {
     element: <RequireAuth />,
     children: [
+      { path: 'attachments/:attachmentId/preview', element: page(() => import('@/views/attachments/AttachmentPreviewView')) },
       {
         element: <DashboardLayout />,
         children: [

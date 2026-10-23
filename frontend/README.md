@@ -194,3 +194,7 @@ frontend/                        # 本目录：命令都在这里执行
 内部项目，未声明开源许可。
 
 密码重置完整浏览器验收：`node scripts/password-reset-smoke.mjs`（前置与参数见脚本头部、F03/F05）。
+
+## 附件统一预览（2026-10-23）
+
+项目/任务文件名打开同一悬浮面板，支持 PDF、位图、文本、DOCX 文字、XLSX 工作表；工具栏可下载或在新标签页打开。只由关闭按钮退出，空白/Escape 保留。PDF.js、Mammoth、read-excel-file 按需加载并本地解析，无外部预览服务；限制与构建资源见 [F01](docs/F01-前端架构设计.md) / [F03](docs/F03-运行与联调.md) 文末，浏览器复验脚本为 `scripts/attachment-preview-smoke.mjs`。

@@ -388,21 +388,46 @@ function filenameOf(response: Response): string | null {
   return plain ? plain[1] : null;
 }
 
+export class PreviewSizeError extends Error {
+  constructor() {
+    super('文件超过 20 MB，无法在线预览，请下载后查看。');
+    this.name = 'PreviewSizeError';
+  }
+}
+
 /**
  * 下载：`GET /attachments/{id}/download` **不是 JSON 信封**，响应体是字节流。
  * 用 `fetch` 取 blob 而不是 `<a href>`——错误会以 JSON 返回，
  * 直接跳转会让浏览器存下一个坏文件（F01 §5.6）。
+ * 预览可设置流式大小上限；普通下载维持原行为。
  */
 export async function apiDownload(
   path: string,
-  options?: { signal?: AbortSignal },
+  options?: { signal?: AbortSignal; maxBytes?: number },
 ): Promise<DownloadedFile> {
   const response = await send({ method: 'GET', path, signal: options?.signal });
   if (!response.ok) {
     throw errorFromResponse(response, await readPayload(response));
   }
-  const blob = await response.blob();
-  return { blob, filename: filenameOf(response) };
+  const limit = options?.maxBytes;
+  if (!limit) return { blob: await response.blob(), filename: filenameOf(response) };
+  if (Number(response.headers.get('Content-Length')) > limit) {
+    await response.body?.cancel(); throw new PreviewSizeError();
+  }
+  const reader = response.body?.getReader();
+  if (!reader) return { blob: new Blob(), filename: filenameOf(response) };
+  const chunks: ArrayBuffer[] = [];
+  let size = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > limit) { await reader.cancel(); throw new PreviewSizeError(); }
+      chunks.push(new Uint8Array(value).buffer);
+    }
+  } finally { reader.releaseLock(); }
+  return { blob: new Blob(chunks, { type: response.headers.get('Content-Type') ?? '' }), filename: filenameOf(response) };
 }
 
 /** 把任意异常收敛成 `ApiError`，供 hook 与 UI 统一消费 */

@@ -32,3 +32,5 @@ export interface AttachmentQueryBody {
   /** 排序表达式：字段白名单 `created_at` / `updated_at` / `original_name` / `size_bytes` / `extension`；`-` 前缀降序 */
   sort?: string;
 }
+
+export const ATTACHMENT_PREVIEW_MAX_BYTES = 20 * 1024 * 1024;
