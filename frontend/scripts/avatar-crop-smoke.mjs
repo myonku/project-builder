@@ -84,13 +84,23 @@ try {
  await until("!!document.querySelector('input[type=file]')");
  const encoded=await evaluate(`(()=>{const c=document.createElement('canvas');c.width=1200;c.height=600;const g=c.getContext('2d');g.fillStyle='red';g.fillRect(0,0,400,600);g.fillStyle='lime';g.fillRect(400,0,400,600);g.fillStyle='blue';g.fillRect(800,0,400,600);return c.toDataURL('image/png').split(',')[1]})()`);
  const file=resolve(output,'source.png');writeFileSync(file,Buffer.from(encoded,'base64'));
- async function pick(){const doc=await send('DOM.getDocument');const node=await send('DOM.querySelector',{nodeId:doc.root.nodeId,selector:'input[type=file]'});await send('DOM.setFileInputFiles',{nodeId:node.nodeId,files:[file]});await until("document.querySelector('img[alt=\"裁剪后的头像预览\"]')?.src.startsWith('data:')");}
+ async function pick(){const doc=await send('DOM.getDocument');const node=await send('DOM.querySelector',{nodeId:doc.root.nodeId,selector:'input[type=file]'});await send('DOM.setFileInputFiles',{nodeId:node.nodeId,files:[file]});await until("!!document.querySelector('.reactEasyCrop_CropAreaRound') && document.querySelector('.reactEasyCrop_Image')?.naturalWidth > 0");}
  await pick();assert.equal(uploads,0);await click(button('取消'));await until("!document.querySelector('.MuiDialog-paper')");assert.equal(uploads,0);console.log('PASS cancel does not upload');
  await pick();await evaluate("document.querySelector('input[aria-labelledby=avatar-zoom-label]').focus()");
  await send('Input.dispatchKeyEvent',{type:'keyDown',key:'End',code:'End',windowsVirtualKeyCode:35});await send('Input.dispatchKeyEvent',{type:'keyUp',key:'End',code:'End',windowsVirtualKeyCode:35});
  await until("document.querySelector('input[aria-labelledby=avatar-zoom-label]').value==='4'");await sleep(250);
- const preview=await evaluate("document.querySelector('img[alt=\"裁剪后的头像预览\"]').src.split(',')[1]");
+ // Rotation must leave zoom unchanged; reset restores both controls.
+ await evaluate("document.querySelector('input[aria-labelledby=avatar-rotation-label]').focus()");
+ await send('Input.dispatchKeyEvent',{type:'keyDown',key:'End',code:'End',windowsVirtualKeyCode:35});await send('Input.dispatchKeyEvent',{type:'keyUp',key:'End',code:'End',windowsVirtualKeyCode:35});
+ assert.equal(await evaluate("document.querySelector('input[aria-labelledby=avatar-zoom-label]').value"),'4');
+ await click(button('重置裁剪'));
+ assert.equal(await evaluate("document.querySelector('input[aria-labelledby=avatar-zoom-label]').value"),'1');
+ assert.equal(await evaluate("document.querySelector('input[aria-labelledby=avatar-rotation-label]').value"),'0');
+ await evaluate("document.querySelector('input[aria-labelledby=avatar-rotation-label]').focus()");
+ for(let i=0;i<9;i++){await send('Input.dispatchKeyEvent',{type:'keyDown',key:'PageUp',code:'PageUp',windowsVirtualKeyCode:33});await send('Input.dispatchKeyEvent',{type:'keyUp',key:'PageUp',code:'PageUp',windowsVirtualKeyCode:33});}
+ await until("document.querySelector('input[aria-labelledby=avatar-rotation-label]').value==='90'");await sleep(250);
  await click(button('保存头像'));await until("!document.querySelector('.MuiDialog-paper')");assert.equal(uploads,1);
  const saved=await evaluate(`(async()=>{const me=(await(await fetch('/api/v1/auth/me')).json()).data;const r=await fetch('/api/v1/users/'+me.id+'/avatar?v='+encodeURIComponent(me.avatar_updated_at));const bytes=new Uint8Array(await r.arrayBuffer());let text='';for(const b of bytes)text+=String.fromCharCode(b);return btoa(text)})()`);
- assert.equal(saved,preview);const bytes=Buffer.from(saved,'base64');assert.equal(bytes.readUInt32BE(16),512);assert.equal(bytes.readUInt32BE(20),512);writeFileSync(resolve(output,'saved.png'),bytes);assert.equal(exceptions,0);console.log('PASS zoomed preview matches saved 512x512 PNG; zero runtime exceptions');
+ const pixels=await evaluate(`(async()=>{const image=new Image();image.src='data:image/png;base64,'+${JSON.stringify(saved)};await image.decode();const c=document.createElement('canvas');c.width=c.height=512;const g=c.getContext('2d');g.drawImage(image,0,0);return [32,256,480].map(y=>Array.from(g.getImageData(256,y,1,1).data))})()`);
+ assert.deepEqual(pixels,[[255,0,0,255],[0,255,0,255],[0,0,255,255]]);const bytes=Buffer.from(saved,'base64');assert.equal(bytes.readUInt32BE(16),512);assert.equal(bytes.readUInt32BE(20),512);writeFileSync(resolve(output,'saved.png'),bytes);assert.equal(exceptions,0);console.log('PASS independent rotation, reset and rotated 512x512 PNG pixels; zero runtime exceptions');
 } finally {ws.close();await fetch(`http://127.0.0.1:${port}/json/close/${page.id}`);}
