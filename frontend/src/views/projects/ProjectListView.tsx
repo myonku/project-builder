@@ -25,7 +25,6 @@ import MenuItem from '@mui/material/MenuItem';
 import Stack from '@mui/material/Stack';
 import Switch from '@mui/material/Switch';
 import TextField from '@mui/material/TextField';
-import Tooltip from '@mui/material/Tooltip';
 import AddIcon from '@mui/icons-material/Add';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import RestartAltIcon from '@mui/icons-material/RestartAlt';
@@ -380,18 +379,14 @@ export default function ProjectListView() {
           >
             新建项目
           </Button>
-          <Tooltip title="重新加载当前筛选下的数据">
-          <span>
-            <Button
-              variant="outlined"
-              startIcon={<RefreshIcon />}
-              onClick={reload}
-              disabled={loading}
-            >
-              刷新
-            </Button>
-          </span>
-          </Tooltip>
+          <Button
+            variant="outlined"
+            startIcon={<RefreshIcon />}
+            onClick={reload}
+            disabled={loading}
+          >
+            刷新
+          </Button>
         </Stack>
       }
     >

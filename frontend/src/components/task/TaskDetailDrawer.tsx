@@ -178,7 +178,8 @@ export default function TaskDetailDrawer({
       slotProps={{
         paper: {
           sx: {
-            width: { xs: '100%', sm: 520 },
+            width: { xs: '100%', sm: 640, md: 720 },
+            maxWidth: '100vw',
             // 与审计详情抽屉一致：绝对定位的 AppBar 会盖住从视口顶部开始的抽屉
             top: { xs: 56, sm: 64 },
             height: { xs: 'calc(100% - 56px)', sm: 'calc(100% - 64px)' },

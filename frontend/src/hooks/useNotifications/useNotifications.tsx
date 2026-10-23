@@ -1,6 +1,6 @@
 // Source: MUI material-ui v9.5.0
 // Path: docs/data/material/getting-started/templates/crud-dashboard/hooks/useNotifications/useNotifications.tsx
-// Modified: 未修改
+// Modified: 补充默认自动消失时长说明
 
 import * as React from 'react';
 import NotificationsContext from './NotificationsContext';
@@ -16,7 +16,7 @@ export interface ShowNotificationOptions {
    */
   severity?: 'info' | 'warning' | 'error' | 'success';
   /**
-   * The duration in milliseconds after which the notification will automatically close.
+   * The duration in milliseconds after which the notification will automatically close (default: 5000).
    */
   autoHideDuration?: number;
   /**

@@ -476,21 +476,17 @@ export default function ProjectDetailView() {
       breadcrumbs={breadcrumbs}
       actions={
         <Stack direction="row" spacing={1}>
-          <Tooltip title="重新加载项目与任务">
-            <span>
-              <Button
-                variant="outlined"
-                startIcon={<RefreshIcon />}
-                onClick={() => {
-                  void reloadProject();
-                  reloadTasks();
-                }}
-                disabled={projectLoading}
-              >
-                刷新
-              </Button>
-            </span>
-          </Tooltip>
+          <Button
+            variant="outlined"
+            startIcon={<RefreshIcon />}
+            onClick={() => {
+              void reloadProject();
+              reloadTasks();
+            }}
+            disabled={projectLoading}
+          >
+            刷新
+          </Button>
           <Tooltip title={readOnly ? '归档项目只读，不能修改' : ''}>
             <span>
               <Button

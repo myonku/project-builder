@@ -45,6 +45,9 @@ import {
   uploadTaskAttachment,
 } from '@/api/attachments';
 import { toApiError, type ApiError } from '@/api/client';
+import { getUser } from '@/api/users';
+import type { User } from '@/types/user';
+import UserAvatar from '@/components/common/UserAvatar';
 import StatusTag from '@/components/common/StatusTag';
 import { truncatedText } from '@/components/common/TruncatedText';
 import { describeApiError, useApiError } from '@/hooks/useApiError';
@@ -97,6 +100,7 @@ export default function AttachmentPanel({
 
   const [preview, setPreview] = React.useState<Attachment | null>(null);
   const [items, setItems] = React.useState<Attachment[]>([]);
+  const [uploaders, setUploaders] = React.useState<Record<string, User | null>>({});
   const [total, setTotal] = React.useState(0);
   const [page, setPage] = React.useState(0);
   const [includeDeleted, setIncludeDeleted] = React.useState(false);
@@ -166,6 +170,19 @@ export default function AttachmentPanel({
       controller.abort();
     };
   }, [target.kind, target.id, page, includeDeleted, refreshToken]);
+
+  // Resolve each uploader once per visible page; never broaden the user API's visibility rules.
+  React.useEffect(() => {
+    const controller = new AbortController();
+    let cancelled = false;
+    setUploaders({});
+    const ids = [...new Set(items.map(item => item.uploader_id))].filter(id => id !== user?.id);
+    void Promise.all(ids.map(async id => {
+      try { return [id, await getUser(id, controller.signal)] as const; }
+      catch { return [id, null] as const; }
+    })).then(entries => { if (!cancelled) setUploaders(Object.fromEntries(entries)); });
+    return () => { cancelled = true; controller.abort(); };
+  }, [items, user?.id]);
 
   const handleUpload = React.useCallback(
     async (file: File) => {
@@ -392,103 +409,108 @@ export default function AttachmentPanel({
       ) : null}
 
       <Stack divider={<Divider flexItem />} spacing={1}>
-        {items.map((attachment) => (
-          <Stack
-            key={attachment.id}
-            direction="row"
-            spacing={1.5}
-            sx={{ alignItems: 'center', justifyContent: 'space-between' }}
-          >
-            <Stack direction="row" spacing={1} sx={{ alignItems: 'center', minWidth: 0, flex: 1 }}>
-              <InsertDriveFileIcon color="action" fontSize="small" />
-              <Box sx={{ minWidth: 0 }}>
-                <Stack direction="row" spacing={1} sx={{ alignItems: 'center', minWidth: 0 }}>
-                  <Link component="button" type="button" onClick={() => setPreview(attachment)}
-                    aria-label={`预览 ${attachment.original_name}`} sx={{ minWidth: 0, textAlign: 'left' }}>
-                    {truncatedText(attachment.original_name, {
-                      threshold: 28, keep: 24, ellipsis: '…',
-                      typographyProps: { component: 'span', sx: { fontWeight: 500 } },
-                    })}
-                  </Link>
-                  {attachment.deleted_at ? (
-                    <StatusTag label="已删除" tone="default" variant="outlined" />
-                  ) : null}
-                </Stack>
-                <Typography
-                  variant="caption"
-                  color="text.secondary"
-                  component="div"
-                  sx={{ wordBreak: 'break-all' }}
+        {items.map((attachment) => {
+          const uploader = attachment.uploader_id === user?.id ? user : uploaders[attachment.uploader_id];
+          const uploaderName = uploader?.username ?? (uploader === null ? '用户信息不可用' : '正在读取…');
+          return (
+            <Stack
+              key={attachment.id}
+              direction="row"
+              spacing={1.5}
+              sx={{ alignItems: 'center', justifyContent: 'space-between' }}
+            >
+              <Stack direction="row" spacing={1} sx={{ alignItems: 'center', minWidth: 0, flex: 1 }}>
+                <InsertDriveFileIcon color="action" fontSize="small" />
+                <Box sx={{ minWidth: 0, flex: 1 }}>
+                  <Stack direction="row" spacing={1} sx={{ alignItems: 'center', minWidth: 0 }}>
+                    <Link component="button" type="button" onClick={() => setPreview(attachment)}
+                      aria-label={`预览 ${attachment.original_name}`} sx={{ minWidth: 0, maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'left' }}>
+                      {truncatedText(attachment.original_name, {
+                        threshold: 28, keep: 24, ellipsis: '…',
+                        typographyProps: { component: 'span', sx: { fontWeight: 500 } },
+                      })}
+                    </Link>
+                    {attachment.deleted_at ? (
+                      <StatusTag label="已删除" tone="default" variant="outlined" />
+                    ) : null}
+                  </Stack>
+                  <Stack direction="row" useFlexGap sx={{ alignItems: 'center', flexWrap: 'wrap', columnGap: 1, rowGap: 0.5, minWidth: 0 }}>
+                    <Typography variant="caption" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>
+                      {formatBytes(attachment.size_bytes)}
+                      {attachment.extension ? ` · ${attachment.extension}` : ''}
+                      {' · '}
+                      {formatForDisplay(attachment.created_at, userTimeZone)}
+                    </Typography>
+                    <Stack direction="row" spacing={0.5} aria-label={`上传者：${uploaderName}`}
+                      sx={{ alignItems: 'center', minWidth: 0, maxWidth: '100%' }}>
+                      <UserAvatar user={uploader} size={20} alt="" />
+                      {truncatedText(uploaderName, {
+                        threshold: 15, keep: 12,
+                        typographyProps: { variant: 'caption', color: 'text.secondary', noWrap: true, sx: { minWidth: 0, maxWidth: 160 } },
+                      })}
+                    </Stack>
+                  </Stack>
+                </Box>
+              </Stack>
+
+              <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center', flexShrink: 0 }}>
+                <Tooltip
+                  title={
+                    attachment.deleted_at
+                      ? '下载（已删除附件仅上传者/持有者/管理员可见）'
+                      : '下载'
+                  }
                 >
-                  {formatBytes(attachment.size_bytes)}
-                  {attachment.extension ? ` · ${attachment.extension}` : ''}
-                  {' · '}
-                  {formatForDisplay(attachment.created_at, userTimeZone)}
-                  {' · 上传者 '}
-                  <Tooltip title={attachment.uploader_id}>
-                    <span>{attachment.uploader_id.slice(-8)}</span>
+                  <span>
+                    <IconButton
+                      size="small"
+                      aria-label={`下载 ${attachment.original_name}`}
+                      onClick={() => void handleDownload(attachment)}
+                      disabled={downloadingId === attachment.id}
+                    >
+                      {downloadingId === attachment.id ? (
+                        <CircularProgress size={16} />
+                      ) : (
+                        <DownloadIcon fontSize="small" />
+                      )}
+                    </IconButton>
+                  </span>
+                </Tooltip>
+
+                {!attachment.deleted_at && canWrite ? (
+                  <Tooltip title="删除附件（仍占用空间）">
+                    <span>
+                      <IconButton
+                        size="small"
+                        aria-label={`删除 ${attachment.original_name}`}
+                        onClick={() => void handleDelete(attachment)}
+                        disabled={busyId === attachment.id}
+                      >
+                        <DeleteIcon fontSize="small" />
+                      </IconButton>
+                    </span>
                   </Tooltip>
-                </Typography>
-              </Box>
+                ) : null}
+
+                {attachment.deleted_at && canPurge(attachment) ? (
+                  <Tooltip title="彻底删除（不可恢复，释放空间）">
+                    <span>
+                      <IconButton
+                        size="small"
+                        color="error"
+                        aria-label={`彻底删除 ${attachment.original_name}`}
+                        onClick={() => void handlePurge(attachment)}
+                        disabled={busyId === attachment.id}
+                      >
+                        <DeleteForeverIcon fontSize="small" />
+                      </IconButton>
+                    </span>
+                  </Tooltip>
+                ) : null}
+              </Stack>
             </Stack>
-
-            <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
-              <Tooltip
-                title={
-                  attachment.deleted_at
-                    ? '下载（已删除附件仅上传者/持有者/管理员可见）'
-                    : '下载'
-                }
-              >
-                <span>
-                  <IconButton
-                    size="small"
-                    aria-label={`下载 ${attachment.original_name}`}
-                    onClick={() => void handleDownload(attachment)}
-                    disabled={downloadingId === attachment.id}
-                  >
-                    {downloadingId === attachment.id ? (
-                      <CircularProgress size={16} />
-                    ) : (
-                      <DownloadIcon fontSize="small" />
-                    )}
-                  </IconButton>
-                </span>
-              </Tooltip>
-
-              {!attachment.deleted_at && canWrite ? (
-                <Tooltip title="删除附件（仍占用空间）">
-                  <span>
-                    <IconButton
-                      size="small"
-                      aria-label={`删除 ${attachment.original_name}`}
-                      onClick={() => void handleDelete(attachment)}
-                      disabled={busyId === attachment.id}
-                    >
-                      <DeleteIcon fontSize="small" />
-                    </IconButton>
-                  </span>
-                </Tooltip>
-              ) : null}
-
-              {attachment.deleted_at && canPurge(attachment) ? (
-                <Tooltip title="彻底删除（不可恢复，释放空间）">
-                  <span>
-                    <IconButton
-                      size="small"
-                      color="error"
-                      aria-label={`彻底删除 ${attachment.original_name}`}
-                      onClick={() => void handlePurge(attachment)}
-                      disabled={busyId === attachment.id}
-                    >
-                      <DeleteForeverIcon fontSize="small" />
-                    </IconButton>
-                  </span>
-                </Tooltip>
-              ) : null}
-            </Stack>
-          </Stack>
-        ))}
+          );
+        })}
       </Stack>
 
       {total > PAGE_SIZE ? (

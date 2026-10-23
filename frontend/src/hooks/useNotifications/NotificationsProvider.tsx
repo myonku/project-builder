@@ -1,6 +1,6 @@
 // Source: MUI material-ui v9.5.0
 // Path: docs/data/material/getting-started/templates/crud-dashboard/hooks/useNotifications/NotificationsProvider.tsx
-// Modified: 未修改
+// Modified: 默认通知在 5 秒后自动关闭，允许调用方覆盖时长
 
 import * as React from 'react';
 import Alert from '@mui/material/Alert';
@@ -45,7 +45,7 @@ function Notification({
   }
   const { close } = notificationsContext;
 
-  const { severity, actionText, onAction, autoHideDuration } = options;
+  const { severity, actionText, onAction, autoHideDuration = 5000 } = options;
 
   const handleClose = React.useCallback(
     (_event: unknown, reason?: CloseReason | SnackbarCloseReason) => {
