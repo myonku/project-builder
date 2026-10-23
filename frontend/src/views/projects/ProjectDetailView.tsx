@@ -739,7 +739,6 @@ export default function ProjectDetailView() {
       <TaskDetailDrawer
         key={taskId ?? 'none'}
         taskId={taskId}
-        canEdit={canWriteTasks}
         onChanged={reloadTasks}
         onClose={closeTask}
       />

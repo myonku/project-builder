@@ -65,6 +65,10 @@ export const router = createBrowserRouter([
             element: page(() => import('@/views/me/ProfileView')),
           },
           {
+            path: 'attachments',
+            element: page(() => import('@/views/attachments/AttachmentListView')),
+          },
+          {
             path: 'projects',
             element: page(() => import('@/views/projects/ProjectListView')),
           },

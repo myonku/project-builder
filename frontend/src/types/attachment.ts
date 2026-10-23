@@ -34,3 +34,18 @@ export interface AttachmentQueryBody {
 }
 
 export const ATTACHMENT_PREVIEW_MAX_BYTES = 20 * 1024 * 1024;
+
+export interface MyAttachment extends Attachment {
+  readonly source: {
+    type: 'project' | 'task';
+    project: { id: string; name: string };
+    task: { id: string; name: string } | null;
+    read_only: boolean;
+  };
+  readonly permissions: { can_delete: boolean; can_purge: boolean };
+}
+export interface MyAttachmentQueryBody extends AttachmentQueryBody {
+  original_name?: string;
+  container_type?: 'project' | 'task';
+  project_id?: string;
+}

@@ -12,6 +12,7 @@ import Toolbar from '@mui/material/Toolbar';
 import type {} from '@mui/material/themeCssVarsAugmentation';
 import DashboardIcon from '@mui/icons-material/Dashboard';
 import FolderIcon from '@mui/icons-material/Folder';
+import AttachFileIcon from '@mui/icons-material/AttachFile';
 import EventNoteIcon from '@mui/icons-material/EventNote';
 import TimelineIcon from '@mui/icons-material/Timeline';
 import AssignmentIndIcon from '@mui/icons-material/AssignmentInd';
@@ -205,6 +206,13 @@ export default function DashboardSidebar({
               selected={pathname === '/projects' || pathname.startsWith('/projects/')}
             />
             <DashboardSidebarPageItem
+              id="attachments"
+              title="附件管理"
+              icon={<AttachFileIcon />}
+              href="/attachments"
+              selected={pathname === '/attachments'}
+            />
+            <DashboardSidebarPageItem
               id="plan"
               title="计划"
               icon={<EventNoteIcon />}
@@ -345,7 +353,8 @@ export default function DashboardSidebar({
       <Drawer
         container={container}
         variant="temporary"
-        open={expanded}
+        // A CSS-hidden mobile drawer must not stay modal on desktop (focus/aria-hidden).
+        open={expanded && (!isOverSmViewport || (disableCollapsibleSidebar && !isOverMdViewport))}
         onClose={handleSetSidebarExpanded(false)}
         ModalProps={{
           keepMounted: true, // Better open performance on mobile.

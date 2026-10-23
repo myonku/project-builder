@@ -11,14 +11,18 @@
  *    `409 version_conflict` 交给 Hook 弹窗二选一；
  * 3. **任务成员管理**：`TaskMembersPanel`（候选池是项目成员，《A05》§端点 9）。
  *
- * `canEdit` 由调用方按 `usePermission` 算好（项目写权限 + 未归档）；归档项目上任何写入都是 409，
- * 所以这里不自己判断"能不能改"（F01 §6 第 7、8、10 条）。
+ * `canEdit` 优先使用调用方已有的服务端投影；未提供时按当前任务读取权限；归档只读，
+ * 列表未包含当前任务时，使用既有项目甘特图投影读取 can_edit，而不沿用子任务权限（F01 §6 第 7、8、10 条）。
  *
  * 刷新语义：`taskId` 变化时由调用方用 `key={taskId}` 重新挂载本组件，
  * 因此 `autoLoad` 只跑一次就够——**不在这里用 effect 手动重载**，那样会与 Hook 自己的加载 effect 打架。
  */
 
 import * as React from 'react';
+import { useSearchParams } from 'react-router';
+import Link from '@mui/material/Link';
+import { getProjectGantt } from '@/api/planViews';
+import { truncatedText } from '@/components/common/TruncatedText';
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
@@ -53,8 +57,8 @@ import { formatForDisplay, formatNaturalDate } from '@/utils/datetime';
 export interface TaskDetailDrawerProps {
   /** 打开的任务 id；`null` 表示关闭 */
   taskId: string | null;
-  /** 是否允许编辑与成员管理（= 对项目有写权限且项目未归档） */
-  canEdit: boolean;
+  /** 已有服务端 can_edit 投影可直接传入；省略时从当前任务的项目甘特图投影读取。 */
+  canEdit?: boolean;
   /** 任务数据变化后通知调用方（刷新任务列表） */
   onChanged?: () => void;
   onClose: () => void;
@@ -77,10 +81,15 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 export default function TaskDetailDrawer({
   taskId,
-  canEdit,
+  canEdit: knownCanEdit,
   onChanged,
   onClose,
 }: TaskDetailDrawerProps) {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [resolvedCanEdit, setResolvedCanEdit] = React.useState(false);
+  const canEdit = knownCanEdit ?? resolvedCanEdit;
+  const [parent, setParent] = React.useState<{ id: string; name: string } | null>(null);
+  const [parentLoading, setParentLoading] = React.useState(false);
   const userTimeZone = useAuthStore((state) => state.user?.timezone);
   const { show } = useNotifications();
 
@@ -99,6 +108,32 @@ export default function TaskDetailDrawer({
     save: (body) => updateTask(taskId as string, body),
     autoLoad: taskId !== null,
   });
+
+  // Parent tasks may be outside the host page's active filters. Resolve their names independently.
+  React.useEffect(() => {
+    setParent(null);
+    if (!task?.parent_id) { setParentLoading(false); return; }
+    const controller = new AbortController();
+    let cancelled = false;
+    setParentLoading(true);
+    void getTask(task.parent_id, controller.signal).then(value => {
+      if (!cancelled) setParent({ id: value.id, name: value.name });
+    }).catch(() => { /* Keep inaccessible parents unnamed and unclickable. */ })
+      .finally(() => { if (!cancelled) setParentLoading(false); });
+    return () => { cancelled = true; controller.abort(); };
+  }, [task?.parent_id, task?.updated_at]);
+
+  // When a parent was filtered out of the host payload, use the existing authoritative projection.
+  React.useEffect(() => {
+    setResolvedCanEdit(false);
+    if (knownCanEdit !== undefined || !task) return;
+    const controller = new AbortController();
+    let cancelled = false;
+    void getProjectGantt(task.project_id, controller.signal).then(value => {
+      if (!cancelled) setResolvedCanEdit(value.tasks.find(item => item.id === task.id)?.can_edit ?? false);
+    }).catch(() => { /* Default to read-only if permission context cannot be loaded. */ });
+    return () => { cancelled = true; controller.abort(); };
+  }, [knownCanEdit, task?.id, task?.project_id, task?.updated_at]);
 
   // 任务成员的候选池是"项目成员"：拿到任务后按 `project_id` 拉一次
   const projectId = task?.project_id;
@@ -290,9 +325,16 @@ export default function TaskDetailDrawer({
                 )}
               </Field>
               <Field label="上级任务">
-                <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
-                  {task.parent_id ?? '—'}
-                </Typography>
+                {parent ? <Link component="button" type="button" aria-label={`查看上级任务：${parent.name}`}
+                  onClick={() => {
+                    const next = new URLSearchParams(searchParams);
+                    next.set('taskId', parent.id);
+                    setSearchParams(next);
+                  }} sx={{ maxWidth: '100%', textAlign: 'right', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {truncatedText(parent.name, { threshold: 28, keep: 24, ellipsis: '…' })}
+                </Link> : <Typography variant="body2" color="text.secondary">
+                  {!task.parent_id ? '—' : parentLoading ? '正在读取…' : '上级任务不可用'}
+                </Typography>}
               </Field>
               <Field label="最近更新">
                 <Typography variant="body2">

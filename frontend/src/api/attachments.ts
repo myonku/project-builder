@@ -12,7 +12,7 @@ import { apiDelete, apiDownload, apiPost, apiPostQuery, apiUpload } from './clie
 import type { DownloadedFile } from './client';
 import type { Page } from '@/types/common';
 import { ATTACHMENT_PREVIEW_MAX_BYTES } from '@/types/attachment';
-import type { Attachment, AttachmentQueryBody } from '@/types/attachment';
+import type { Attachment, AttachmentQueryBody, MyAttachment, MyAttachmentQueryBody } from '@/types/attachment';
 
 /** `POST /projects/{id}/attachments`：multipart，字段名 `file` */
 export function uploadProjectAttachment(
@@ -71,4 +71,9 @@ export function purgeAttachment(attachmentId: string): Promise<void> {
 /** Authenticated, bounded download for browser-local preview. No new API endpoint. */
 export function loadAttachmentPreview(attachmentId: string, signal?: AbortSignal): Promise<DownloadedFile> {
   return apiDownload(`/attachments/${attachmentId}/download`, { signal, maxBytes: ATTACHMENT_PREVIEW_MAX_BYTES });
+}
+
+/** Current user's uploads, filtered by live container visibility before pagination. */
+export function queryMyAttachments(body: MyAttachmentQueryBody, signal?: AbortSignal): Promise<Page<MyAttachment>> {
+  return apiPostQuery<MyAttachment>('/me/attachments/query', body, { signal });
 }

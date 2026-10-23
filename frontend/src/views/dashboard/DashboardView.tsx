@@ -368,7 +368,7 @@ export default function DashboardView() {
       <TaskDetailDrawer
         key={taskId ?? 'none'}
         taskId={taskId}
-        canEdit={activeTask?.can_edit ?? false}
+        canEdit={activeTask?.can_edit}
         onChanged={reload}
         onClose={closeTask}
       />
