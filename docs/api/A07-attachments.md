@@ -22,6 +22,7 @@
 | 5 | `GET` | `/api/v1/attachments/{attachment_id}/download` | 对所在容器至少有读权限 | 下载字节流；**每次请求重新校验权限** |
 | 6 | `DELETE` | `/api/v1/attachments/{attachment_id}` | 对所在容器有写权限且容器可写 | 逻辑删除（字节仍在磁盘上） |
 | 7 | `POST` | `/api/v1/attachments/{attachment_id}/purge` | 上传者本人、容器持有者或系统管理员 | 彻底删除（仅限**已逻辑删除**的附件） |
+| 8 | `POST` | `/api/v1/me/attachments/query` | 已登录，仅本人上传且所属容器可读 | 跨项目/任务查询我的附件 |
 
 全部 7 个端点都要求登录（会话 Cookie，见《S02》§2.2）；未登录返回 `401 authentication_required`。
 
@@ -434,3 +435,36 @@ Content-Type: text/plain
 | 路径参数不是合法 UUID 时的错误码 | 代码里附件域的路径参数（`project_id` / `task_id` / `attachment_id`）**没有**像 projects 域那样做 `idgen.IsUUID` 前置校验，非法 UUID 会由 PostgreSQL 报 `22P02`，兜底为 `500 internal_error`。契约（《A07》）未规定这一情形。**建议前端恒传 UUID，不要依赖某个具体错误码**；若要把"非法 UUID → `400 invalid_request`"写进契约，属于契约新增项。 |
 | 下载响应头在流式传输中途失败时的行为 | 代码无法在响应头已发出后改状态码，只记录日志。契约未规定客户端应如何识别这种截断（实践上只能靠 `Content-Length` 校验）。 |
 | 上传请求体上限的精确取值 | 服务端为 `storage.max_file_size + 1 MiB`，属于实现细节，契约只承诺"超过 `storage.max_file_size` 返回 `413`"。 |
+
+## 8. `POST /api/v1/me/attachments/query`
+
+跨项目与任务分页查询本人上传且当前可读的附件；管理员同样只查本人。请求不接受上传者参数，未知字段返回 422；未登录 401。空结果为 `data: []`，不泄漏无权访问项目/任务的名称、附件或计数。
+
+| 请求字段 | 类型/默认值 | 含义 |
+| --- | --- | --- |
+| `original_name` | string，可选，≤255 码点 | 文件名不区分大小写的字面包含匹配；首尾空白忽略，空串不筛选；%/_ 不作为通配符 |
+| `container_type` | `project` / `task`，可选 | 附件直接归属类型；空串不筛选 |
+| `project_id` | UUID，可选 | 包含此项目的直接附件与其所有当前可见任务附件 |
+| `include_deleted` / `deleted_only` | boolean，均默认 false | 与端点 2 相同，两者不能同时为真（422） |
+| `page` / `page_size` | integer，默认 1 / 20 | 标准分页，最大 100，非法值 400 |
+| `sort` | string，默认 `-created_at` | 复用 AttachmentSort 五字段，追加 id 稳定排序；非法排序 400 |
+
+非法 UUID、名称超长及非法类型返回 422 并带字段错误。合法但不可见/不存在的项目筛选返回空列表。
+
+响应使用标准列表信封，每项保留原附件全部字段（任务附件的原 `project_id` 仍为 null），追加：
+
+```json
+{
+  "source": {
+    "type": "task",
+    "project": { "id": "项目 UUID", "name": "项目名称" },
+    "task": { "id": "任务 UUID", "name": "任务名称" },
+    "read_only": false
+  },
+  "permissions": { "can_delete": true, "can_purge": false }
+}
+```
+
+项目附件的 `source.type=project`、`source.task=null`。名称为当前名称。可操作性复用现有领域规则：逻辑删除需附件未删除、容器可写且项目未归档；彻底删除需附件已逻辑删除且满足原有可见/彻底删除规则。归档不会额外禁止原本允许的已删除附件彻底清理。权限字段只用于当前 UI 提示，写端点仍实时校验，不能把列表快照当作授权。
+
+查询按本人上传者索引一次批量读取筛选候选容器的权限事实，通过原 ProjectPermission/TaskPermission 计算可见容器，再将可见 ID 条件用于 SQL 计数及分页；不逐附件调用权限查询、不全量读取文件记录后切页。对象字节、存储 key 和后端标识不在响应中。不新增写接口或扩大上传者权限。

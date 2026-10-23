@@ -294,7 +294,7 @@ RETURNING id, updated_at;
 | Projects | 9 | [api/A04-projects.md](api/A04-projects.md) |
 | Tasks | 11 | [api/A05-tasks.md](api/A05-tasks.md) |
 | Plan Views | 3 | [api/A06-plan-views.md](api/A06-plan-views.md) |
-| Attachments | 7 | [api/A07-attachments.md](api/A07-attachments.md) |
+| Attachments | 8 | [api/A07-attachments.md](api/A07-attachments.md) |
 | Reminders | 3 | [api/A08-reminders.md](api/A08-reminders.md) |
 | Audit | 1 | [api/A09-audit.md](api/A09-audit.md) |
 | Registration Requests | 2 | [api/A10-registration-requests.md](api/A10-registration-requests.md) |
@@ -394,3 +394,7 @@ API 层只负责请求解析、响应序列化与错误映射，不直接查询�
 - 自助与管理员重置均递增 `session_version`，旧会话下一次请求 401；旧会话缺字段按 0。管理员重置、邮箱变化、停用均撤销未使用令牌；事务锁顺序 users → tokens。
 - 自助成功与密码更新同事务写 user/password_reset，changes 仅 `{source:self_service}`。日志、审计、错误和数据库不得包含原始令牌、密码或完整重置链接。
 - 同步 SMTP 的计时差异为内部网络 MVP 已接受取舍；邮件发送失败仍统一 202。
+
+## 我的附件查询（2026-10-23）
+
+新增 `POST /api/v1/me/attachments/query`，登录用户查询本人上传且所属项目/任务当前可读的附件。管理员也仅查本人，不接受 `uploader_id`。使用标准列表信封、分页和附件排序白名单；权限筛选先于计数及 SQL LIMIT/OFFSET。响应在原附件对象上增加 `source`（所属项目/任务名称及只读状态）和 `permissions.can_delete/can_purge`；所有写操作继续调用原附件端点并实时重新校验权限。完整请求/响应见 A07 §8。

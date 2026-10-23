@@ -50,6 +50,9 @@ type TaskInfo struct {
 
 // Store 是本模块对持久化的需求。
 type Store interface {
+	MineContexts(ctx context.Context, filter MineFilter) ([]MineContext, error)
+	CountMine(ctx context.Context, filter MineFilter, projectIDs, taskIDs []string) (int, error)
+	ListMine(ctx context.Context, filter MineFilter, projectIDs, taskIDs []string, orderBy string, limit, offset int) ([]Record, error)
 	Create(ctx context.Context, params CreateParams) (Record, error)
 	Find(ctx context.Context, attachmentID string) (Record, error)
 	List(ctx context.Context, filter ListFilter, orderBy string, limit, offset int) ([]Record, error)

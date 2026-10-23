@@ -16,7 +16,7 @@ Worklane（Work Items & Layered Timelines）的服务端，使用 **Go 1.26 + Gi
 **四个阶段已全部完成并经真实依赖验证**：地基 + Auth、Groups / Projects / Tasks、Users、Plan Views、Attachments、Reminders、Audit，以及交付收口（端到端验收、备份恢复演练、部署核对）。
 
 > **2026-10 状态**：W1 品牌、W2 `/me`、W3 Mongo/GridFS、W4 头像已落地；W5 邮箱重置密码已落地。
-> 当前迁移 head **9**、HTTP 端点 **66**（业务 62 + 健康检查 4）；详见 P01 与 B05 §5.22–§5.24。
+> 当前迁移 head **9**、HTTP 端点 **67**（业务 63 + 健康检查 4）；详见 P01 与 B05 §5.22–§5.24。
 
 | 能力 | 状态 |
 | --- | --- |
@@ -29,11 +29,11 @@ Worklane（Work Items & Layered Timelines）的服务端，使用 **Go 1.26 + Gi
 | Groups / Projects / Tasks | ✅ 已实现（第二阶段） |
 | Users：资料查询/更新、管理员停用、管理员创建/列表/重置密码、按用户时区计算"今天" | ✅ 已实现（第三阶段） |
 | Plan Views：个人计划、组内共享计划、项目甘特图（含"任务最后修改人"） | ✅ 已实现（第三阶段） |
-| Attachments：上传/列表/下载/逻辑删除/彻底删除（7 个端点） | ✅ 已实现（第三阶段） |
+| Attachments：上传/列表/下载/逻辑删除/彻底删除 / 我的附件管理查询（8 个端点） | ✅ 已实现（第三阶段） |
 | Reminders：五种提醒、周期派发、幂等去重、失败原因与重试（3 个端点） | ✅ 已实现（第三阶段） |
 | Audit：操作记录（**与业务同事务写入**，仅系统管理员可查，`GET /api/v1/audit`） | ✅ 已实现（第三阶段，2026-10-12） |
 
-已注册端点共 **66 个**（Health 4 / Auth 6 / Users 9 / Groups 11 / Projects 9 / Tasks 11 / Plan Views 3 / Attachments 7 / Reminders 3 / Audit 1 / Registration Requests 2）。
+已注册端点共 **67 个**（Health 4 / Auth 6 / Users 9 / Groups 11 / Projects 9 / Tasks 11 / Plan Views 3 / Attachments 8 / Reminders 3 / Audit 1 / Registration Requests 2）。
 
 真实依赖验证结果（PostgreSQL 16 + Redis 7 + **MongoDB 9.0.4**，2026-10-21 复跑）：
 

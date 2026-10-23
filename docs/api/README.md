@@ -25,7 +25,7 @@
 | [A04-projects.md](A04-projects.md) | Projects：项目、成员、归档、持有者转移 | `/api/v1/projects/*` | 9 |
 | [A05-tasks.md](A05-tasks.md) | Tasks：任务、成员、层级、幂等复制 | `/api/v1/tasks/*`、`/api/v1/projects/{project_id}/tasks` | 11 |
 | [A06-plan-views.md](A06-plan-views.md) | Plan Views：个人计划、组内共享计划、项目甘特图 | `/api/v1/plan-views/*` | 3 |
-| [A07-attachments.md](A07-attachments.md) | 附件：上传、列表、下载、逻辑删除、彻底删除 | `/api/v1/attachments/*` 等 | 7 |
+| [A07-attachments.md](A07-attachments.md) | 附件：上传、列表、下载、逻辑删除、彻底删除、本人管理查询 | `/api/v1/attachments/*`、`/api/v1/me/attachments/query` 等 | 8 |
 | [A08-reminders.md](A08-reminders.md) | 提醒：列表、详情、手动重试 | `/api/v1/reminders/*` | 3 |
 | [A09-audit.md](A09-audit.md) | 操作记录（仅系统管理员可查） | `/api/v1/audit` | 1 |
 | [A10-registration-requests.md](A10-registration-requests.md) | 注册申请审核（仅系统管理员） | `/api/v1/registration-requests/*` | 2 |
@@ -34,7 +34,7 @@
 
 > **2026-10 状态**：W3 Mongo/GridFS 与 **W4 头像均已落地**；
 > 头像新增 `GET /users/{id}/avatar` 与 `POST/DELETE /me/avatar`，业务端点 57 → **60**；
-> W5 邮箱重置密码已实现，新增 2 个端点；当前 62 业务 / 66 总端点。字段、错误码、迁移与阶段顺序见
+> W5 邮箱重置密码已实现，新增 2 个端点；当前 63 业务 / 67 总端点（含本人附件管理查询）。字段、错误码、迁移与阶段顺序见
 > [P01-Worklane-规划-2026-10-20.md](../P01-Worklane-规划-2026-10-20.md)；
 > 落地时先改 S02，再改本目录对应 A0x，最后改代码。
 
@@ -82,7 +82,7 @@
 1. 逐接口内容以《S02》契约（已实测）为准，字段类型/必填/约束/错误码**回到代码核对**
    （路由注册、绑定结构、领域校验、错误码映射表）。
 2. 域文档顶部的"接口清单"必须与实际注册的路由**逐条一致**（方法 + 路径），
-   端点数与《B05-进度与验证记录.md》第 2 节登记的 66 个端点对齐。
+   端点数与《B05-进度与验证记录.md》第 2 节登记的 67 个端点对齐。
 3. 新增或修改端点时：**先改《S02》契约，再改这里，最后改代码**。
 
 ## 公共资源表示（字段名与语义的唯一出处）

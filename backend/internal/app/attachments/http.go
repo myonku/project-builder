@@ -55,6 +55,7 @@ const maxMultipartOverhead = 1 << 20
 // 上传/列表挂在容器下（项目、任务各一套），下载与删除按附件 id 定位：
 // 附件没有独立权限，因此前者的路径本身表达了"归属哪个容器"。
 func (h *Handler) Register(group *gin.RouterGroup) {
+	group.POST("/me/attachments/query", h.listMine)
 	group.POST("/projects/:project_id/attachments", h.uploadToProject)
 	group.POST("/projects/:project_id/attachments/query", h.listByProject)
 	group.POST("/tasks/:task_id/attachments", h.uploadToTask)
@@ -321,4 +322,43 @@ func contentDisposition(name string) string {
 	// PathEscape 会把空格编码为 %20，符合 RFC 5987；但引号要额外处理。
 	encoded = strings.ReplaceAll(encoded, `"`, "%22")
 	return `attachment; filename="` + string(ascii) + `"; filename*=UTF-8''` + encoded
+}
+
+// listMine exposes the authenticated uploader's cross-container, permission-filtered list.
+func (h *Handler) listMine(c *gin.Context) {
+	actor, err := h.actor(c)
+	if err != nil {
+		httpapi.Abort(c, err)
+		return
+	}
+	var request struct {
+		listRequest
+		OriginalName  string  `json:"original_name"`
+		ContainerType string  `json:"container_type"`
+		ProjectID     *string `json:"project_id"`
+	}
+	if err := httpapi.BindJSON(c, &request); err != nil {
+		httpapi.Abort(c, err)
+		return
+	}
+	filter := MineFilter{OriginalName: request.OriginalName, ContainerType: request.ContainerType, ProjectID: request.ProjectID}
+	if request.IncludeDeleted != nil {
+		filter.IncludeDeleted = *request.IncludeDeleted
+	}
+	if request.DeletedOnly != nil {
+		filter.DeletedOnly = *request.DeletedOnly
+	}
+	page, err := h.service.ListMine(c.Request.Context(), MineInput{Actor: actor, MineFilter: filter, Page: request.PageRequest, Sort: request.Sort})
+	if err != nil {
+		httpapi.Abort(c, err)
+		return
+	}
+	items := make([]gin.H, 0, len(page.Items))
+	for _, item := range page.Items {
+		response := attachmentResponse(item.Record)
+		response["source"] = item.Source
+		response["permissions"] = item.Permissions
+		items = append(items, response)
+	}
+	httpapi.RespondList(c, items, httpapi.NewPagination(page.Page.Page, page.Page.PageSize, page.Total))
 }
