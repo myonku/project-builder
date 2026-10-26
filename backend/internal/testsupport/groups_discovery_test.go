@@ -138,3 +138,49 @@ func TestMyGroupJoinRequestsLifecycle(t *testing.T) {
 	applicant.Client.Post(URL("/me/group-join-requests/query"), map[string]any{"user_id": other.UserID}).RequireStatus(t, 422)
 	h.Client(t).Post(URL("/me/group-join-requests/query"), map[string]any{}).RequireStatus(t, 401)
 }
+
+// Explicit membership filtering must not inherit the administrator's all-groups scope.
+func TestGroupQueryMembershipStatus(t *testing.T) {
+	h := NewHarness(t)
+	owner := h.RegisterAndLogin(t, "joined_owner")
+	member := h.RegisterAndLogin(t, "joined_member")
+	active := h.CreateGroup(t, owner, "已加入 A")
+	disabled := h.CreateGroup(t, owner, "已加入 B")
+	removed := h.CreateGroup(t, owner, "已移除")
+	h.CreateGroup(t, owner, "未加入")
+	for _, id := range []string{active, disabled, removed} {
+		h.AddGroupMember(t, owner, id, member.UserID)
+	}
+	owner.Client.Delete(URL("/groups/"+removed+"/members/"+member.UserID), nil).RequireStatus(t, 204)
+	if _, err := h.Pool.Exec(context.Background(), `UPDATE groups SET status='disabled' WHERE id=$1`, disabled); err != nil {
+		t.Fatal(err)
+	}
+	for _, admin := range []bool{false, true} {
+		if admin {
+			promoteToAdmin(t, h, member.UserID)
+		}
+		query := func(body map[string]any) Response {
+			return member.Client.Post(URL("/groups/query"), body).RequireStatus(t, 200)
+		}
+		all := query(map[string]any{"membership_status": "active", "page_size": 1, "sort": "name"})
+		second := query(map[string]any{"membership_status": "active", "page_size": 1, "page": 2, "sort": "name"})
+		if Int(all.Pagination(t), "total") != 2 || len(second.ListData(t)) != 1 || Str(all.ListData(t)[0], "id") == Str(second.ListData(t)[0], "id") {
+			t.Fatalf("活跃成员分页错误 admin=%v", admin)
+		}
+		if Int(query(map[string]any{"membership_status": "active", "status": "active"}).Pagination(t), "total") != 1 {
+			t.Fatal("组状态与成员状态未正确组合")
+		}
+		rows := query(map[string]any{"membership_status": "removed"}).ListData(t)
+		if len(rows) != 1 || Str(rows[0], "id") != removed {
+			t.Fatal("移除筛选错误")
+		}
+		member.Client.Get(URL("/groups/"+disabled)).RequireStatus(t, 200)
+		if !admin {
+			member.Client.Get(URL("/groups/"+removed)).RequireStatus(t, 404)
+		}
+	}
+	if Int(member.Client.Post(URL("/groups/query"), map[string]any{}).RequireStatus(t, 200).Pagination(t), "total") != 4 {
+		t.Fatal("未提供筛选时应保留管理员旧范围")
+	}
+	member.Client.Post(URL("/groups/query"), map[string]any{"membership_status": "bad"}).RequireStatus(t, 400)
+}

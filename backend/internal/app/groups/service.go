@@ -233,10 +233,11 @@ func (s *Service) Detail(ctx context.Context, groupID, actorID string) (GroupRec
 
 // ListInput 是查询工作组的输入。
 type ListInput struct {
-	ActorID string
-	Status  *string
-	Page    listquery.PageRequest
-	Sort    string
+	ActorID          string
+	Status           *string
+	MembershipStatus *string
+	Page             listquery.PageRequest
+	Sort             string
 }
 
 // List 查询当前用户所属工作组。
@@ -262,7 +263,10 @@ func (s *Service) List(ctx context.Context, in ListInput) (Page[GroupRecord], er
 	}
 	orderClause := GroupSort.OrderBy(order)
 
-	filter := ListFilter{UserID: in.ActorID, Status: in.Status}
+	if in.MembershipStatus != nil && *in.MembershipStatus != "active" && *in.MembershipStatus != "removed" {
+		return Page[GroupRecord]{}, domain.ErrInvalidRequest.WithField("membership_status", "成员状态只能是 active 或 removed")
+	}
+	filter := ListFilter{UserID: in.ActorID, Status: in.Status, MembershipStatus: in.MembershipStatus}
 
 	total, err := s.repo.CountGroups(ctx, filter)
 	if err != nil {

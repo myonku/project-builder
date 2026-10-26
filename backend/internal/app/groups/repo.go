@@ -144,8 +144,9 @@ type GroupUpdateParams struct {
 
 // ListFilter 是工作组列表筛选条件。
 type ListFilter struct {
-	UserID string
-	Status *string
+	MembershipStatus *string
+	UserID           string
+	Status           *string
 }
 
 // MemberFilter 是成员列表筛选条件。
@@ -300,6 +301,11 @@ func (r *Repository) CountGroups(ctx context.Context, filter ListFilter) (int, e
 		query += fmt.Sprintf(" AND g.status = $%d", len(args))
 	}
 
+	if filter.MembershipStatus != nil {
+		args = append(args, *filter.MembershipStatus)
+		query += fmt.Sprintf(" AND m.status = $%d", len(args))
+	}
+
 	var total int
 	if err := r.pool.QueryRow(ctx, query, args...).Scan(&total); err != nil {
 		return 0, fmt.Errorf("统计工作组失败: %w", err)
@@ -322,6 +328,11 @@ func (r *Repository) ListGroups(ctx context.Context, filter ListFilter, orderBy 
 	if filter.Status != nil {
 		args = append(args, *filter.Status)
 		query += fmt.Sprintf(" AND g.status = $%d", len(args))
+	}
+
+	if filter.MembershipStatus != nil {
+		args = append(args, *filter.MembershipStatus)
+		query += fmt.Sprintf(" AND m.status = $%d", len(args))
 	}
 
 	args = append(args, limit, offset)

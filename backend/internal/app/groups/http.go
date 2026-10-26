@@ -83,7 +83,8 @@ type updateRequest struct {
 
 // queryRequest 对应接口契约 4.4 POST /groups/query。
 type queryRequest struct {
-	Status *string `json:"status"`
+	Status           *string `json:"status"`
+	MembershipStatus *string `json:"membership_status"`
 	listquery.PageRequest
 	listquery.SortRequest
 }
@@ -290,10 +291,11 @@ func (h *Handler) list(c *gin.Context) {
 	}
 
 	page, err := h.service.List(c.Request.Context(), ListInput{
-		ActorID: actor.ID,
-		Status:  request.Status,
-		Page:    request.PageRequest,
-		Sort:    request.Sort,
+		ActorID:          actor.ID,
+		Status:           request.Status,
+		MembershipStatus: request.MembershipStatus,
+		Page:             request.PageRequest,
+		Sort:             request.Sort,
 	})
 	if err != nil {
 		httpapi.Abort(c, err)
