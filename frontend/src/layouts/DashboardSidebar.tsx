@@ -242,6 +242,13 @@ export default function DashboardSidebar({
               }
             />
             <DashboardSidebarPageItem
+              id="groups"
+              title="工作组"
+              icon={<GroupsIcon />}
+              href="/groups"
+              selected={pathname === '/groups'}
+            />
+            <DashboardSidebarPageItem
               id="gantt"
               title="视图"
               icon={<TimelineIcon />}

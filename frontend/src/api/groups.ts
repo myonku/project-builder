@@ -19,7 +19,19 @@ import type {
   ReviewJoinRequestBody,
   UpdateGroupBody,
   UpdateGroupMemberBody,
+  DiscoverGroup,
+  DiscoverGroupQuery,
+  MyGroupJoinRequest,
+  MyGroupJoinRequestQuery,
 } from '@/types/group';
+
+export function discoverGroups(body: DiscoverGroupQuery): Promise<Page<DiscoverGroup>> {
+  return apiPostQuery<DiscoverGroup>('/groups/discover/query', body);
+}
+
+export function queryMyGroupJoinRequests(body: MyGroupJoinRequestQuery): Promise<Page<MyGroupJoinRequest>> {
+  return apiPostQuery<MyGroupJoinRequest>('/me/group-join-requests/query', body);
+}
 
 /** `POST /groups` */
 export function createGroup(body: CreateGroupBody): Promise<Group> {

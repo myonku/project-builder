@@ -65,6 +65,10 @@ export const router = createBrowserRouter([
             element: page(() => import('@/views/me/ProfileView')),
           },
           {
+            path: 'groups',
+            element: page(() => import('@/views/groups/GroupJoinView')),
+          },
+          {
             path: 'attachments',
             element: page(() => import('@/views/attachments/AttachmentListView')),
           },

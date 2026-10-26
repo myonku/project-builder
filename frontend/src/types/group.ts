@@ -5,6 +5,8 @@
  * 成员行里的 `role` 只有 `member` / `manager`。
  */
 
+import type { PaginationQuery } from './common';
+
 export type GroupStatus = 'active' | 'disabled';
 export type GroupMemberRole = 'member' | 'manager';
 export type GroupMembershipStatus = 'active' | 'removed';
@@ -112,3 +114,29 @@ export interface ReviewJoinRequestBody {
   /** 不能传 pending */
   status: 'approved' | 'rejected';
 }
+
+/** Discovery intentionally returns only basic group information and the caller's state. */
+export interface DiscoverGroup {
+  id: string;
+  name: string;
+  description: string | null;
+  status: 'active';
+  membership_status: GroupMembershipStatus | null;
+  request_status: JoinRequestStatus | null;
+  can_review: boolean;
+}
+
+export interface MyGroupJoinRequest {
+  id: string;
+  group_id: string;
+  group_name: string;
+  group_status: GroupStatus;
+  membership_status: GroupMembershipStatus | null;
+  status: JoinRequestStatus;
+  reviewed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DiscoverGroupQuery extends PaginationQuery { q?: string; }
+export interface MyGroupJoinRequestQuery extends PaginationQuery { status?: JoinRequestStatus; }
