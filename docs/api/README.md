@@ -21,7 +21,7 @@
 | --- | --- | --- | --- |
 | [A01-auth.md](A01-auth.md) | Auth：注册、登录、登出、当前用户、邮箱重置 | `/api/v1/auth/*` | 6 |
 | [A02-users.md](A02-users.md) | Users：资料、管理员创建/列表/停用/重置密码、头像 | `/api/v1/users/*`、`/api/v1/me/avatar` | 9 |
-| [A03-groups.md](A03-groups.md) | Groups：工作组、成员、加入申请、所有权转移 | `/api/v1/groups/*` | 11 |
+| [A03-groups.md](A03-groups.md) | Groups：工作组目录、成员、加入申请与本人记录、所有权转移 | `/api/v1/groups/*`、`/api/v1/me/group-join-requests/query` | 13 |
 | [A04-projects.md](A04-projects.md) | Projects：项目、成员、归档、持有者转移 | `/api/v1/projects/*` | 9 |
 | [A05-tasks.md](A05-tasks.md) | Tasks：任务、成员、层级、幂等复制 | `/api/v1/tasks/*`、`/api/v1/projects/{project_id}/tasks` | 11 |
 | [A06-plan-views.md](A06-plan-views.md) | Plan Views：个人计划、组内共享计划、项目甘特图 | `/api/v1/plan-views/*` | 3 |
@@ -30,7 +30,7 @@
 | [A09-audit.md](A09-audit.md) | 操作记录（仅系统管理员可查） | `/api/v1/audit` | 1 |
 | [A10-registration-requests.md](A10-registration-requests.md) | 注册申请审核（仅系统管理员） | `/api/v1/registration-requests/*` | 2 |
 
-合计 **63 个业务端点**，另有 4 个健康检查端点（见下）。
+合计 **65 个业务端点**，另有 4 个健康检查端点（见下）。
 
 > **当前覆盖范围**：头像、邮箱验证重置密码和本人附件管理均已交付。字段与错误码见本目录 A01–A10 及 S02；迁移与运行见 B02/B03，全局统筹见 [P00](../P00-项目统筹与实施总览.md)。
 > 调整接口时先改 S02，再改本目录对应 A0x，最后改代码。
@@ -79,7 +79,7 @@
 1. 逐接口内容以《S02》契约（已实测）为准，字段类型/必填/约束/错误码**回到代码核对**
    （路由注册、绑定结构、领域校验、错误码映射表）。
 2. 域文档顶部的"接口清单"必须与实际注册的路由**逐条一致**（方法 + 路径），
-   端点数与《B05-进度与验证记录.md》第 2 节登记的 67 个端点对齐。
+   端点数与《B05-进度与验证记录.md》第 2 节登记的 69 个端点对齐。
 3. 新增或修改端点时：**先改《S02》契约，再改这里，最后改代码**。
 
 ## 公共资源表示（字段名与语义的唯一出处）

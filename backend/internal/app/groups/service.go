@@ -17,6 +17,10 @@ import (
 // 命名为 Store 而不是 Repository：本包内已有 Repository 结构体（SQL 实现），
 // 两者同名会让所有引用处产生歧义。
 type Store interface {
+	CountDiscoverGroups(context.Context, string, string) (int, error)
+	ListDiscoverGroups(context.Context, string, string, string, int, int) ([]DiscoverGroup, error)
+	CountMyJoinRequests(context.Context, string, *string) (int, error)
+	ListMyJoinRequests(context.Context, string, *string, string, int, int) ([]MyJoinRequest, error)
 	FindGroupForUser(ctx context.Context, groupID, userID string) (GroupRecord, error)
 	ListGroups(ctx context.Context, filter ListFilter, orderBy string, limit, offset int) ([]GroupRecord, error)
 	CountGroups(ctx context.Context, filter ListFilter) (int, error)
@@ -210,7 +214,7 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (GroupRecord, erro
 // Detail 返回工作组详情。
 //
 // 可见性规则：所有者或**活跃**成员可读。
-// 非成员返回 404 而不是 403——否则会把"这个组存在"这一信息泄漏给任意登录用户。
+// 非成员仍返回 404；Discover 仅开放启用组的基本资料，不扩大详情读取权限。
 //
 // 注意所有者被移除成员关系的情况：按 backend/docs/B02 §3.2.1，成员关系不得降级/移除所有者，
 // 因此这种状态只可能由直接改库产生。此时仍允许所有者读取自己的组，

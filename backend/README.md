@@ -16,7 +16,7 @@ Worklane（Work Items & Layered Timelines）的服务端，使用 **Go 1.26 + Gi
 **四个阶段已全部完成并经真实依赖验证**：地基 + Auth、Groups / Projects / Tasks、Users、Plan Views、Attachments、Reminders、Audit，以及交付收口（端到端验收、备份恢复演练、部署核对）。
 
 > **2026-10 状态**：W1 品牌、W2 `/me`、W3 Mongo/GridFS、W4 头像已落地；W5 邮箱重置密码已落地。
-> 当前迁移 head **9**、HTTP 端点 **67**（业务 63 + 健康检查 4）；详见 P00 与 B05 §5.22–§5.24。
+> 当前迁移 head **9**、HTTP 端点 **69**（业务 65 + 健康检查 4）；详见 P00 与 B05 §5.22–§5.24。
 
 | 能力 | 状态 |
 | --- | --- |
@@ -33,7 +33,7 @@ Worklane（Work Items & Layered Timelines）的服务端，使用 **Go 1.26 + Gi
 | Reminders：五种提醒、周期派发、幂等去重、失败原因与重试（3 个端点） | ✅ 已实现（第三阶段） |
 | Audit：操作记录（**与业务同事务写入**，仅系统管理员可查，`GET /api/v1/audit`） | ✅ 已实现（第三阶段，2026-10-12） |
 
-已注册端点共 **67 个**（Health 4 / Auth 6 / Users 9 / Groups 11 / Projects 9 / Tasks 11 / Plan Views 3 / Attachments 8 / Reminders 3 / Audit 1 / Registration Requests 2）。
+已注册端点共 **69 个**（Health 4 / Auth 6 / Users 9 / Groups 13 / Projects 9 / Tasks 11 / Plan Views 3 / Attachments 8 / Reminders 3 / Audit 1 / Registration Requests 2）。
 
 真实依赖验证结果（PostgreSQL 16 + Redis 7 + **MongoDB 9.0.4**，2026-10-21 复跑）：
 
@@ -234,3 +234,5 @@ project-builder/                 # 仓库根
 ## 许可
 
 内部项目，未声明开源许可。
+
+工作组自助加入：工作台“工作组”提供按名称/完整 ID 搜索、提交申请及本人最新申请状态；接口见 A03 §12–13。发布时先部署含两个查询端点的后端，再更新完整前端 dist；无需数据库迁移。

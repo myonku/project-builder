@@ -21,12 +21,14 @@
 | 9 | `POST` | `/api/v1/groups/{group_id}/join-requests` | 登录用户 | 当前用户申请加入工作组 |
 | 10 | `POST` | `/api/v1/groups/{group_id}/join-requests/query` | 所有者 / 组管理员 / 系统管理员 | 加入申请列表（分页） |
 | 11 | `POST` | `/api/v1/groups/{group_id}/join-requests/{user_id}/review` | 所有者 / 组管理员 / 系统管理员 | 审核加入申请 |
+| 12 | `POST` | `/api/v1/groups/discover/query` | 登录用户 | 搜索启用组的基本资料及本人状态 |
+| 13 | `POST` | `/api/v1/me/group-join-requests/query` | 登录用户 | 本人加入申请最新记录 |
 
 **本域特有的两条口径（先读这两条，否则会误判状态码）**：
 
-- 全部 11 个端点都要求登录（会话 Cookie），未登录一律 `401 authentication_required`。
+- 全部 13 个端点都要求登录（会话 Cookie），未登录一律 `401 authentication_required`。
 - **"无权"不总是 404**：
-  - 详情、成员列表、成员增/改/删、加入申请查询与审核：非成员或权限不足一律 `404 group_not_found`，不向任意登录用户泄漏"该组存在"（《A03》）。
+  - 详情、成员列表、成员增/改/删、加入申请查询与审核：非成员或权限不足一律 `404 group_not_found`。§12 目录仅开放启用组的基本资料，§13 仅返回本人申请，两者不扩大上述接口的读取权限。
   - `PATCH /api/v1/groups/{group_id}` 是**例外**：对象存在但无权限返回 `403 permission_denied`，包括普通成员、组管理员与非成员尝试转移所有权。
 - 各接口的"错误"表只列本域特有情形；`429 rate_limited`（限流，带 `Retry-After`）与 `500 internal_error` 适用于所有端点，见《S02》§2.4、§2.8。
 
@@ -183,7 +185,7 @@
 
 - **可见范围（与前端的"我的工作组"一致但有细节）**：当前用户在该组有一条 `group_members` 记录即为可见——**包括 `status=removed` 的已移除成员关系**（前端需要展示"已被移除/已停用"）；系统管理员额外可见全部工作组（《A03》、§6 的管理员放行条目）。
 - **列表口径与详情口径不同**：同一用户对被移除的组会出现在列表里（`membership_status` 为 `removed`），但 `GET /groups/{group_id}` 返回 `404`。
-- **待审核的加入申请不会让组出现在列表里**：范围只看成员记录（或系统管理员），`pending` 的申请不构成可见性。前端要展示"我申请中的组"必须另查申请（本域没有"我的申请列表"端点）。
+- **待审核的加入申请不会让组出现在列表里**：范围只看成员记录（或系统管理员），`pending` 的申请不构成可见性。前端展示“我申请中的组”使用 §13 本人申请端点；目录搜索使用 §12，不扩展本接口范围。
 - 响应**不含** `created_at`，但 `sort` 支持它（可用它排序，取不到该值）。
 - 无版本字段、无幂等键；只读端点不写审计。
 
@@ -741,3 +743,15 @@
 - **对"被移除后重新申请并通过"是幂等恢复**：成员关系已存在时执行 `status` 置回 `active`（不产生重复成员行），角色保持 `member`（不会把用户恢复成 `manager`）。
 - 审核结果不可回退到 `pending`：申请人对已 `rejected` 的申请要重新申请，走 §9（那会清空 `reviewed_by` / `reviewed_at`）。
 - 副作用：审计 `join_request_reviewed`（`changes` 含 `user_id`、`decision`），与业务同事务。
+
+## 12. `POST /api/v1/groups/discover/query`
+
+登录用户查找可申请的启用工作组，使用标准分页信封。请求：`{q?, page?, page_size?, sort?}`。q 去首尾空白、最长 160 字符；省略/空串列出启用组，否则组名不区分大小写按字面子串匹配，或完整组 UUID 精确匹配（大小写不敏感）。`%`、`_`、反斜杠不作为通配符。排序白名单 name（默认升序）、created_at，追加组 id；分页默认 1/20，最大 100。非法查询长度、排序和分页返回 400 invalid_request，未知字段按 S02 拒绝，匿名 401。
+
+每行只含 `id,name,description,status`（恒 active）、`membership_status`（本人 active/removed/null）、`request_status`（本人 pending/approved/rejected/null）、`can_review`（本人是否可审核此组申请）。不返回所有者 ID、成员数或成员/项目资料；此目录是对原“非成员不可读详情”规则的明确补充，不改变详情和管理接口的权限。已加入和申请中的组仍显示，便于识别状态，实际提交继续由 §9 实时校验。
+
+## 13. `POST /api/v1/me/group-join-requests/query`
+
+登录用户查询自己的工作组申请，管理员同样仅本人。请求：`{status?, page?, page_size?, sort?}`；status 为 pending/approved/rejected，省略返回全部。排序白名单 created_at、updated_at、status（默认 -updated_at），追加申请 id；标准分页/错误规则同 §12。不接受 user_id 或其它指定申请人的字段。
+
+每行：`id,group_id,group_name,group_status,membership_status,status,reviewed_at,created_at,updated_at`。包含已停用的组、已被移除的成员关系，便于追踪历史；不暴露审核人及其他申请人。现有 `(group_id,user_id)` 唯一约束保持不变，每个组只有一条最新申请状态；拒绝或成员被移除后重新申请会更新原记录，不宣称保存逐次申请历史。组停用、待审核或当前已加入时不能再次申请，前端提示/禁用，§9 仍为最终校验。

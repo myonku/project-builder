@@ -43,6 +43,8 @@ func (h *Handler) Register(api *gin.RouterGroup) {
 
 	group.POST("", h.create)
 	group.POST("/query", h.list)
+	group.POST("/discover/query", h.discover)
+	api.POST("/me/group-join-requests/query", h.myJoinRequests)
 	group.GET("/:group_id", h.detail)
 	group.PATCH("/:group_id", h.update)
 
