@@ -192,6 +192,7 @@ export default function RegistrationRequestListView() {
         field: 'actions',
         headerName: '操作',
         width: 190,
+        display: 'flex',
         sortable: false,
         filterable: false,
         renderCell: (params: GridRenderCellParams<RegistrationRequest>) => {
