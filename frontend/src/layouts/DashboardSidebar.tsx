@@ -17,6 +17,7 @@ import EventNoteIcon from '@mui/icons-material/EventNote';
 import TimelineIcon from '@mui/icons-material/Timeline';
 import AssignmentIndIcon from '@mui/icons-material/AssignmentInd';
 import GroupsIcon from '@mui/icons-material/Groups';
+import GroupIcon from '@mui/icons-material/Group';
 import NotificationsIcon from '@mui/icons-material/Notifications';
 import HistoryIcon from '@mui/icons-material/History';
 import ManageAccountsIcon from '@mui/icons-material/ManageAccounts';
@@ -234,7 +235,7 @@ export default function DashboardSidebar({
                   <DashboardSidebarPageItem
                     id="group-plan"
                     title="组内计划"
-                    icon={<GroupsIcon />}
+                    icon={<GroupIcon />}
                     href="/plans/group"
                     selected={pathname === '/plans/group'}
                   />
@@ -297,7 +298,7 @@ export default function DashboardSidebar({
                 />
                 <DashboardSidebarPageItem
                   id="admin-groups"
-                  title="工作组管理"
+                  title="组管理"
                   icon={<CorporateFareIcon />}
                   href="/admin/groups"
                   selected={pathname === '/admin/groups'}

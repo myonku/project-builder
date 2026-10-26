@@ -155,7 +155,7 @@ export default function GroupJoinRequestsPanel({
   );
 
   return (
-    <Stack spacing={1.5}>
+    <Stack spacing={1.5} sx={{ pt: 1.5 }}>
       <Stack
         direction="row"
         sx={{ alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1 }}

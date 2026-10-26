@@ -47,6 +47,7 @@ export interface UpdateGroupBody {
 }
 
 export interface GroupQueryBody {
+  membership_status?: GroupMembershipStatus;
   status?: GroupStatus;
   page?: number;
   page_size?: number;
