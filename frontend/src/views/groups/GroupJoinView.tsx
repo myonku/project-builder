@@ -15,6 +15,7 @@ import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import SearchIcon from '@mui/icons-material/Search';
+import RestartAltIcon from '@mui/icons-material/RestartAlt';
 import { DataGrid, type GridColDef, type GridValidRowModel } from '@mui/x-data-grid';
 import { zhCN } from '@mui/x-data-grid/locales';
 import { createJoinRequest, discoverGroups, queryMyGroupJoinRequests, queryGroups } from '@/api/groups';
@@ -133,7 +134,7 @@ export default function GroupJoinView() {
         <Box component="form" onSubmit={event => { event.preventDefault(); discover.setFilters({ q: query.trim() }); }} sx={filterRowSx(false)}>
           <TextField label="组名或完整 ID" value={query} onChange={e => setQuery(e.target.value)} size="small" sx={filterItemSx(240, 600)} slotProps={{ htmlInput: { maxLength: 160 } }} />
           <Button variant="contained" type="submit" startIcon={<SearchIcon />} disabled={discover.loading}>查询</Button>
-          <Button onClick={() => { setQuery(''); discover.setFilters({ q: '' }); }}>重置</Button>
+          <Button variant="outlined" startIcon={<RestartAltIcon />} onClick={() => { setQuery(''); discover.setFilters({ q: '' }); }}>重置</Button>
         </Box>
         {!!submitError && <Alert severity="error">{describeApiError(submitError)}</Alert>}
         {discover.error && <Alert severity="error" action={<Button color="inherit" onClick={discover.reload}>重试</Button>}>{describeApiError(discover.error)}</Alert>}
