@@ -18,6 +18,7 @@ export type ProjectVisibility = 'private' | 'group_readonly' | 'group_editable';
 export type ProjectMemberRole = 'owner' | 'member';
 
 export interface Project {
+  readonly has_tasks: boolean;
   readonly id: string;
   /** 1–200 */
   readonly name: string;
@@ -60,6 +61,7 @@ export interface CreateProjectBody {
 }
 
 export interface UpdateProjectBody {
+  progress?: number;
   name?: string;
   /** 空串表示清空（存 null） */
   description?: string | null;

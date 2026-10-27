@@ -100,6 +100,10 @@ function buildProjectPatch(
   project: Project,
 ): Omit<UpdateProjectBody, 'expected_updated_at'> {
   const patch: Omit<UpdateProjectBody, 'expected_updated_at'> = {};
+  if (!project.has_tasks && !project.archived_at) {
+    if (values.status !== project.status) patch.status = values.status;
+    if (values.progress !== project.progress) patch.progress = values.progress;
+  }
   if (values.name !== project.name) {
     patch.name = values.name;
   }
@@ -255,7 +259,7 @@ export default function ProjectDetailView() {
       return;
     }
     const confirmed = await dialogs.confirm(
-      `归档后无法撤销，项目及其任务将不能再修改。确认归档「${project.name}」吗？`,
+      `归档后项目及其任务只读，可通过独立操作解除归档。确认归档「${project.name}」吗？`,
       { title: '归档项目', okText: '确认归档', cancelText: '取消', severity: 'warning' },
     );
     if (!confirmed) {
@@ -276,6 +280,15 @@ export default function ProjectDetailView() {
       await reloadProject();
     }
   }, [dialogs, handle, project, reloadProject, show]);
+
+  const handleRestore = React.useCallback(async () => {
+    if (!project || !await dialogs.confirm(`确认解除「${project.name}」的归档？有任务时恢复自动汇总，无任务时按当前进度恢复状态。`, { title: '解除归档', okText: '解除归档', cancelText: '取消' })) return;
+    try {
+      await updateProject(project.id, { status: project.progress === 100 ? 'completed' : project.progress > 0 ? 'in_progress' : 'not_started', expected_updated_at: project.updated_at });
+      show('已解除归档。', { severity: 'success' });
+    } catch (error) { handle(error); }
+    finally { await reloadProject(); reloadTasks(); }
+  }, [project, dialogs, show, handle, reloadProject, reloadTasks]);
 
   /** 新建任务：POST /projects/{id}/tasks（不接受 status/progress，新任务固定未开始 0%） */
   const handleCreateTask = React.useCallback(
@@ -502,7 +515,8 @@ export default function ProjectDetailView() {
               </Button>
             </span>
           </Tooltip>
-          <Tooltip title={readOnly ? '项目已归档' : '归档后只读且不可撤销'}>
+          {permission.canRestoreProject(project) ? <Button variant="outlined" onClick={() => void handleRestore()}>解除归档</Button> : null}
+          <Tooltip title={readOnly ? '项目已归档' : '归档后只读，可解除归档'}>
             <span>
               <Button
                 color="warning"
@@ -522,7 +536,7 @@ export default function ProjectDetailView() {
         {readOnly ? (
           <Alert severity="warning">
             <AlertTitle>项目已归档（只读）</AlertTitle>
-            归档后无法撤销，项目及其任务仅供查看，不能再修改。
+            项目及其任务仅供查看。持有者或系统管理员可解除归档，恢复任务汇总和编辑。
           </Alert>
         ) : null}
 
@@ -567,7 +581,7 @@ export default function ProjectDetailView() {
               <Typography variant="body2">{project.progress}%</Typography>
             </Stack>
             <Typography variant="caption" color="text.secondary">
-              任务的平均进度，不含已取消的任务
+              {project.has_tasks ? '一级任务等权汇总，下级逐层参与；取消分支不计入' : '无任务，状态和进度由项目手工维护'}
             </Typography>
           </Stack>
           <Stack spacing={1} sx={{ minWidth: 240 }}>
@@ -739,7 +753,7 @@ export default function ProjectDetailView() {
       <TaskDetailDrawer
         key={taskId ?? 'none'}
         taskId={taskId}
-        onChanged={reloadTasks}
+        onChanged={() => { reloadTasks(); void reloadProject(); }}
         onClose={closeTask}
       />
 

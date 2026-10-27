@@ -304,6 +304,7 @@ export default function TaskDetailDrawer({
               <Divider />
               <Field label="进度">
                 <Typography variant="body2">{task.progress}%</Typography>
+                {task.has_children ? <Typography variant="caption" color="text.secondary">由直接下级任务等权汇总</Typography> : null}
               </Field>
               <Field label="开始日期">
                 <Typography variant="body2">{formatNaturalDate(task.start_date)}</Typography>

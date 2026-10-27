@@ -44,6 +44,7 @@ export interface PlanTaskMember {
 }
 
 export interface PlanTask {
+  readonly has_children: boolean;
   readonly id: string;
   readonly project_id: string;
   readonly parent_id: string | null;

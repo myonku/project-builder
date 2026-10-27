@@ -111,6 +111,11 @@ export function canWriteProjectContent(
   return project.visibility === 'group_editable';
 }
 
+/** 解除归档是独立管理操作，不授予归档项目的普通写权限。 */
+export function canRestoreProject(project: Pick<Project, 'status' | 'archived_at' | 'membership_role'>, user: User | null): boolean {
+  return isArchived(project) && (isSystemAdmin(user) || project.membership_role === 'owner');
+}
+
 /** 计划视图里服务端已经算好了 `can_edit`，直接采信 */
 export function canEditPlanTask(task: Pick<PlanTask, 'can_edit'>): boolean {
   return task.can_edit;
@@ -136,6 +141,7 @@ export interface PermissionHelpers {
   canWriteProjectContent: (
     project: Pick<Project, 'status' | 'archived_at' | 'membership_role' | 'visibility'>,
   ) => boolean;
+  canRestoreProject: (project: Pick<Project, 'status' | 'archived_at' | 'membership_role'>) => boolean;
   canEditPlanTask: typeof canEditPlanTask;
 }
 
@@ -153,6 +159,7 @@ export function usePermission(): PermissionHelpers {
       canWriteTasksOfProject: (project, task) =>
         canWriteTasksOfProject(project, user, task),
       canWriteProjectContent: (project) => canWriteProjectContent(project, user),
+      canRestoreProject: (project) => canRestoreProject(project, user),
       canEditPlanTask,
     }),
     [user],

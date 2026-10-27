@@ -192,6 +192,7 @@ export default function TaskFormDialog({
           <DialogTitle>{mode === 'create' ? '新建任务' : '编辑任务'}</DialogTitle>
           <DialogContent dividers>
             <Stack spacing={2.5} sx={{ pt: 1 }}>
+              {mode === 'edit' && task?.has_children ? <Alert severity="info">状态和进度由直接下级任务等权汇总；移走或删除最后一个下级后，将承接最后汇总值恢复手工维护。</Alert> : null}
               {showGeneralError ? (
                 <Alert severity="error">{describeApiError(resolvedError)}</Alert>
               ) : null}
@@ -259,7 +260,9 @@ export default function TaskFormDialog({
                         value={field.value}
                         onChange={(event) => field.onChange(event.target.value)}
                         // 面向用户的短说明：不改技术细节，尽量保持一行
-                        helperText="进度会同步更新状态"
+                        disabled={task?.has_children}
+                        error={Boolean(errors.status || errors.progress)}
+                        helperText={errors.status?.message ?? errors.progress?.message ?? (task?.has_children ? "由直接下级任务汇总" : "仅改进度时自动推导状态；显式选择状态优先")}
                       >
                         {TASK_STATUS_OPTIONS.map((option) => (
                           <MenuItem key={option.value} value={option.value}>
@@ -331,6 +334,7 @@ export default function TaskFormDialog({
                     name="progress"
                     render={({ field }) => (
                       <Slider
+                        disabled={task?.has_children}
                         value={field.value}
                         onChange={(_event, value) => field.onChange(value as number)}
                         step={5}
@@ -357,7 +361,8 @@ export default function TaskFormDialog({
                     disabled={parentLoading}
                     value={field.value}
                     onChange={(event) => field.onChange(event.target.value)}
-                    helperText="不选则为顶层任务，最多 3 层；仅列出前 100 项"
+                    error={Boolean(errors.parent_id)}
+                    helperText={errors.parent_id?.message ?? "不选则为顶层任务，最多 3 层；仅列出前 100 项"}
                     slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true } }}
                   >
                     <MenuItem value={NO_PARENT}>（顶层任务）</MenuItem>
@@ -439,10 +444,10 @@ export function buildTaskPatch(
   if (values.description !== (task.description ?? '')) {
     patch.description = values.description;
   }
-  if (values.status !== task.status) {
+  if (!task.has_children && values.status !== task.status) {
     patch.status = values.status;
   }
-  if (values.progress !== task.progress) {
+  if (!task.has_children && values.progress !== task.progress) {
     patch.progress = values.progress;
   }
   if (values.priority !== task.priority) {

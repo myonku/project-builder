@@ -12,6 +12,7 @@ export type TaskPriority = 0 | 1 | 2 | 3;
 export type TaskMemberRole = 'owner' | 'member';
 
 export interface Task {
+  readonly has_children: boolean;
   readonly id: string;
   readonly project_id: string;
   /** 最多 3 层 */

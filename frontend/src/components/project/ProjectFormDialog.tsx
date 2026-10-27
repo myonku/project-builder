@@ -36,11 +36,13 @@ import DateLocalizationProvider from '@/components/common/DateLocalizationProvid
 import { toApiError, type ApiError } from '@/api/client';
 import { applyApiFieldErrors, describeApiError } from '@/hooks/useApiError';
 import type { GroupOption } from '@/hooks/useGroupOptions';
-import type { Project, ProjectVisibility } from '@/types/project';
+import type { Project, ProjectVisibility, ProjectStatus } from '@/types/project';
 import { dayjsToNaturalDate, naturalDateToDayjs } from '@/utils/datetime';
 
 /** 表单值：字段集合与《F02》§6.3 的 `CreateProjectBody` / `UpdateProjectBody` 对齐（去掉版本字段） */
 export interface ProjectFormValues {
+  status: ProjectStatus;
+  progress: number;
   name: string;
   group_id: string;
   start_date: string;
@@ -52,6 +54,8 @@ export interface ProjectFormValues {
 
 /** 只做结构校验：必填与类型；长度、日期区间、共享级别的业务含义由后端判定（F02 §9） */
 const projectSchema = z.object({
+  status: z.enum(['not_started', 'in_progress', 'paused', 'completed', 'archived', 'cancelled']),
+  progress: z.number().int().min(0).max(100),
   name: z.string().min(1, '请输入项目名称'),
   group_id: z.string().min(1, '请选择归属工作组'),
   start_date: z.string().min(1, '请选择开始日期'),
@@ -85,6 +89,8 @@ export interface ProjectFormDialogProps {
 export function projectToFormValues(project: Project | null | undefined): ProjectFormValues {
   return {
     name: project?.name ?? '',
+    status: project?.status ?? 'not_started',
+    progress: project?.progress ?? 0,
     group_id: project?.group_id ?? '',
     start_date: project?.start_date ?? '',
     end_date: project?.end_date ?? '',
@@ -241,6 +247,20 @@ export default function ProjectFormDialog({
                 )}
               />
             </Stack>
+
+            {mode === 'edit' ? <>
+              <Alert severity="info">{project?.has_tasks ? '状态和进度由一级任务等权汇总，所有下级层级逐层参与；归档通过独立操作执行。' : '当前无任务，可手工维护状态和进度。添加首个任务后自动汇总；移走或删除最后一个任务后承接最后汇总值。'}</Alert>
+              <Stack direction="row" spacing={2}>
+                <Controller control={control} name="status" render={({ field }) => (
+                  <TextField {...field} select label="状态" fullWidth disabled={project?.has_tasks || Boolean(project?.archived_at)} error={Boolean(errors.status)} helperText={errors.status?.message}>
+                    {[['not_started','未开始'],['in_progress','进行中'],['paused','已暂停'],['completed','已完成'],['cancelled','已取消']].map(([value,label]) => <MenuItem key={value} value={value}>{label}</MenuItem>)}
+                  </TextField>
+                )} />
+                <Controller control={control} name="progress" render={({ field }) => (
+                  <TextField label="进度 (%)" type="number" fullWidth value={field.value} onChange={(event) => field.onChange(Number(event.target.value))} disabled={project?.has_tasks || Boolean(project?.archived_at)} error={Boolean(errors.progress)} helperText={errors.progress?.message} slotProps={{ htmlInput: { min: 0, max: 100, step: 1 } }} />
+                )} />
+              </Stack>
+            </> : null}
 
             <Controller
               control={control}
