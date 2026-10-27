@@ -112,8 +112,8 @@ func TestLiveSMTPTemplates(t *testing.T) {
 	task := h.CreateTask(t, actor, project, "真实邮件验收：中文主题与进度 40%", "2026-10-26", "2026-10-30")
 	current := actor.Client.Get(URL("/tasks/"+task)).RequireStatus(t, 200).Data(t)
 	actor.Client.Patch(URL("/tasks/"+task), map[string]any{"progress": 40, "expected_updated_at": current["updated_at"]}).RequireStatus(t, 200)
-	// Use the actual frontend route; the legacy default /tasks/{id} has no UI route.
-	taskURL := "http://localhost:5173/projects/" + project + "?taskId={task_id}"
+	// Match the normal frontend template, including both dynamic identifiers.
+	taskURL := "http://localhost:5173/projects/{project_id}?taskId={task_id}"
 	repo := reminders.NewRepository(h.Pool)
 	if _, err := h.Pool.Exec(ctx, `DELETE FROM reminders`); err != nil {
 		t.Fatal(err)
@@ -217,7 +217,7 @@ func TestLiveSMTPTemplates(t *testing.T) {
 	}
 	actor.Client.Get(URL("/auth/me")).RequireStatus(t, 401)
 	limited.resetBody = ""
-	writeLiveJSON(t, filepath.Join(out, "result.json"), map[string]any{"reminder_templates_previewed": 5, "smtp_messages_accepted": 2, "minimum_gap_seconds": 60, "actual_gap_seconds": limited.receipts[1].Started.Sub(firstCompleted).Seconds(), "reset_single_use_verified": true, "old_session_revoked": true, "inbox_delivery_confirmed": false, "task_link_override": "project detail route; legacy default /tasks/{id} does not exist", "reset_link_consumed": true})
+	writeLiveJSON(t, filepath.Join(out, "result.json"), map[string]any{"reminder_templates_previewed": 5, "smtp_messages_accepted": 2, "minimum_gap_seconds": 60, "actual_gap_seconds": limited.receipts[1].Started.Sub(firstCompleted).Seconds(), "reset_single_use_verified": true, "old_session_revoked": true, "inbox_delivery_confirmed": false, "task_url_template": taskURL, "reset_link_consumed": true})
 	t.Log("LIVE 2/2: SMTP accepted password-reset template; sent_at persisted, isolated token consumed once, old session rejected; no further sends")
 }
 

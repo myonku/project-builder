@@ -527,7 +527,7 @@ func NewHarnessWithOptions(t *testing.T, opts HarnessOptions) *Harness {
 		IDs:             ids,
 		Clock:           clk,
 		Logger:          logger,
-		TaskURLTemplate: "https://example.test/tasks/{task_id}",
+		TaskURLTemplate: "https://example.test/projects/{project_id}?taskId={task_id}",
 		BatchSize:       100,
 		Audit:           auditService,
 	})

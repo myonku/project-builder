@@ -177,20 +177,26 @@ func TestReminderTaskURL(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
-		template string
-		taskID   string
-		want     string
+		name      string
+		template  string
+		projectID string
+		taskID    string
+		want      string
 	}{
 		{name: "正常替换", template: "https://x/tasks/{task_id}", taskID: "t1", want: "https://x/tasks/t1"},
 		{name: "模板为空则无链接", template: "  ", taskID: "t1", want: ""},
 		{name: "无占位符时追加", template: "https://x/tasks/", taskID: "t1", want: "https://x/tasks/t1"},
+		{name: "项目详情任务定位", template: "https://x/projects/{project_id}?taskId={task_id}", projectID: "p1", taskID: "t1", want: "https://x/projects/p1?taskId=t1"},
+		{name: "部署子路径与重复占位符", template: "https://x/worklane/projects/{project_id}?taskId={task_id}&project={project_id}", projectID: "p1", taskID: "t1", want: "https://x/worklane/projects/p1?taskId=t1&project=p1"},
+		{name: "缺少项目不暴露未展开链接", template: "https://x/projects/{project_id}?taskId={task_id}", taskID: "t1", want: ""},
+		{name: "缺少任务则无链接", template: "https://x/projects/{project_id}?taskId={task_id}", projectID: "p1", want: ""},
+		{name: "仅项目占位符保留追加兼容", template: "https://x/projects/{project_id}/tasks/", projectID: "p1", taskID: "t1", want: "https://x/projects/p1/tasks/t1"},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			if got := ReminderTaskURL(tc.template, tc.taskID); got != tc.want {
+			if got := ReminderTaskURL(tc.template, tc.projectID, tc.taskID); got != tc.want {
 				t.Fatalf("ReminderTaskURL = %q，期望 %q", got, tc.want)
 			}
 		})

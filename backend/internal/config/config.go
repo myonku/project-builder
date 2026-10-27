@@ -112,7 +112,7 @@ type MailConfig struct {
 	// 只接受访问令牌：换取它所需的客户端注册信息（client_id / tenant）
 	// 由部署方持有，本服务不实现一轮 OAuth2 授权码流程。
 	OAuth2AccessToken string `toml:"oauth2_access_token"`
-	// TaskURLTemplate 是邮件正文里任务链接的模板，用 {task_id} 占位。
+	// TaskURLTemplate 支持 {project_id}、{task_id}，定位项目详情中的任务抽屉。
 	TaskURLTemplate string `toml:"task_url_template"`
 }
 
@@ -374,7 +374,7 @@ func defaultConfig() Config {
 			ImplicitTLS: true,
 			AuthMethod:  "login",
 			// 邮件里的"任务链接"需要一个外部可达的地址，因此必须可配置。
-			TaskURLTemplate: "http://localhost:8080/tasks/{task_id}",
+			TaskURLTemplate: "http://localhost:5173/projects/{project_id}?taskId={task_id}",
 		},
 		Storage: StorageConfig{
 			Backend:           "local",
@@ -514,6 +514,7 @@ func envBindings() []envBinding {
 		{"SECURITY_PASSWORD_RESET_MAX_REQUESTS", intSetter(func(c *Config) *int { return &c.Security.PasswordResetMaxRequests })},
 		{"SECURITY_PASSWORD_RESET_IP_REQUESTS_PER_HOUR", intSetter(func(c *Config) *int { return &c.Security.PasswordResetIPRequestsPerHour })},
 		{"MAIL_PASSWORD_RESET_URL_TEMPLATE", stringSetter(func(c *Config) *string { return &c.Mail.PasswordResetURLTemplate })},
+		{"MAIL_TASK_URL_TEMPLATE", stringSetter(func(c *Config) *string { return &c.Mail.TaskURLTemplate })},
 		{"API_VERSION", stringSetter(func(c *Config) *string { return &c.APIVersion })},
 
 		{"SERVER_HOST", stringSetter(func(c *Config) *string { return &c.Server.Host })},

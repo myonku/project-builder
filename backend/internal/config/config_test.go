@@ -169,6 +169,32 @@ DATABASE_PASSWORD=from-dotenv
 	}
 }
 
+// TestMailTaskURLTemplate verifies shipped defaults and deployment overrides.
+func TestMailTaskURLTemplate(t *testing.T) {
+	clearConfigEnv(t)
+	want := "http://localhost:5173/projects/{project_id}?taskId={task_id}"
+	for _, path := range []string{filepath.Join(t.TempDir(), "absent.toml"), filepath.Join("..", "..", "config.toml")} {
+		cfg, err := Load(path, "")
+		if err != nil || cfg.Mail.TaskURLTemplate != want {
+			t.Fatalf("mail task template from %s = %q, error %v; want %q", path, cfg.Mail.TaskURLTemplate, err, want)
+		}
+	}
+	dir := t.TempDir()
+	path := writeFile(t, dir, "config.toml", "[mail]\ntask_url_template = 'https://toml.test/projects/{project_id}?taskId={task_id}'\n")
+	dotenvURL := "https://dotenv.test/app/projects/{project_id}?taskId={task_id}"
+	envPath := writeFile(t, dir, ".env", "MAIL_TASK_URL_TEMPLATE="+dotenvURL+"\n")
+	cfg, err := Load(path, envPath)
+	if err != nil || cfg.Mail.TaskURLTemplate != dotenvURL {
+		t.Fatalf("dotenv task template = %q, error %v", cfg.Mail.TaskURLTemplate, err)
+	}
+	processURL := "https://process.test/worklane/projects/{project_id}?taskId={task_id}"
+	t.Setenv("MAIL_TASK_URL_TEMPLATE", processURL)
+	cfg, err = Load(path, envPath)
+	if err != nil || cfg.Mail.TaskURLTemplate != processURL {
+		t.Fatalf("process task template = %q, error %v", cfg.Mail.TaskURLTemplate, err)
+	}
+}
+
 // TestLoadIgnoresEmptyProcessEnv 覆盖 CI 中常见问题：空环境变量不应清掉配置文件的值。
 func TestLoadIgnoresEmptyProcessEnv(t *testing.T) {
 	clearConfigEnv(t)

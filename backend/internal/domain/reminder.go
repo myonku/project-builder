@@ -84,11 +84,15 @@ func ReminderDedupeKey(kind, taskID, recipientID, window string) string {
 // ReminderTaskURL 把配置里的模板渲染为任务链接。
 //
 // 模板缺失时返回空串而不是报错：邮件正文少一行链接远好过整封发不出去。
-func ReminderTaskURL(template, taskID string) string {
+func ReminderTaskURL(template, projectID, taskID string) string {
 	trimmed := strings.TrimSpace(template)
 	if trimmed == "" || taskID == "" {
 		return ""
 	}
+	if strings.Contains(trimmed, "{project_id}") && projectID == "" {
+		return ""
+	}
+	trimmed = strings.ReplaceAll(trimmed, "{project_id}", projectID)
 	if !strings.Contains(trimmed, "{task_id}") {
 		// 配置里没有占位符时，把任务 id 追加在末尾，至少保证链接不是死路。
 		return strings.TrimRight(trimmed, "/") + "/" + taskID

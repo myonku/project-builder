@@ -117,7 +117,7 @@ func TestReminderOverdueLifecycle(t *testing.T) {
 			"计划周期：2026-09-28 ~ 2026-10-05",
 			"状态：进行中",
 			"进度：40%",
-			"任务链接：https://example.test/tasks/" + taskID,
+			"任务链接：https://example.test/projects/" + projectID + "?taskId=" + taskID,
 			"提醒原因：",
 		}
 		for _, fragment := range required {

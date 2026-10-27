@@ -413,7 +413,7 @@ func (s *Service) render(item DispatchItem) mail.Message {
 		candidate.StartDate.Format(domain.DateLayout), candidate.EndDate.Format(domain.DateLayout))
 	fmt.Fprintf(&context, "状态：%s\n", taskStatusLabel(candidate.Status))
 	fmt.Fprintf(&context, "进度：%d%%\n", candidate.Progress)
-	if link := domain.ReminderTaskURL(s.urlTemplate, candidate.TaskID); link != "" {
+	if link := domain.ReminderTaskURL(s.urlTemplate, candidate.ProjectID, candidate.TaskID); link != "" {
 		fmt.Fprintf(&context, "任务链接：%s\n", link)
 	}
 
