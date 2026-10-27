@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"strconv"
 	"time"
 
 	"github.com/myonku/project-builder/internal/app/apperr"
@@ -127,6 +128,9 @@ func (s *Service) shareAudit(in UpdateInput) *apperr.AuditWrite {
 // 完整前后值会把更多内容留在只增不删的表里。
 func projectChanges(in UpdateInput) map[string]string {
 	changes := map[string]string{}
+	if in.Progress != nil {
+		changes["progress"] = strconv.Itoa(*in.Progress)
+	}
 	if in.Name != nil {
 		changes["name"] = *in.Name
 	}
@@ -345,6 +349,7 @@ func (s *Service) List(ctx context.Context, in ListInput) (Page[ProjectRecord], 
 
 // UpdateInput 是修改项目的用例输入。
 type UpdateInput struct {
+	Progress        *int
 	ProjectID       string
 	ActorID         string
 	Name            *string
@@ -366,6 +371,16 @@ type UpdateInput struct {
 //
 // 归档项目只读：早期实现此处有缺陷，可继续修改归档项目。
 func (s *Service) Update(ctx context.Context, actor domain.User, in UpdateInput) (ProjectRecord, error) {
+	if in.Progress != nil {
+		if err := domain.ValidateProgress(*in.Progress); err != nil {
+			return ProjectRecord{}, err
+		}
+		if in.Status == nil {
+			value := domain.ProgressStatus(*in.Progress)
+			in.Status = &value
+		}
+	}
+
 	normalized, fields := domain.NormalizeProjectUpdate(domain.ProjectUpdateInput{
 		Name:        in.Name,
 		Description: descriptionForValidation(in.Description, in.DescriptionSet),
@@ -420,6 +435,7 @@ func (s *Service) Update(ctx context.Context, actor domain.User, in UpdateInput)
 
 	updated, err := s.repo.UpdateProject(ctx, ProjectUpdateParams{
 		ID:              in.ProjectID,
+		Progress:        in.Progress,
 		Name:            normalized.Name,
 		Description:     normalized.Description,
 		DescriptionSet:  in.DescriptionSet,

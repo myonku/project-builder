@@ -105,6 +105,7 @@ type memberResponse struct {
 
 // taskResponse 是任务在计划视图中的对外表示。
 type taskResponse struct {
+	HasChildren bool    `json:"has_children"`
 	ID          string  `json:"id"`
 	ProjectID   string  `json:"project_id"`
 	ParentID    *string `json:"parent_id"`
@@ -198,6 +199,7 @@ func newTaskResponse(view TaskView) taskResponse {
 	record := view.Record
 
 	response := taskResponse{
+		HasChildren:   record.HasChildren,
 		ID:            record.ID,
 		ProjectID:     record.ProjectID,
 		ParentID:      record.ParentID,

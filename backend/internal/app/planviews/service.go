@@ -200,7 +200,7 @@ func (s *Service) Gantt(ctx context.Context, actorID, projectID string) (Gantt, 
 		Project: ProjectView{
 			Record:    record,
 			MyRole:    record.ActorRole,
-			Progress:  progressOf(visible),
+			Progress:  record.Progress,
 			TaskCount: len(visible),
 			// 逾期数同样基于可见任务。
 			OverdueTaskCount: overdueOf(visible, today),
@@ -208,7 +208,7 @@ func (s *Service) Gantt(ctx context.Context, actorID, projectID string) (Gantt, 
 		CanManageProject: domain.CanManageProject(project, domain.User{ID: actorID}, record.projectMember(actorID)),
 		CanEditTasks:     domain.CanEditProjectTasks(project, permission),
 		Tasks:            visible,
-		Summary:          summarize(1, visible),
+		Summary:          summarize([]ProjectRecord{record}, visible),
 	}, nil
 }
 
@@ -320,29 +320,15 @@ func (s *Service) assemble(
 	for index := range views {
 		projectTasks := tasksByProject[views[index].Record.ID]
 		views[index].TaskCount = len(projectTasks)
-		views[index].Progress = progressOf(projectTasks)
+		views[index].Progress = views[index].Record.Progress
 		views[index].OverdueTaskCount = overdueOf(projectTasks, today)
 	}
 
 	return View{
 		Projects: views,
 		Tasks:    visible,
-		Summary:  summarize(len(views), visible),
+		Summary:  summarize(projectRecords(views), visible),
 	}
-}
-
-// progressOf 计算一组任务的整体进度。
-//
-// 直接复用 domain.ComputeProjectProgress：口径（排除已取消、无有效任务为 0）
-// 必须与项目详情里的 progress 完全一致，不允许在这里另写一套平均。
-func progressOf(tasks []TaskView) int {
-	progresses := make([]int, 0, len(tasks))
-	statuses := make([]string, 0, len(tasks))
-	for _, task := range tasks {
-		progresses = append(progresses, task.Record.Progress)
-		statuses = append(statuses, task.Record.Status)
-	}
-	return domain.ComputeProjectProgress(progresses, statuses)
 }
 
 // overdueOf 统计一组任务中的逾期数（复用 domain 的同一套派生规则）。
@@ -357,7 +343,21 @@ func overdueOf(tasks []TaskView, today time.Time) int {
 }
 
 // summarize 计算汇总统计。
-func summarize(projectCount int, tasks []TaskView) Summary {
+func projectRecords(views []ProjectView) []ProjectRecord {
+	records := make([]ProjectRecord, 0, len(views))
+	for _, view := range views {
+		records = append(records, view.Record)
+	}
+	return records
+}
+func summarize(projects []ProjectRecord, tasks []TaskView) Summary {
+	values := make([]int, 0, len(projects))
+	statuses := make([]string, 0, len(projects))
+	for _, project := range projects {
+		values = append(values, project.Progress)
+		statuses = append(statuses, project.Status)
+	}
+
 	inProgress := 0
 	overdue := 0
 	for _, task := range tasks {
@@ -369,11 +369,11 @@ func summarize(projectCount int, tasks []TaskView) Summary {
 		}
 	}
 	return Summary{
-		ProjectCount:        projectCount,
+		ProjectCount:        len(projects),
 		TaskCount:           len(tasks),
 		InProgressTaskCount: inProgress,
 		OverdueTaskCount:    overdue,
-		OverallProgress:     progressOf(tasks),
+		OverallProgress:     domain.ComputeProjectProgress(values, statuses),
 	}
 }
 

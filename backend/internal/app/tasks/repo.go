@@ -15,7 +15,7 @@ import (
 // taskColumns 是 tasks 表的显式列清单。
 const taskColumns = `t.id, t.project_id, t.parent_id, t.created_by, t.name, t.description,
 	t.status, t.progress, t.priority, t.start_date, t.end_date,
-	t.is_milestone, t.is_shared, t.deleted_at, t.created_at, t.updated_at, t.updated_by`
+	t.is_milestone, t.is_shared, t.deleted_at, t.created_at, t.updated_at, t.updated_by, t.has_children`
 
 // taskReturningColumns 与 taskColumns 相同，但不带表别名。
 //
@@ -23,7 +23,7 @@ const taskColumns = `t.id, t.project_id, t.parent_id, t.created_by, t.name, t.de
 // "missing FROM-clause entry for table t"。
 const taskReturningColumns = `id, project_id, parent_id, created_by, name, description,
 	status, progress, priority, start_date, end_date,
-	is_milestone, is_shared, deleted_at, created_at, updated_at, updated_by`
+	is_milestone, is_shared, deleted_at, created_at, updated_at, updated_by, has_children`
 
 // TaskRecord 是 tasks 表的行记录。
 type TaskRecord struct {
@@ -34,6 +34,7 @@ type TaskRecord struct {
 	Name        string
 	Description *string
 	Status      string
+	HasChildren bool
 	Progress    int
 	Priority    int
 	StartDate   time.Time
@@ -209,6 +210,9 @@ func (r *Repository) CreateTaskInTx(ctx context.Context, params CreateTaskParams
 	var created TaskRecord
 
 	err := apperr.InTx(ctx, r.pool, func(ctx context.Context, tx apperr.Querier) error {
+		if err := lockProjectForTask(ctx, tx, params.ProjectID, true); err != nil {
+			return err
+		}
 		const insert = `
 			INSERT INTO tasks (
 				id, project_id, parent_id, created_by, name, description,
@@ -230,7 +234,7 @@ func (r *Repository) CreateTaskInTx(ctx context.Context, params CreateTaskParams
 			&created.Name, &created.Description, &created.Status, &created.Progress,
 			&created.Priority, &created.StartDate, &created.EndDate,
 			&created.IsMilestone, &created.IsShared, &created.DeletedAt,
-			&created.CreatedAt, &created.UpdatedAt, &created.UpdatedBy,
+			&created.CreatedAt, &created.UpdatedAt, &created.UpdatedBy, &created.HasChildren,
 		); err != nil {
 			return apperr.Translate(err, constraintMap)
 		}
@@ -275,7 +279,7 @@ func (r *Repository) FindTaskForUser(ctx context.Context, taskID, userID string,
 		&record.Name, &record.Description, &record.Status, &record.Progress,
 		&record.Priority, &record.StartDate, &record.EndDate,
 		&record.IsMilestone, &record.IsShared, &record.DeletedAt,
-		&record.CreatedAt, &record.UpdatedAt, &record.UpdatedBy,
+		&record.CreatedAt, &record.UpdatedAt, &record.UpdatedBy, &record.HasChildren,
 		&memberID, &memberTaskID, &memberUserID, &memberRole,
 	)
 	if err != nil {
@@ -312,7 +316,7 @@ func (r *Repository) FindTaskByID(ctx context.Context, taskID string, includeDel
 		&record.Name, &record.Description, &record.Status, &record.Progress,
 		&record.Priority, &record.StartDate, &record.EndDate,
 		&record.IsMilestone, &record.IsShared, &record.DeletedAt,
-		&record.CreatedAt, &record.UpdatedAt, &record.UpdatedBy,
+		&record.CreatedAt, &record.UpdatedAt, &record.UpdatedBy, &record.HasChildren,
 	)
 	if err != nil {
 		if apperr.IsNoRows(err) {
@@ -424,7 +428,7 @@ func (r *Repository) ListTasks(ctx context.Context, filter ListFilter, orderBy s
 			&record.Name, &record.Description, &record.Status, &record.Progress,
 			&record.Priority, &record.StartDate, &record.EndDate,
 			&record.IsMilestone, &record.IsShared, &record.DeletedAt,
-			&record.CreatedAt, &record.UpdatedAt, &record.UpdatedBy,
+			&record.CreatedAt, &record.UpdatedAt, &record.UpdatedBy, &record.HasChildren,
 			&memberID, &memberTaskID, &memberUserID, &memberRole,
 		); err != nil {
 			return nil, fmt.Errorf("读取任务行失败: %w", err)
@@ -458,7 +462,7 @@ func (r *Repository) ListAncestors(ctx context.Context, taskID string) ([]TaskRe
 		WITH RECURSIVE chain AS (
 			SELECT id, project_id, parent_id, created_by, name, description,
 			       status, progress, priority, start_date, end_date,
-			       is_milestone, is_shared, deleted_at, created_at, updated_at, updated_by,
+			       is_milestone, is_shared, deleted_at, created_at, updated_at, updated_by, has_children,
 			       0 AS depth
 			  FROM tasks
 			 WHERE id = $1
@@ -466,7 +470,7 @@ func (r *Repository) ListAncestors(ctx context.Context, taskID string) ([]TaskRe
 			SELECT t.id, t.project_id, t.parent_id, t.created_by, t.name, t.description,
 			       t.status, t.progress, t.priority, t.start_date, t.end_date,
 			       t.is_milestone, t.is_shared, t.deleted_at, t.created_at, t.updated_at,
-			       t.updated_by,
+			       t.updated_by, t.has_children,
 			       c.depth + 1
 			  FROM tasks t
 			  JOIN chain c ON t.id = c.parent_id
@@ -474,7 +478,7 @@ func (r *Repository) ListAncestors(ctx context.Context, taskID string) ([]TaskRe
 		)
 		SELECT id, project_id, parent_id, created_by, name, description,
 		       status, progress, priority, start_date, end_date,
-		       is_milestone, is_shared, deleted_at, created_at, updated_at, updated_by
+		       is_milestone, is_shared, deleted_at, created_at, updated_at, updated_by, has_children
 		  FROM chain ORDER BY depth`
 
 	rows, err := r.pool.Query(ctx, query, taskID)
@@ -491,7 +495,7 @@ func (r *Repository) ListAncestors(ctx context.Context, taskID string) ([]TaskRe
 			&record.Name, &record.Description, &record.Status, &record.Progress,
 			&record.Priority, &record.StartDate, &record.EndDate,
 			&record.IsMilestone, &record.IsShared, &record.DeletedAt,
-			&record.CreatedAt, &record.UpdatedAt, &record.UpdatedBy,
+			&record.CreatedAt, &record.UpdatedAt, &record.UpdatedBy, &record.HasChildren,
 		); err != nil {
 			return nil, fmt.Errorf("读取祖先链行失败: %w", err)
 		}
@@ -524,12 +528,24 @@ func (r *Repository) UpdateTask(ctx context.Context, params TaskUpdateParams) (T
 		       is_shared    = COALESCE($12, is_shared),
 		       parent_id    = CASE WHEN $13 THEN $14 ELSE parent_id END,
 		       updated_by   = $15,
-		       updated_at   = now()
+		       updated_at   = clock_timestamp()
 		 WHERE id = $1 AND updated_at = $2
 		RETURNING ` + taskReturningColumns
 
 	var record TaskRecord
 	err := apperr.InTx(ctx, r.pool, func(ctx context.Context, tx apperr.Querier) error {
+		if err := lockProjectForTask(ctx, tx, params.ID, false); err != nil {
+			return err
+		}
+		if params.Status != nil || params.Progress != nil {
+			var children bool
+			if err := tx.QueryRow(ctx, `SELECT has_children FROM tasks WHERE id=$1`, params.ID).Scan(&children); err != nil {
+				return err
+			}
+			if children {
+				return domain.ErrValidation.WithField("progress", "状态和进度由直接下级汇总，不可手工修改")
+			}
+		}
 		if err := tx.QueryRow(ctx, query,
 			params.ID, params.ExpectedUpdated,
 			params.Name, params.DescriptionSet, params.Description,
@@ -543,7 +559,7 @@ func (r *Repository) UpdateTask(ctx context.Context, params TaskUpdateParams) (T
 			&record.Name, &record.Description, &record.Status, &record.Progress,
 			&record.Priority, &record.StartDate, &record.EndDate,
 			&record.IsMilestone, &record.IsShared, &record.DeletedAt,
-			&record.CreatedAt, &record.UpdatedAt, &record.UpdatedBy,
+			&record.CreatedAt, &record.UpdatedAt, &record.UpdatedBy, &record.HasChildren,
 		); err != nil {
 			// 不在这里做存在性查询：那会在事务开着的时候再借一条连接。
 			// 把"没有匹配行"原样上抛，由事务之外的 distinguishMissing 区分 404 与 409。
@@ -574,18 +590,21 @@ func (r *Repository) SoftDeleteTask(
 ) (TaskRecord, error) {
 	const query = `
 		UPDATE tasks
-		   SET deleted_at = $3, updated_by = $4, updated_at = now()
+		   SET deleted_at = $3, updated_by = $4, updated_at = clock_timestamp()
 		 WHERE id = $1 AND updated_at = $2 AND deleted_at IS NULL
 		RETURNING ` + taskReturningColumns
 
 	var record TaskRecord
 	err := apperr.InTx(ctx, r.pool, func(ctx context.Context, tx apperr.Querier) error {
+		if err := lockProjectForTask(ctx, tx, taskID, false); err != nil {
+			return err
+		}
 		if err := tx.QueryRow(ctx, query, taskID, expectedUpdated, deletedAt, actorID).Scan(
 			&record.ID, &record.ProjectID, &record.ParentID, &record.CreatedBy,
 			&record.Name, &record.Description, &record.Status, &record.Progress,
 			&record.Priority, &record.StartDate, &record.EndDate,
 			&record.IsMilestone, &record.IsShared, &record.DeletedAt,
-			&record.CreatedAt, &record.UpdatedAt, &record.UpdatedBy,
+			&record.CreatedAt, &record.UpdatedAt, &record.UpdatedBy, &record.HasChildren,
 		); err != nil {
 			// 同 UpdateTask：把"没有匹配行"原样上抛，由事务外区分 404 与 409。
 			if apperr.IsNoRows(err) {
@@ -742,7 +761,7 @@ func (r *Repository) UpdateMemberRole(
 ) (MemberRecord, error) {
 	const query = `
 		UPDATE task_members
-		   SET role = $3, updated_at = now()
+		   SET role = $3, updated_at = clock_timestamp()
 		 WHERE task_id = $1 AND user_id = $2
 		RETURNING id, task_id, user_id, role, created_at`
 
@@ -813,7 +832,7 @@ func (r *Repository) TransferOwnership(
 	err := apperr.InTx(ctx, r.pool, func(ctx context.Context, tx apperr.Querier) error {
 		const demote = `
 			UPDATE task_members
-			   SET role = 'member', updated_at = now()
+			   SET role = 'member', updated_at = clock_timestamp()
 			 WHERE task_id = $1 AND role = 'owner' AND user_id <> $2`
 
 		if _, err := tx.Exec(ctx, demote, taskID, targetUserID); err != nil {
@@ -822,7 +841,7 @@ func (r *Repository) TransferOwnership(
 
 		const promote = `
 			UPDATE task_members
-			   SET role = 'owner', updated_at = now()
+			   SET role = 'owner', updated_at = clock_timestamp()
 			 WHERE task_id = $1 AND user_id = $2
 			RETURNING id, task_id, user_id, role, created_at`
 
@@ -922,6 +941,7 @@ func appendTaskFilters(query string, args []any, filter ListFilter) (string, []a
 
 // constraintMap 把本模块涉及的数据库约束名映射为领域错误。
 var constraintMap = map[string]apperr.ConstraintError{
+	"ck_rollup_parent": {Code: domain.CodeValidationError, Message: "任务层级或日期约束不满足", Field: "parent_id", Detail: "父任务须同项目且未删除，不能循环或超过三层，父日期须覆盖子任务"},
 	"task_member_identity": {
 		Code: domain.CodeDuplicateMember, Message: "该成员已存在",
 		Field: "user_id", Detail: "该用户已是任务成员",
@@ -968,4 +988,21 @@ func derefString(value *string) string {
 		return ""
 	}
 	return *value
+}
+
+// Lock order: project first, then task/ancestor rows. All tree writers use this order.
+func lockProjectForTask(ctx context.Context, tx apperr.Querier, id string, isProject bool) error {
+	query := `SELECT status, archived_at FROM projects WHERE id=(SELECT project_id FROM tasks WHERE id=$1) FOR UPDATE`
+	if isProject {
+		query = `SELECT status, archived_at FROM projects WHERE id=$1 FOR UPDATE`
+	}
+	var status string
+	var archived *time.Time
+	if err := tx.QueryRow(ctx, query, id).Scan(&status, &archived); err != nil {
+		return err
+	}
+	if status == domain.ProjectStatusArchived || archived != nil {
+		return domain.ArchivedError()
+	}
+	return nil
 }

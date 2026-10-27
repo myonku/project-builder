@@ -638,12 +638,12 @@ func TestPlanViewSummaryMatchesReturnedItems(t *testing.T) {
 	if got := int(summary["overdue_task_count"].(float64)); got != 1 {
 		t.Errorf("summary.overdue_task_count = %d，期望 1", got)
 	}
-	// 整体完成率是有效任务进度的简单平均值：(0 + 50 + 100) / 3 ≈ 50。
-	if got := int(summary["overall_progress"].(float64)); got != 50 {
-		t.Errorf("summary.overall_progress = %d，期望 50", got)
+	// 整体完成率使用项目汇总：(25 + 100) / 2 = 62.5，展示为 63。
+	if got := int(summary["overall_progress"].(float64)); got != 63 {
+		t.Errorf("summary.overall_progress = %d，期望 63", got)
 	}
 
-	// 项目自身的派生字段同样与"它在该视图内的任务"一致。
+	// 项目使用完整任务树的结果，视图筛选不重新计算项目进度。
 	raw, _ := view.Data(t)["projects"].([]any)
 	for _, item := range raw {
 		object := item.(map[string]any)
@@ -669,9 +669,9 @@ func TestPlanViewSummaryMatchesReturnedItems(t *testing.T) {
 
 	afterCancel := owner.Client.Get(URL("/plan-views/groups/"+groupID)).RequireStatus(t, 200)
 	afterSummary := afterCancel.Data(t)["summary"].(map[string]any)
-	// (0 + 50 + 100 + 0) / 4 会因为取消任务而被拉低到 37；正确结果是排除它仍为 50。
-	if got := int(afterSummary["overall_progress"].(float64)); got != 50 {
-		t.Errorf("加入已取消任务后 overall_progress = %d，期望仍为 50（已取消不参与计算）", got)
+	// 取消任务不影响所属项目进度，整体项目均值仍为 63。
+	if got := int(afterSummary["overall_progress"].(float64)); got != 63 {
+		t.Errorf("加入已取消任务后 overall_progress = %d，期望仍为 63（已取消不参与计算）", got)
 	}
 	if got := int(afterSummary["task_count"].(float64)); got != 4 {
 		t.Errorf("task_count = %d，期望 4（已取消任务仍出现在列表里，只是不参与进度）", got)

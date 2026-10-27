@@ -33,7 +33,7 @@ import (
 // projectColumns 是 projects 表在计划视图中的列清单。
 const projectColumns = `p.id, p.name, p.description, p.created_by, p.group_id,
 	p.status, p.visibility, p.start_date, p.end_date, p.color, p.archived_at,
-	p.created_at, p.updated_at`
+	p.created_at, p.updated_at, p.progress`
 
 // projectFactColumns 是权限判定所需的"原始事实"。
 //
@@ -50,6 +50,7 @@ const projectFactColumns = `
 
 // ProjectRecord 是项目在计划视图中的投影。
 type ProjectRecord struct {
+	Progress    int
 	ID          string
 	Name        string
 	Description *string
@@ -137,6 +138,7 @@ type MemberRecord struct {
 
 // TaskRecord 是任务在计划视图中的投影。
 type TaskRecord struct {
+	HasChildren bool
 	ID          string
 	ProjectID   string
 	ParentID    *string
@@ -459,7 +461,7 @@ func (r *Repository) IsActiveGroupMember(ctx context.Context, groupID, userID st
 const taskViewColumns = `t.id, t.project_id, t.parent_id, t.created_by, t.name, t.description,
 	t.status, t.progress, t.priority, t.start_date, t.end_date,
 	t.is_milestone, t.is_shared, t.deleted_at, t.created_at, t.updated_at,
-	t.updated_by, ub.display_name, COALESCE(members.items, '[]'::jsonb)`
+	t.has_children, t.updated_by, ub.display_name, COALESCE(members.items, '[]'::jsonb)`
 
 const taskMembersLateral = `
 	SELECT jsonb_agg(jsonb_build_object(
@@ -504,7 +506,7 @@ func scanTask(row interface{ Scan(dest ...any) error }) (TaskRecord, error) {
 		&record.Priority, &record.StartDate, &record.EndDate,
 		&record.IsMilestone, &record.IsShared, &record.DeletedAt,
 		&record.CreatedAt, &record.UpdatedAt,
-		&record.UpdatedBy, &record.UpdatedByName, &membersRaw,
+		&record.HasChildren, &record.UpdatedBy, &record.UpdatedByName, &membersRaw,
 	)
 	if err != nil {
 		return TaskRecord{}, err
@@ -526,7 +528,7 @@ func scanProject(row interface{ Scan(dest ...any) error }) (ProjectRecord, error
 	err := row.Scan(
 		&record.ID, &record.Name, &record.Description, &record.CreatedBy, &record.GroupID,
 		&record.Status, &record.Visibility, &record.StartDate, &record.EndDate,
-		&record.Color, &record.ArchivedAt, &record.CreatedAt, &record.UpdatedAt,
+		&record.Color, &record.ArchivedAt, &record.CreatedAt, &record.UpdatedAt, &record.Progress,
 		&actorRole, &record.GroupStatus, &record.GroupRole, &record.GroupMemberStatus,
 		&record.OwnerID, &record.ActorSystemRole,
 	)

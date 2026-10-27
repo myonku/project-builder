@@ -148,6 +148,7 @@ type changeMemberRoleRequest struct {
 
 // taskResponse 是任务对外表示（接口契约 3.3）。
 type taskResponse struct {
+	HasChildren bool    `json:"has_children"`
 	ID          string  `json:"id"`
 	ProjectID   string  `json:"project_id"`
 	ParentID    *string `json:"parent_id"`
@@ -204,6 +205,7 @@ func newTaskResponse(record TaskRecord, today time.Time) taskResponse {
 		deletedAt = &formatted
 	}
 	response := taskResponse{
+		HasChildren: record.HasChildren,
 		ID:          record.ID,
 		ProjectID:   record.ProjectID,
 		ParentID:    record.ParentID,

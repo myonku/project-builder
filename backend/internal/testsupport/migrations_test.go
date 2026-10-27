@@ -34,11 +34,11 @@ func TestMigrationsApplyFromEmptyDatabase(t *testing.T) {
 	if dirty {
 		t.Fatal("schema 处于脏状态")
 	}
-	if version != 9 {
-		t.Fatalf("迁移版本 = %d，期望 9（000001 初始 schema + 000002 tasks.updated_by "+
+	if version != 10 {
+		t.Fatalf("迁移版本 = %d，期望 10（000001 初始 schema + 000002 tasks.updated_by "+
 			"+ 000003 attachments + 000004 reminders + 000005 activity_logs "+
 			"+ 000006 registration_requests + 000007 attachments.storage_backend "+
-			"+ 000008 users avatar columns + 000009 password reset）", version)
+			"+ 000008 users avatar columns + 000009 password reset + 000010 hierarchical rollup）", version)
 	}
 
 	// 全部 15 张业务表必须存在。

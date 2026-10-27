@@ -3,7 +3,6 @@ package projects
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -18,35 +17,20 @@ import (
 // projectColumns 是 projects 表的显式列清单。
 const projectColumns = `p.id, p.name, p.description, p.created_by, p.group_id,
 	p.status, p.visibility, p.start_date, p.end_date, p.color, p.archived_at,
-	p.created_at, p.updated_at`
+	p.created_at, p.updated_at, p.progress, p.has_tasks`
 
 // projectReturningColumns 与 projectColumns 相同，但不带表别名。
 //
 // INSERT/UPDATE 的 RETURNING 子句没有 FROM 别名，写 p.id 会报
 // "missing FROM-clause entry for table p"。
 const projectReturningColumns = `id, name, description, created_by, group_id,
-	status, visibility, start_date, end_date, color, archived_at, created_at, updated_at`
+	status, visibility, start_date, end_date, color, archived_at, created_at, updated_at, progress, has_tasks`
 
-// projectDerivedColumns 计算派生字段（progress 与逾期任务数）。
-//
-// 两者都是查询派生值，不持久化（接口契约 3.2）。
-//
-// progress 的计算放在 Go 侧（domain.ComputeProjectProgress）而不是 SQL：
-// "已取消任务不参与平均、无有效任务时为 0、四舍五入到整数"这三条规则需要与
-// 领域文档逐字一致，用 SQL 表达既难审查也难测试。
-// 这里取回 (progress, status) 对，让领域函数拿到排除已取消任务所需的全部信息。
+// projectDerivedColumns keeps overdue counts request-timezone dependent.
 const projectDerivedColumns = `
-	COALESCE((
-		SELECT jsonb_agg(jsonb_build_object('p', t.progress, 's', t.status))
-		  FROM tasks t
-		 WHERE t.project_id = p.id AND t.deleted_at IS NULL
-	), '[]'::jsonb) AS task_metrics,
-	COALESCE((
-		SELECT count(*) FROM tasks t
-		 WHERE t.project_id = p.id AND t.deleted_at IS NULL
-		   AND t.end_date < $1
-		   AND t.status IN ('not_started', 'in_progress')
-	), 0) AS overdue_task_count`
+ COALESCE((SELECT count(*) FROM tasks t WHERE t.project_id=p.id
+ AND t.deleted_at IS NULL AND t.end_date < $1
+ AND t.status IN ('not_started','in_progress')),0) AS overdue_task_count`
 
 // ProjectRecord 是 projects 表的行记录（含派生字段与当前用户的项目成员关系）。
 type ProjectRecord struct {
@@ -64,14 +48,8 @@ type ProjectRecord struct {
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 
-	// TaskMetrics 是本项目未删除任务的 (进度, 状态) 对，以 jsonb 形式取回。
-	//
-	// 用 jsonb 而不是自定义复合类型数组：pgx 对未注册的自定义类型会报
-	// "cannot scan unknown type"，而 jsonb 是 pgx 原生支持的标准类型。
-	// 状态必须与进度一起取回：已取消任务不参与进度平均（需求文档 5.3）。
-	TaskMetrics []byte
-
 	Progress         int
+	HasTasks         bool
 	OverdueTaskCount int
 
 	// Membership 是当前请求用户在本项目的成员关系；nil 表示不是项目成员。
@@ -150,45 +128,6 @@ func (r GroupMemberRecord) ToDomain() domain.GroupMember {
 	}
 }
 
-// taskMetric 是 jsonb 聚合结果的元素形态。
-//
-// 用对象而不是两个平行数组：平行数组的索引对应关系一旦错位就会静默算错平均值，
-// 且这类错误不会触发编译错误。单个对象把 (进度, 状态) 绑在一起。
-type taskMetric struct {
-	Progress *int   `json:"p"`
-	Status   string `json:"s"`
-}
-
-// progressFromMetrics 依据 jsonb 指标计算项目进度。
-//
-// 交给 domain.ComputeProjectProgress 而不是在这里内联平均：
-// "已取消任务不参与、无有效任务为 0、四舍五入"是业务规则，必须与领域文档逐字对应。
-func progressFromMetrics(metrics []byte) int {
-	if len(metrics) == 0 {
-		return 0
-	}
-	var parsed []taskMetric
-	if err := json.Unmarshal(metrics, &parsed); err != nil {
-		// 解析失败不应让整个查询失败：进度是派生展示字段，
-		// 退化为 0 比让详情页 500 更合理。真实原因由调用方的日志体现。
-		return 0
-	}
-	if len(parsed) == 0 {
-		return 0
-	}
-	progresses := make([]int, 0, len(parsed))
-	statuses := make([]string, 0, len(parsed))
-	for _, metric := range parsed {
-		progress := 0
-		if metric.Progress != nil {
-			progress = *metric.Progress
-		}
-		progresses = append(progresses, progress)
-		statuses = append(statuses, metric.Status)
-	}
-	return domain.ComputeProjectProgress(progresses, statuses)
-}
-
 // CreateProjectParams 是创建项目所需的字段。
 type CreateProjectParams struct {
 	ID          string
@@ -208,6 +147,7 @@ type CreateProjectParams struct {
 
 // ProjectUpdateParams 是更新项目的字段。
 type ProjectUpdateParams struct {
+	Progress        *int
 	ID              string
 	Name            *string
 	Description     *string
@@ -323,7 +263,7 @@ func (r *Repository) CreateProjectInTx(ctx context.Context, params CreateProject
 			&created.ID, &created.Name, &created.Description, &created.CreatedBy,
 			&created.GroupID, &created.Status, &created.Visibility,
 			&created.StartDate, &created.EndDate, &created.Color, &created.ArchivedAt,
-			&created.CreatedAt, &created.UpdatedAt,
+			&created.CreatedAt, &created.UpdatedAt, &created.Progress, &created.HasTasks,
 		); err != nil {
 			return apperr.Translate(err, constraintMap)
 		}
@@ -369,8 +309,8 @@ func (r *Repository) FindProjectForUser(ctx context.Context, projectID, userID s
 		&record.ID, &record.Name, &record.Description, &record.CreatedBy,
 		&record.GroupID, &record.Status, &record.Visibility,
 		&record.StartDate, &record.EndDate, &record.Color, &record.ArchivedAt,
-		&record.CreatedAt, &record.UpdatedAt,
-		&record.TaskMetrics, &record.OverdueTaskCount,
+		&record.CreatedAt, &record.UpdatedAt, &record.Progress, &record.HasTasks,
+		&record.OverdueTaskCount,
 		&memberID, &memberProjectID, &memberUserID, &memberRole, &memberCreatedAt,
 		&groupMemberRole, &groupMemberStatus,
 		&record.GroupStatus,
@@ -401,7 +341,6 @@ func (r *Repository) FindProjectForUser(ctx context.Context, projectID, userID s
 		}
 	}
 
-	record.Progress = progressFromMetrics(record.TaskMetrics)
 	return record, nil
 }
 
@@ -465,8 +404,8 @@ func (r *Repository) ListProjects(ctx context.Context, filter ListFilter, orderB
 			&record.ID, &record.Name, &record.Description, &record.CreatedBy,
 			&record.GroupID, &record.Status, &record.Visibility,
 			&record.StartDate, &record.EndDate, &record.Color, &record.ArchivedAt,
-			&record.CreatedAt, &record.UpdatedAt,
-			&record.TaskMetrics, &record.OverdueTaskCount,
+			&record.CreatedAt, &record.UpdatedAt, &record.Progress, &record.HasTasks,
+			&record.OverdueTaskCount,
 			&memberID, &memberProjectID, &memberUserID, &memberRole, &memberCreatedAt,
 			&record.ActorSystemRole,
 		); err != nil {
@@ -482,7 +421,6 @@ func (r *Repository) ListProjects(ctx context.Context, filter ListFilter, orderB
 				CreatedAt: derefTime(memberCreatedAt),
 			}
 		}
-		record.Progress = progressFromMetrics(record.TaskMetrics)
 		records = append(records, record)
 	}
 	if err := rows.Err(); err != nil {
@@ -505,12 +443,14 @@ func (r *Repository) UpdateProject(ctx context.Context, params ProjectUpdatePara
 		UPDATE projects
 		   SET name        = COALESCE($3, name),
 		       status      = COALESCE($4, status),
+ archived_at = CASE WHEN $4::text IS NOT NULL AND $4 <> 'archived' THEN NULL ELSE archived_at END,
 		       visibility  = COALESCE($5, visibility),
 		       start_date  = COALESCE($6, start_date),
 		       end_date    = COALESCE($7, end_date),
 		       description = CASE WHEN $8 THEN $9 ELSE description END,
 		       color       = CASE WHEN $10 THEN $11 ELSE color END,
-		       updated_at  = now()
+		       progress = COALESCE($12, progress), precise_progress = COALESCE($12::numeric, precise_progress),
+		       updated_at  = clock_timestamp()
 		 WHERE id = $1 AND updated_at = $2
 		RETURNING ` + projectReturningColumns
 
@@ -518,6 +458,17 @@ func (r *Repository) UpdateProject(ctx context.Context, params ProjectUpdatePara
 	// 单语句写入也显式开事务：审计必须与业务同事务（《A09》），
 	// 而"业务成功但审计缺失"是本次实现里最需要结构性排除的失败模式。
 	err := apperr.InTx(ctx, r.pool, func(ctx context.Context, tx apperr.Querier) error {
+		var children bool
+		var archived *time.Time
+		if err := tx.QueryRow(ctx, `SELECT has_tasks, archived_at FROM projects WHERE id=$1 FOR UPDATE`, params.ID).Scan(&children, &archived); err != nil {
+			return err
+		}
+		if archived != nil && (params.Status == nil || params.Progress != nil) {
+			return domain.ArchivedError()
+		}
+		if children && (params.Progress != nil || (params.Status != nil && archived == nil)) {
+			return domain.ErrValidation.WithField("progress", "状态和进度由一级任务汇总，不可手工修改")
+		}
 		if err := tx.QueryRow(ctx, query,
 			params.ID,
 			params.ExpectedUpdated,
@@ -530,15 +481,24 @@ func (r *Repository) UpdateProject(ctx context.Context, params ProjectUpdatePara
 			params.Description,
 			params.ColorSet,
 			params.Color,
+			params.Progress,
 		).Scan(
 			&record.ID, &record.Name, &record.Description, &record.CreatedBy,
 			&record.GroupID, &record.Status, &record.Visibility,
 			&record.StartDate, &record.EndDate, &record.Color, &record.ArchivedAt,
-			&record.CreatedAt, &record.UpdatedAt,
+			&record.CreatedAt, &record.UpdatedAt, &record.Progress, &record.HasTasks,
 		); err != nil {
 			// 不在这里做存在性查询：那会在事务开着的时候再借一条连接。
 			// 把"没有匹配行"原样上抛，由事务之外的 distinguishMissing 区分 404 与 409。
 			return apperr.Translate(err, constraintMap)
+		}
+		if children && params.Status != nil && archived != nil {
+			if _, err := tx.Exec(ctx, `SELECT refresh_project_rollup($1)`, params.ID); err != nil {
+				return err
+			}
+			if err := tx.QueryRow(ctx, `SELECT status, progress, archived_at, updated_at FROM projects WHERE id=$1`, params.ID).Scan(&record.Status, &record.Progress, &record.ArchivedAt, &record.UpdatedAt); err != nil {
+				return err
+			}
 		}
 		if err := params.Audit.Flush(ctx, tx); err != nil {
 			return err
@@ -591,7 +551,7 @@ func (r *Repository) ArchiveProject(
 			&record.ID, &record.Name, &record.Description, &record.CreatedBy,
 			&record.GroupID, &record.Status, &record.Visibility,
 			&record.StartDate, &record.EndDate, &record.Color, &record.ArchivedAt,
-			&record.CreatedAt, &record.UpdatedAt,
+			&record.CreatedAt, &record.UpdatedAt, &record.Progress, &record.HasTasks,
 		); err != nil {
 			return apperr.Translate(err, constraintMap)
 		}

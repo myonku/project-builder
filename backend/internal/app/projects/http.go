@@ -68,6 +68,7 @@ type createRequest struct {
 //
 // expected_updated_at 必填：契约 2.6 要求更新核心对象提交版本。
 type updateRequest struct {
+	Progress        *int               `json:"progress"`
 	Name            *string            `json:"name"`
 	Description     *string            `json:"description"`
 	Status          *string            `json:"status"`
@@ -113,9 +114,10 @@ type changeMemberRoleRequest struct {
 
 // projectResponse 是项目对外表示（接口契约 3.2）。
 type projectResponse struct {
-	ID      string `json:"id"`
-	Name    string `json:"name"`
-	GroupID string `json:"group_id"`
+	HasTasks bool   `json:"has_tasks"`
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	GroupID  string `json:"group_id"`
 
 	Description *string `json:"description"`
 	CreatedBy   string  `json:"created_by"`
@@ -156,6 +158,7 @@ func newProjectResponse(record ProjectRecord) projectResponse {
 		archivedAt = &formatted
 	}
 	response := projectResponse{
+		HasTasks:         record.HasTasks,
 		ID:               record.ID,
 		Name:             record.Name,
 		GroupID:          record.GroupID,
@@ -319,6 +322,7 @@ func (h *Handler) update(c *gin.Context) {
 		Description:     emptyToNil(request.Description),
 		DescriptionSet:  httpapi.HasKey(body, "description"),
 		Status:          request.Status,
+		Progress:        request.Progress,
 		Visibility:      request.Visibility,
 		Color:           emptyToNil(request.Color),
 		ColorSet:        httpapi.HasKey(body, "color"),
