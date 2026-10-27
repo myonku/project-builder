@@ -4,7 +4,9 @@
 > 契约正文（约定性叙述）见《A09》；本文补齐该接口的**请求与响应数据结构**。
 
 > **2026-10-21 W4 已落地**：审计记录已增加 `actor_avatar_updated_at`（随 actor 投影 JOIN 取得）；
-> 头像更新复用 `user/updated` 动作，`changes` 只记 `avatar=set|cleared`。见 [P00](../P00-项目统筹与实施总览.md)。
+> 头像更新复用 `user/updated` 动作，`changes` 只记 `avatar=set|cleared`。见 [文档总览](../README.md)。
+
+> 层级汇总与触发它的业务写入同事务提交。审计记录用户实际操作及提交字段，不为每个系统汇总祖先额外伪造一条手工更新；祖先 updated_by 可记录触发汇总的用户。
 
 ## 接口清单
 

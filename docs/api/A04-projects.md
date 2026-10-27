@@ -15,7 +15,7 @@
 | --- | --- | --- | --- | --- |
 | 1 | `POST` | `/api/v1/projects` | 登录用户，且是归属工作组的**活跃成员**（或该组所有者） | 创建项目，创建者自动成为持有者与成员 |
 | 2 | `POST` | `/api/v1/projects/query` | 登录用户（可见范围见下；系统管理员可见全部项目） | 项目列表：筛选 + 分页 + 排序 |
-| 3 | `GET` | `/api/v1/projects/{project_id}` | 项目可见者 | 项目详情（含派生 `progress`、`overdue_task_count`） |
+| 3 | `GET` | `/api/v1/projects/{project_id}` | 项目可见者 | 项目详情（有效进度、结构标志、逾期数） |
 | 4 | `PATCH` | `/api/v1/projects/{project_id}` | 持有者或系统管理员 | 修改项目字段；`expected_updated_at` 必填 |
 | 5 | `POST` | `/api/v1/projects/{project_id}/archive` | 持有者或系统管理员 | 归档（此后项目只读） |
 | 6 | `POST` | `/api/v1/projects/{project_id}/members/query` | 项目可见者 | 项目成员列表 |
@@ -60,6 +60,7 @@
     "color": "#336699",
     "archived_at": null,
     "progress": 0,
+    "has_tasks": false,
     "overdue_task_count": 0,
     "membership_role": "owner",
     "updated_at": "2026-10-11T04:30:54.047739Z"
@@ -79,7 +80,8 @@
 | `start_date` / `end_date` | string(date) | `YYYY-MM-DD`；恒有 `end_date >= start_date` |
 | `color` | string \| null | 展示色（自由文本，≤32 字符，如 `#336699`） |
 | `archived_at` | string(timestamp) \| null | 归档瞬时时间；"是否归档"的判定是 `status == "archived"` **或** `archived_at != null`（任一成立即视为归档） |
-| `progress` | number | **派生**：有效任务进度的简单平均值（0–100 整数）。已取消与已逻辑删除的任务不参与；无有效任务时为 `0` |
+| `progress` | number | 持久化的 0–100 整数有效进度：无任务时手工，有任务时按有效根任务等权汇总；内部小数仅在展示时取整 |
+| `has_tasks` | boolean | 只读结构标志：是否存在未删除任务；全取消仍为 true |
 | `overdue_task_count` | number | **派生**：`end_date < 今天` 且状态为 `not_started`/`in_progress` 的未删除任务数。"今天"按**请求者时区**计算（《S02》§5 的加强项） |
 | `membership_role` | string \| null | **派生**：当前请求者在本项目的角色（`owner`/`member`）；非项目成员（含仅靠组内共享可见者、以及不具成员身份的系统管理员）为 `null` |
 | `updated_at` | string(timestamp) | UTC ISO 8601，**带亚秒精度**；更新类接口要求把它原样回传为 `expected_updated_at`（《S02》§2.6.2） |
@@ -88,6 +90,12 @@
 
 - `created_at`：项目详情与列表都不返回。`sort` 允许按 `created_at` 排序，但拿不到该值（要按时间展示只能自己记录）。
 - `is_archived` / `is_read_only` / `my_role` / `owner_id` / `task_count`：这些是**计划视图**的投影字段（《A06》），`/projects/*` 不返回。判断归档用上面那条规则；要拿持有者请在成员列表里找 `role == "owner"`。
+
+### 状态/进度与结构切换
+
+`has_tasks=false` 时允许管理者手工维护状态和整数进度，新建默认为 not_started/0；只给 progress 按 0 / 1–99 / 100 推导状态，显式 status 优先且不反向改进度。`has_tasks=true` 时普通 status/progress 字段一律拒绝，包含原值也不例外；不拒绝其他有权限的资料修改。
+
+任务树按 [S01 §5.4.1](../S01-需求文档.md#541-层级状态与进度) 逐层汇总，取消分支不计入进度平均，全部取消为 cancelled/0。删除父任务后仍存活子任务作为有效根；移走/删除最后任务后保留最后汇总展示值恢复手工。子任务变更会推进项目版本，提交资料编辑前应刷新。
 
 ## 项目成员对象
 
@@ -172,6 +180,7 @@
     "color": "#336699",
     "archived_at": null,
     "progress": 0,
+    "has_tasks": false,
     "overdue_task_count": 0,
     "membership_role": "owner",
     "updated_at": "2026-10-11T04:30:54.047739Z"
@@ -266,6 +275,7 @@
       "color": null,
       "archived_at": null,
       "progress": 40,
+      "has_tasks": true,
       "overdue_task_count": 1,
       "membership_role": "owner",
       "updated_at": "2026-10-11T04:30:54.047739Z"
@@ -303,7 +313,7 @@
 
 ## 3. `GET /api/v1/projects/{project_id}`
 
-**用途**：读取项目详情，含派生进度与逾期任务数、以及当前请求者在本项目的角色。
+**用途**：读取项目详情，含持久化有效进度与查询派生逾期任务数、以及当前请求者在本项目的角色。
 **权限**：项目可见者（项目成员 / 归属组活跃成员且共享级别非 `private` / 系统管理员）。
 
 **路径参数**：
@@ -316,7 +326,7 @@
 
 **请求体**：无请求体。
 
-**响应 `200`**：项目对象（结构见上），其中 `progress`、`overdue_task_count`、`membership_role` 为派生字段。
+**响应 `200`**：项目对象（结构见上），其中 status/progress 为持久化有效值，has_tasks 为结构标志；overdue_task_count、membership_role 为查询派生字段。
 
 ```json
 {
@@ -333,6 +343,7 @@
     "color": null,
     "archived_at": null,
     "progress": 40,
+    "has_tasks": true,
     "overdue_task_count": 1,
     "membership_role": "owner",
     "updated_at": "2026-10-11T04:30:54.047739Z"
@@ -355,12 +366,12 @@
 **备注**：
 
 - **"不可见"与"不存在"必须同码**：私有项目对非成员一律 `404`，否则任意登录用户都能探测项目是否存在。
-- 本端点的 `progress`/`overdue_task_count` 基于项目的**全部**未删除任务；组内共享视图（《A06》的 `GET /plan-views/groups/{group_id}`）按**该视图可见的**任务计算，两者口径可能不同（这是刻意的，避免用进度数值泄漏未共享任务的进展）。
+- 项目进度基于完整任务树，个人/组内计划及甘特图读取同一结果；视图筛选不重算项目进度。隐藏子任务资料仍不可读。逾期数在项目详情按全部未删除任务统计，计划视图按可见任务统计。
 - 归档项目仍可正常读取（端点 5 只让写入失败）。
 
 ## 4. `PATCH /api/v1/projects/{project_id}`
 
-**用途**：修改项目的名称、描述、状态、共享级别、日期区间与颜色。
+**用途**：修改项目资料；无任务时可改状态/进度，归档项目可执行独立解除归档。
 **权限**：项目持有者或系统管理员（组内共享级别**不**授予项目管理权，需求文档 4.3）。可见但无管理权返回 `403`。
 
 **路径参数**：
@@ -377,7 +388,8 @@
 | --- | --- | --- | --- | --- |
 | `name` | string | 否 | 去首尾空白后非空，1–200 字符 | 项目名称 |
 | `description` | string \| null | 否 | ≤4000 字符；**空串表示清空**（存 `null`） | 描述 |
-| `status` | string | 否 | 六种项目状态之一（枚举**包含** `archived`） | 状态 |
+| `status` | string | 否 | 六种项目状态之一；普通修改仅 has_tasks=false 时允许 | 手工状态；归档时只提交非 archived 的值表示解除归档 |
+| `progress` | integer | 否 | 0–100；仅 has_tasks=false 且未归档可写 | 只提供进度时推导状态，显式 status 优先 |
 | `visibility` | string | 否 | `private` \| `group_readonly` \| `group_editable` | 共享级别 |
 | `start_date` | string(date) | 否 | 与现有 `end_date` 合并后必须 `start <= end` | 开始日期 |
 | `end_date` | string(date) | 否 | 与现有 `start_date` 合并后必须 `start <= end` | 结束日期 |
@@ -411,6 +423,7 @@
     "color": null,
     "archived_at": null,
     "progress": 40,
+    "has_tasks": true,
     "overdue_task_count": 0,
     "membership_role": "owner",
     "updated_at": "2026-10-11T06:02:11.512004Z"
@@ -433,16 +446,16 @@
 | `404` | `project_not_found` | 项目 id 在库中不存在 |
 | `409` | `conflict` | 项目处于归档只读状态（`fields.project_id`） |
 | `409` | `version_conflict` | `expected_updated_at` 与当前版本不一致 |
-| `422` | `validation_error` | `name` 空白或超长、`status`/`visibility` 不在枚举内、`description`/`color` 超长；缺少 `expected_updated_at`；请求体含契约未定义字段 |
+| `422` | `validation_error` | `name` 空白或超长、`status`/`visibility` 不在枚举内、`description`/`color` 超长；progress 非 0–100；有任务时试图写普通状态/进度（fields.progress）；缺少 `expected_updated_at`；请求体含契约未定义字段 |
 
 **备注**：
 
-- **归档只读**：归档项目上除"显式提供 `status`"以外的任何修改都返回 `409 conflict`（`fields.project_id`）。这一例外只跳过只读检查，**不会清空 `archived_at`**，因此项目仍然是归档状态（仍只读、仍默认不在列表里）——详见文末。
+- **归档只读与解除归档**：归档后普通编辑返回 409。解除归档仅允许 status（非 archived）和 expected_updated_at，不得捆绑资料、日期、共享级别或 progress；成功清空 archived_at。有任务时恢复汇总状态，所提交 status 只是解除归档信号；无任务时采用该状态且保留进度。
 - **空写入会成功**：只提交 `expected_updated_at`（不带任何可改字段）也会返回 `200` 并推进 `updated_at`。服务端**没有**"至少一个可改字段"的校验（该规则只见于 Users 域的 `PATCH /users/{user_id}`，《A02》），因此不要让前端在"什么都没改"时提交请求，否则别人的版本会无谓失效。
 - **清空语义**：`description`、`color` 传空串等价于置 `null`（响应里为 `null`）。这一点与 Tasks 域的 `description` 不同（见《A05》端点 4）。
 - **版本校验是原子 CAS**：版本条件写在 `UPDATE ... WHERE updated_at = $n` 里，`0` 行更新后再补一次纯存在性查询，用于区分 `404`（不存在）与 `409 version_conflict`（《S02》§2.6）。
 - **副作用**：写一条 `action = updated` 的操作记录；本次包含 `visibility` 时额外写一条 `action = shared` 记录（便于回答"为什么这个项目突然对全组可见"）。两者与业务写在同事务。
-- **注意 `status: "archived"`**：枚举里包含它，因此本端点也能把项目改成归档状态，但**不会写 `archived_at`**。正式归档入口是端点 5。
+- **兼容边界**：仅无任务项目的普通 PATCH 仍接受 status=archived，此时不会补写 archived_at，但仍按归档只读；前端统一使用端点 5 归档。有任务项目普通写 status（包括 archived）返回 422。
 
 ## 5. `POST /api/v1/projects/{project_id}/archive`
 
@@ -486,6 +499,7 @@
     "color": null,
     "archived_at": "2026-10-11T06:10:00Z",
     "progress": 40,
+    "has_tasks": true,
     "overdue_task_count": 1,
     "membership_role": "owner",
     "updated_at": "2026-10-11T06:10:00Z"
@@ -513,8 +527,8 @@
 
 **备注**：
 
-- **归档不可逆**：没有"解除归档"端点，且 `archived_at` 一旦写入不会被任何端点清空。前端不要把归档设计成可撤销操作（细节见文末）。
-- **归档后的行为**（读取全部正常，写入全部失败）：修改项目、创建/修改/删除其下任务、改任务日期、改项目或任务成员一律 `409 conflict`（`fields.project_id`）；项目默认从列表排除，`include_archived: true` 可见（其任务用 `POST /projects/{id}/tasks/query` 仍可查，任务列表不排除归档项目）。
+- **可解除归档**：持有者/系统管理员通过端点 4 单独提交非 archived 的 status 和版本，清空 archived_at，并恢复相应汇总/手工状态；不新增 URL。
+- **归档后的行为**（正常读取，普通写入失败，解除归档除外）：修改项目、创建/修改/删除其下任务、改任务日期、改项目或任务成员一律 `409 conflict`（`fields.project_id`）；项目默认从列表排除，`include_archived: true` 可见（其任务用 `POST /projects/{id}/tasks/query` 仍可查，任务列表不排除归档项目）。
 - **对系统管理员同样只读**：管理员放行只豁免权限判定，不豁免状态规则与不变式（《S02》§5）。
 - **副作用**：写一条 `action = archived` 的操作记录（同事务）。
 
@@ -757,16 +771,16 @@
 - **不幂等**：对已不是成员的用户再次调用返回 `404 resource_not_found`，不是 `204`。
 - **副作用**：写一条 `action = member_removed` 的操作记录（同事务）；不产生提醒。
 
-## 不确定或契约未写清的点
+## 实现边界与兼容事项
 
 | 点 | 说明 |
 | --- | --- |
 | 创建项目时省略 `start_date` / `end_date`（契约未规定，按实现描述） | 两个字段在绑定结构上**没有必填标记**，服务端也没有默认值：省略时按 Go 零值日期 `0001-01-01` 写入并返回 `201`（数据库 `DATE NOT NULL` 与 `end_date >= start_date` 都成立）。《S02》§4.5 把两个日期列为创建字段，但未规定省略行为。**建议前端恒传两个日期**；若要把"缺失即 `422`"定成契约，属于契约新增项。 |
 | `group_id` / `user_id` 不是合法 UUID | 本域只有**路径参数**（`project_id`、`user_id`）与列表筛选参数（`owner_id`、`group_id`）做了前置 UUID 校验（返回 `400`）。请求体里的 `group_id`（端点 1）与 `user_id`（端点 7）**没有**前置校验：非 UUID 字符串会直达数据库并触发 PostgreSQL `22P02`，最终兜底为 `500 internal_error`。与《A07》记录的"附件域路径参数"情形同类。 |
-| 归档能否解除 | 没有"解除归档"端点，`archived_at` 不会被任何端点清空，而"只读"与"列表排除"都按 `status == "archived" \|\| archived_at != null` 判定。`PATCH /projects/{id}` 携带 `status`（非 `archived`）时会跳过只读检查、放行本次写入，但项目**依然是归档状态**。契约未定义"解除归档"的语义，前端不要把它设计成可逆操作。 |
+| 归档能否解除 | 已明确：复用端点 4 的单独 status + expected_updated_at 请求；清空 archived_at，有任务时恢复汇总，不能捆绑普通编辑。 |
 | 只提交 `expected_updated_at` 的空写入 | 服务端不校验"至少一个可改字段"，空写入返回 `200` 并推进 `updated_at`，会让其它客户端的版本失效。该规则只写进了 Users 域（《A02》），Projects 域契约未提。 |
 | `role: member` 的可用性 | 见端点 8 备注：因为持有者恰好一个，`role: member` 永远不能成功（`403` 或 `409`）。《S02》§5 只写了"不得降级唯一 owner"，未说明对普通成员返回 `409`。 |
 | "无权"的错误码不一致 | 项目更新/归档对"不是持有者也不是系统管理员"返回 `403 permission_denied`——**项目对请求者不可见时也是 `403`**（相当于对外区分了"项目 id 存在"与"不存在"）；成员管理端点（7/8/9）对同一类请求者返回 `404 project_not_found`。契约未统一这两处，前端需按接口分别处理。 |
 | 归档项目上的写入报错顺序 | 端点 4/5 的归档检查在权限检查**之后**：非持有者操作已归档项目会先得到 `403`，而不是 `409`。前端若要展示"项目已归档，不可修改"，请仅在确认自己有管理权后再依赖这个提示。 |
 | 日期/时间字符串格式非法的错误码 | `httpapi.Date` / `Timestamp` 的自定义解析错误既不是 `json.SyntaxError` 也不是 `UnmarshalTypeError`，会落到请求体解析的兜底分支：`400 invalid_request`，`fields.body = "请求体无法解析"`——**具体字段名不会出现在 `fields` 里**。《S02》§2.7 只规定了"未知字段"（`422`）与"多个 JSON 值"（`400`），未规定这一情形。 |
-| `paused` 状态语义 | 枚举里有 `paused`（见 [README.md](README.md) 的"公共资源表示"），但契约未描述它与 `in_progress` 在派生字段上的差别：`progress` 与 `overdue_task_count` 的计算只看任务，不看项目的 `paused`。前端不要假设 `paused` 会改变逾期或进度的口径。 |
+| `paused` 状态语义 | 仅无任务项目可手工暂停，不随日期推进；有任务项目状态由树汇总。归档独立处理。 |

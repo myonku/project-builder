@@ -32,7 +32,7 @@
 
 合计 **65 个业务端点**，另有 4 个健康检查端点（见下）。
 
-> **当前覆盖范围**：头像、邮箱验证重置密码和本人附件管理均已交付。字段与错误码见本目录 A01–A10 及 S02；迁移与运行见 B02/B03，全局统筹见 [P00](../P00-项目统筹与实施总览.md)。
+> **当前覆盖范围**：头像、邮箱验证重置密码和本人附件管理均已交付。字段与错误码见本目录 A01–A10 及 S02；迁移与运行见 B02/B03，全局统筹见 [文档总览](../README.md)。
 > 调整接口时先改 S02，再改本目录对应 A0x，最后改代码。
 
 > 本目录的文件按域编号（`A01`…）。共用文档用 `S` 前缀，服务端文档用 `B` 前缀，
@@ -130,13 +130,13 @@
   "color": "#336699",
   "archived_at": null,
   "progress": 0,
+  "has_tasks": false,
   "overdue_task_count": 0,
   "updated_at": "2026-09-30T04:00:00Z"
 }
 ```
 
-`progress` 与 `overdue_task_count` 是查询派生字段，不持久化。
-`progress` 为有效任务进度的简单平均值；已取消任务不参与计算；无有效任务时为 `0`。
+Project.status/progress 保存有效结果：has_tasks=false 时手工维护，有任务时有效根等权汇总。Task.status/progress 同样按 has_children 区分叶子手工/父级汇总。结构标志只读；内部 precise_progress 不返回。overdue_task_count、is_overdue 仍按请求者时区查询派生。规则见 S01 §5.4.1，字段与写入错误见 A04/A05，计划统计见 A06。
 
 ### 3. 任务
 
@@ -150,6 +150,7 @@
   "id": "uuid",
   "project_id": "uuid",
   "parent_id": null,
+  "has_children": false,
   "created_by": "uuid",
   "name": "Prepare migration",
   "status": "in_progress",

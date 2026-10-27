@@ -1,13 +1,13 @@
 # A07 附件接口详解
 
 > 归属：**前后端共用**（`docs/api/`）。通用约定（基础路径 `/api/v1`、成功/错误信封、认证、分页、并发与幂等、限流、未知字段拒绝）见《S02-HTTP接口契约》§2，本文不重复。
-> 契约正文（约定性叙述）见《A07》；本文补齐每个接口的**请求与响应数据结构**。
+> 业务范围见《S01》，跨端规则见《S02》；本文定义各接口的请求与响应数据结构。
 
 > **2026-10-21 W3 已落地**：附件字节支持 `local`（默认）与 **MongoDB GridFS**
 > （`storage.backend=gridfs`），**HTTP 契约不变**：`stored_key` 仍是实现细节、下载仍按附件 id、
 > 彻底删除仍“先删对象再删行”。旧本地文件由 `cmd/storage-migrate` copy/verify/rollback，
 > 账本在 `attachments.storage_backend`；Mongo 健康检查与备份顺序见
-> [P00](../P00-项目统筹与实施总览.md)。
+> [文档总览](../README.md)。
 > **W4 起头像也使用同一 `storage.Store` 抽象**，但走独立的 `avatars` bucket（local 模式为同一根目录下的
 > `avatars/` 前缀）；附件与头像的 key/MIME/大小/权限互不影响。
 

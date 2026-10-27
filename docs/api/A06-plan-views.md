@@ -1,10 +1,12 @@
 # A06 Plan Views 接口详解
 
 > 归属：**前后端共用**（`docs/api/`）。通用约定（基础路径 `/api/v1`、成功/错误信封、认证、分页、并发与幂等、限流、未知字段拒绝）见《S02-HTTP接口契约》§2，本文不重复。
-> 契约正文（约定性叙述）见《A06》；本文补齐每个接口的**请求与响应数据结构**。
+> 业务范围见《S01》，跨端规则见《S02》；本文定义各接口的请求与响应数据结构。
 
 > **2026-10-21 W4 已落地**：三个计划视图的任务成员对象已增加 `avatar_updated_at`；
-> 这是列表与甘特图批量显示头像的字段，避免逐用户 N+1 请求。见 [P00](../P00-项目统筹与实施总览.md)。
+> 这是列表与甘特图批量显示头像的字段，避免逐用户 N+1 请求。见 [文档总览](../README.md)。
+
+> PlanTask 新增 `has_children: boolean`（只读结构标志，含全部取消的未删除下级）；`precise_progress` 不公开。
 
 ## 接口清单
 
@@ -28,8 +30,14 @@
 - **都不分页**：响应里没有 `pagination`，数组是完整的（甘特图必须一次拿到全部条目）。数据量大时响应会比较大；需要分页时应先改契约（《A06》）。
 - 全部要求登录；未登录一律 `401 authentication_required`。`429 rate_limited`（限流，带 `Retry-After`）与 `500 internal_error` 适用于全部端点（《S02》§2.4、§2.8）。
 - 逻辑删除的任务**一律不出现**；归档项目默认排除，`include_archived=true` 时项目**与其任务同时**出现。
-- 派生字段（`progress`、`overdue_task_count`、`is_overdue`、`can_edit`）复用与写接口相同的领域规则；「今天」按**请求者时区**计算（《A02》 末段）。
+- 项目/任务 status、progress 读取持久化有效结果，任务返回只读 has_children；overdue_task_count、is_overdue、can_edit 仍是查询投影；「今天」按**请求者时区**计算（《A02》 末段）。
 - 计划视图的项目 / 任务投影与 [README.md](README.md) "公共资源表示"里的项目 / 任务表示**不完全相同**：不含 `created_by`、`created_at`、`deleted_at`，并额外带 `my_role`、`task_count`、`can_edit`、`owner`、`updated_by` / `updated_by_name` 等（逐字段见 §1 的字段表）。
+
+### 汇总与视图范围
+
+项目 status/progress 与 A04 同源；任务 status/progress/has_children 与 A05 同源，筛选、排序、逾期和提醒都依据最终有效值。完整树可以影响父级/项目聚合结果，但不返回隐藏子任务资料，也不扩大编辑权。
+
+项目和任务列表仍分别按查询条件、可见性过滤。task_count、in_progress_task_count、overdue_task_count 基于视图中返回的任务；overall_progress 基于返回项目结果。筛掉一个子任务不会使其父级或项目进度变化，故不能从当前 tasks 数组重新计算项目进度。归档项目下 can_edit=false；has_children=true 只限制状态/进度，不等同于整个任务不可编辑。PlanProject 不新增 has_tasks，Project 资源才返回该标志。
 
 ## 1. `GET /api/v1/plan-views/personal`
 
@@ -92,6 +100,7 @@
         "id": "0199f0c2-8b1e-7a3c-9d2f-5e6a7b8c9d21",
         "project_id": "0199f0c2-8b1e-7a3c-9d2f-5e6a7b8c9d20",
         "parent_id": null,
+        "has_children": false,
         "name": "Prepare migration",
         "description": null,
         "status": "in_progress",
@@ -160,7 +169,7 @@
 | `owner_id` | UUID \| null | 项目持有者（正常情况下非空） |
 | `my_role` | string \| null | 当前用户在该项目中的成员角色：`owner` / `member`；**`null` 表示不是项目成员**（只可能通过组内共享看到它） |
 | `task_count` | integer | **本视图内可见**的任务数 |
-| `progress` | integer | 派生：本视图内可见任务的进度简单平均值（已取消任务不参与；无有效任务时为 `0`） |
+| `progress` | integer | 持久化项目有效进度，与项目详情一致；基于完整任务树，任务筛选或可见集合不重算 |
 | `overdue_task_count` | integer | 派生：本视图内可见任务中已逾期的条数 |
 | `updated_at` | string | 项目最后变更时刻（UTC ISO 8601，带亚秒精度） |
 
@@ -174,7 +183,8 @@
 | `name` | string | 任务名称 |
 | `description` | string \| null | 任务说明 |
 | `status` | string | `not_started` / `in_progress` / `completed` / `cancelled`（**没有 `overdue`**：逾期是派生字段） |
-| `progress` | integer | 0–100 |
+| `progress` | integer | 0–100 有效进度；叶子手工、父任务汇总 |
+| `has_children` | boolean | 只读结构标志；全取消的未删除下级仍计入 |
 | `priority` | integer | `0` 低 / `1` 普通 / `2` 高 / `3` 紧急 |
 | `start_date` / `end_date` | string | 自然日 `YYYY-MM-DD` |
 | `is_milestone` | boolean | 是否里程碑 |
@@ -205,7 +215,7 @@
 | `task_count` | integer | 视图内任务数（恒等于 `tasks` 的长度） |
 | `in_progress_task_count` | integer | 状态为 `in_progress` 的任务数 |
 | `overdue_task_count` | integer | 逾期任务数（与逐任务的 `is_overdue` 同源） |
-| `overall_progress` | integer | 全部可见任务进度的简单平均值（已取消任务不参与；无有效任务时为 `0`） |
+| `overall_progress` | integer | 返回项目的有效进度等权平均，排除 status=cancelled 的项目；无有效项目为 0，最终四舍五入为整数 |
 
 **错误**：
 
@@ -282,6 +292,7 @@
         "id": "0199f0c2-8b1e-7a3c-9d2f-5e6a7b8c9d21",
         "project_id": "0199f0c2-8b1e-7a3c-9d2f-5e6a7b8c9d20",
         "parent_id": null,
+        "has_children": false,
         "name": "Prepare migration",
         "description": null,
         "status": "in_progress",
@@ -399,6 +410,7 @@
         "id": "0199f0c2-8b1e-7a3c-9d2f-5e6a7b8c9d21",
         "project_id": "0199f0c2-8b1e-7a3c-9d2f-5e6a7b8c9d20",
         "parent_id": null,
+        "has_children": false,
         "name": "Prepare migration",
         "description": null,
         "status": "in_progress",

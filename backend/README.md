@@ -3,7 +3,7 @@
 Worklane（Work Items & Layered Timelines）的服务端，使用 **Go 1.26 + Gin + pgx** 实现。
 
 应用面向内部网络，不面向公网开放。当前全局能力与运行边界见
-[P00](../docs/P00-项目统筹与实施总览.md)
+[文档总览](../docs/README.md)
 （品牌、资料/头像、存储与密码重置均纳入现行基线）。
 
 > **本文件是服务端的入口文档**（怎么跑、怎么测、代码怎么分层）。
@@ -16,7 +16,7 @@ Worklane（Work Items & Layered Timelines）的服务端，使用 **Go 1.26 + Gi
 **四个阶段已全部完成并经真实依赖验证**：地基 + Auth、Groups / Projects / Tasks、Users、Plan Views、Attachments、Reminders、Audit，以及交付收口（端到端验收、备份恢复演练、部署核对）。
 
 > **2026-10 状态**：W1 品牌、W2 `/me`、W3 Mongo/GridFS、W4 头像已落地；W5 邮箱重置密码已落地。
-> 当前迁移 head **9**、HTTP 端点 **69**（业务 65 + 健康检查 4）；详见 P00 与 B05 §5.22–§5.24。
+> 当前迁移 head **10**、HTTP 端点 **69**（业务 65 + 健康检查 4）；详见文档总览与 B05 文末。
 
 | 能力 | 状态 |
 | --- | --- |
@@ -24,9 +24,9 @@ Worklane（Work Items & Layered Timelines）的服务端，使用 **Go 1.26 + Gi
 | `platform`：PostgreSQL(pgxpool)、Redis、可注入时钟、UUIDv7/安全令牌、Argon2id、对象存储、SMTP、request id 传递 | ✅ 已实现 |
 | `domain`：错误类型体系、用户规则、时间与逾期规则、权限基线、审计枚举与脱敏 | ✅ 已实现 |
 | `httpapi`：requestID、访问日志、panic 恢复、CORS、会话网关、全局限流、统一信封、错误映射、健康检查 | ✅ 已实现 |
-| 迁移 `000001_init`（9 张表、CHECK、部分唯一索引、外键删除行为）+ `000002`–`000007`（均 up/down 可逆） | ✅ 已实现（head `7`） |
+| 迁移 `000001_init`（9 张表、CHECK、部分唯一索引、外键删除行为）+ `000002`–`000010`（回退数据边界见 B02） | ✅ 已实现（head `10`） |
 | Auth：注册、登录、登出、当前用户（Argon2id + Redis 会话 + HttpOnly Cookie） | ✅ 已实现 |
-| Groups / Projects / Tasks | ✅ 已实现（第二阶段） |
+| Groups / Projects / Tasks | ✅ 已实现；含工作组自助申请、层级任务/项目汇总、无任务项目手工进度与归档恢复 |
 | Users：资料查询/更新、管理员停用、管理员创建/列表/重置密码、按用户时区计算"今天" | ✅ 已实现（第三阶段） |
 | Plan Views：个人计划、组内共享计划、项目甘特图（含"任务最后修改人"） | ✅ 已实现（第三阶段） |
 | Attachments：上传/列表/下载/逻辑删除/彻底删除 / 我的附件管理查询（8 个端点） | ✅ 已实现（第三阶段） |
@@ -35,9 +35,9 @@ Worklane（Work Items & Layered Timelines）的服务端，使用 **Go 1.26 + Gi
 
 已注册端点共 **69 个**（Health 4 / Auth 6 / Users 9 / Groups 13 / Projects 9 / Tasks 11 / Plan Views 3 / Attachments 8 / Reminders 3 / Audit 1 / Registration Requests 2）。
 
-真实依赖验证结果（PostgreSQL 16 + Redis 7 + **MongoDB 9.0.4**，2026-10-21 复跑）：
+真实依赖验证结果（PostgreSQL 16 + Redis 7 + **MongoDB 9.0.4**，2026-10-27 验收记录）：
 
-- `go test ./... -count=1 -p 1` 全量通过：顶层 **346** 项、含子用例合计 **942** 项，0 失败、0 跳过（设置 `TEST_MONGO_URI` 后 GridFS 用例一并执行），覆盖真实数据库上的迁移可逆性、约束生效性、单一 owner 不变式、审计的同事务与脱敏语义，以及八个域的端到端用例。
+- `go test ./... -count=1 -p 1` 全量通过：顶层 **359** 项、含子用例合计 **955** 项，0 失败、0 跳过（设置 `TEST_MONGO_URI` 后 GridFS 用例一并执行），覆盖真实数据库上的迁移可逆性、约束生效性、单一 owner 不变式、审计的同事务与脱敏语义，以及八个域的端到端用例。
 - `scripts/smoke.ps1` 对运行中的服务执行 **207 项断言全部通过**（健康检查、认证全链路、用户资料与管理员端点（含成功路径）、计划视图三端点、持有者与工作组所有权转移、管理员兜底、附件全链路（含 multipart 与两步删除）、提醒生成与派发、**审计的可见性、脱敏与全链路可追溯**、三域 CRUD、分页边界、排序白名单、版本冲突、组合筛选、幂等复制、归档只读）。
   **前提**：服务以 `SCHEDULER_INTERVAL_SECONDS=5` 且 `SECURITY_REGISTRATION_REQUIRES_APPROVAL=false` 启动（`config.toml` 的注册审核默认是 `true`，而冒烟会在注册后直接登录）；换用别的配置会得到 201 通过 / 1 失败或 141 项失败，原因见 [backend/docs/B05 §7.0.1](./docs/B05-进度与验证记录.md) 第 4/6 条坑。
 - 关键实现经**变异验证**：逐条注入缺陷并确认对应用例确实失败，见 [backend/docs/B05](./docs/B05-进度与验证记录.md) 5.7。
@@ -55,7 +55,7 @@ Worklane（Work Items & Layered Timelines）的服务端，使用 **Go 1.26 + Gi
 | --- | --- |
 | [S01-需求文档](../docs/S01-需求文档.md) | 业务需求与验收边界（**业务范围的唯一权威来源**） |
 | [S02-HTTP接口契约](../docs/S02-HTTP接口契约.md) | **约定性叙述**：信封、认证、分页、并发与幂等、限流、错误码表 |
-| [api/ 逐接口详解](../docs/api/README.md) | 每个端点的请求/响应数据结构（`A01`–`A09`，前端为主） |
+| [api/ 逐接口详解](../docs/api/README.md) | 每个端点的请求/响应数据结构（`A01`–`A10`，前端为主） |
 
 **服务端文档**（本目录的 `docs/`）：
 
@@ -71,24 +71,6 @@ Worklane（Work Items & Layered Timelines）的服务端，使用 **Go 1.26 + Gi
 正文里的路径：跨端引用写相对**仓库根**（如 `backend/docs/B03-配置与运行.md`、`docs/S02-HTTP接口契约.md`），
 服务端文档内部引用自家代码写模块内相对路径（`internal/...`）；
 编号约定（`S`/`A`/`B`/`F` 三套独立编号）与各自的更新时机见 [B04](./docs/B04-设计偏离与差异登记.md) §7.2。
-
-## 阶段状态（2026-10-12）
-
-| 阶段 | 范围 | 状态 |
-| --- | --- | --- |
-| 第一阶段 | 基础设施 + Auth | ✅ |
-| 第二阶段 | Groups / Projects / Tasks | ✅ |
-| 第三阶段 | Users / Plan Views / Attachments / Reminders / **Audit** | ✅ |
-| 第四阶段 | 交付收口：端到端验收、备份恢复演练、部署核对 | ✅ 已完成（[backend/docs/B05](./docs/B05-进度与验证记录.md) §5.18 / §6.3.8） |
-
-**邮件通道已打通（2026-10-12）**：服务商由 Outlook 换为**阿里邮箱**
-（`smtp.qiye.aliyun.com:465` + 直接 TLS + `AUTH LOGIN`，密码用三方客户端安全密码），
-已用真实账号实测投递成功。Outlook 一侧的结论（应用密码被 `535` 拒、服务商收紧为 OAuth2）
-保留在 [backend/docs/B03 §3.5.1](./docs/B03-配置与运行.md) 作为教训与判读依据。
-凭据只从环境变量注入（`MAIL_USERNAME` / `MAIL_PASSWORD` / `MAIL_FROM_ADDRESS`），绝不入库。
-
-**换机后从这里开始**：[backend/docs/B05 §7.0](./docs/B05-进度与验证记录.md) 有完整的环境恢复步骤、
-当前证据基线（测试/冒烟/迁移 head 的期望值）与五条最容易踩的坑。
 
 ## 快速开始
 
