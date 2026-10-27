@@ -460,10 +460,17 @@ func (r *Repository) UpdateProject(ctx context.Context, params ProjectUpdatePara
 	err := apperr.InTx(ctx, r.pool, func(ctx context.Context, tx apperr.Querier) error {
 		var children bool
 		var archived *time.Time
-		if err := tx.QueryRow(ctx, `SELECT has_tasks, archived_at FROM projects WHERE id=$1 FOR UPDATE`, params.ID).Scan(&children, &archived); err != nil {
+		if err := tx.QueryRow(ctx, `SELECT has_tasks, CASE WHEN status='archived' THEN COALESCE(archived_at, updated_at) ELSE archived_at END FROM projects WHERE id=$1 FOR UPDATE`, params.ID).Scan(&children, &archived); err != nil {
 			return err
 		}
 		if archived != nil && (params.Status == nil || params.Progress != nil) {
+			return domain.ArchivedError()
+		}
+		// Restoring is a management action, never a way to bundle ordinary edits
+		// into a write against an archived project.
+		if archived != nil && (params.Status == nil || *params.Status == domain.ProjectStatusArchived ||
+			params.Name != nil || params.DescriptionSet || params.Visibility != nil ||
+			params.StartDate != nil || params.EndDate != nil || params.ColorSet) {
 			return domain.ArchivedError()
 		}
 		if children && (params.Progress != nil || (params.Status != nil && archived == nil)) {

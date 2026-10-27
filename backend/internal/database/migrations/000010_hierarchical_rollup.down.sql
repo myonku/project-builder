@@ -1,8 +1,9 @@
 DROP TRIGGER task_rollup_changed ON tasks;
 DROP FUNCTION task_rollup_changed();
-DROP TRIGGER validate_rollup_tree ON tasks;
-DROP FUNCTION validate_rollup_tree();
-DROP FUNCTION refresh_project_rollup(uuid, uuid);
+DROP TRIGGER IF EXISTS validate_rollup_tree ON tasks;
+DROP FUNCTION IF EXISTS validate_rollup_tree();
+DROP FUNCTION IF EXISTS refresh_project_rollup(uuid, uuid);
+DROP FUNCTION IF EXISTS refresh_project_rollup(uuid);
 UPDATE tasks t SET status = l.status, progress = l.progress
 FROM rollup_legacy_values l WHERE l.kind = 'task' AND l.id = t.id;
 UPDATE projects p SET status = l.status
