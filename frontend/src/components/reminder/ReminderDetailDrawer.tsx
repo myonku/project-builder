@@ -134,7 +134,16 @@ export default function ReminderDetailDrawer({
       anchor="right"
       open={reminderId !== null}
       onClose={onClose}
-      slotProps={{ paper: { sx: { width: { xs: '100%', sm: 460 } } } }}
+      slotProps={{
+        paper: {
+          sx: {
+            width: { xs: '100%', sm: 460 },
+            // 与任务、审计详情一致，为顶栏留出空间，保持标题和关闭按钮可见。
+            top: { xs: 56, sm: 64 },
+            height: { xs: 'calc(100% - 56px)', sm: 'calc(100% - 64px)' },
+          },
+        },
+      }}
     >
       <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
         <Stack

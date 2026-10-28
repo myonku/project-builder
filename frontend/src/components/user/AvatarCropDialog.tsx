@@ -82,9 +82,13 @@ export default function AvatarCropDialog({ file, busy, error, onCancel, onSave }
 
   return <Dialog open fullWidth maxWidth="sm" aria-labelledby={titleId}
     onClose={(_event, reason) => { if (!working && reason !== 'backdropClick') onCancel(); }}>
-    <DialogTitle id={titleId}>设置头像</DialogTitle>
+    <DialogTitle id={titleId}>
+      <Box sx={{ px: 2}}>
+        设置头像
+      </Box>
+    </DialogTitle>
     <DialogContent>
-      <Stack spacing={2}>
+      <Stack spacing={2} sx={{ px: 4, width: '100%', minWidth: 0 }}>
         <Typography variant="body2" color="text.secondary">拖动图片调整位置，使用缩放和旋转滑块，让头像在圆框中呈现合适的效果。</Typography>
         {localError && <Alert severity="error">{localError}</Alert>}
         {!!error && <Alert severity="error">{describeApiError(error)}</Alert>}
@@ -98,13 +102,18 @@ export default function AvatarCropDialog({ file, busy, error, onCancel, onSave }
         </Box>
         <Box>
           <Typography id="avatar-zoom-label" variant="body2">缩放</Typography>
-          <Slider aria-labelledby="avatar-zoom-label" value={zoom} min={1} max={4} step={0.01} valueLabelDisplay="auto"
-            valueLabelFormat={value => `${Math.round(value * 100)}%`} onChange={(_event, value) => setZoom(value as number)} disabled={!loaded || working} />
+          {/* 端点两侧留出数值提示和悬浮光圈的空间，避免它们撑出内容滚动区。 */}
+          <Box>
+            <Slider aria-labelledby="avatar-zoom-label" value={zoom} min={1} max={4} step={0.01} valueLabelDisplay="auto"
+              valueLabelFormat={value => `${Math.round(value * 100)}%`} onChange={(_event, value) => setZoom(value as number)} disabled={!loaded || working} />
+          </Box>
         </Box>
         <Box>
           <Typography id="avatar-rotation-label" variant="body2">旋转</Typography>
-          <Slider aria-labelledby="avatar-rotation-label" value={rotation} min={-180} max={180} step={1} valueLabelDisplay="auto"
-            valueLabelFormat={value => `${value}°`} onChange={(_event, value) => setRotation(value as number)} disabled={!loaded || working} />
+          <Box>
+            <Slider aria-labelledby="avatar-rotation-label" value={rotation} min={-180} max={180} step={1} valueLabelDisplay="auto"
+              valueLabelFormat={value => `${value}°`} onChange={(_event, value) => setRotation(value as number)} disabled={!loaded || working} />
+          </Box>
         </Box>
       </Stack>
     </DialogContent>
