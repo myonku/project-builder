@@ -8,7 +8,7 @@ const port = Number(process.argv[2] || 5184), apiPort = Number(process.argv[3] |
 if (![port, apiPort].every(p => Number.isInteger(p) && p > 1024 && p < 65536)) throw new Error('Invalid local test port');
 const root = resolve('dist');
 let faults = { write: 'normal', read: 'normal' };
-const patches = [], reads = [];
+const patches = [], reads = [], projectQueries = [];
 const bodyOf = async req => { const chunks = []; for await (const chunk of req) chunks.push(chunk); return Buffer.concat(chunks); };
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 createServer(async (req, res) => {
@@ -20,16 +20,18 @@ createServer(async (req, res) => {
         if (!['normal', 'slow', 'drop', 'malformed'].includes(next.write) || !['normal', 'slow', 'fail'].includes(next.read)) throw new Error('Invalid fault mode');
         faults = next;
       }
-      res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ faults, patches, reads })); return;
+      res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ faults, patches, reads, projectQueries })); return;
     }
     if (path.startsWith('/api/') || path === '/healthz') {
       const body = await bodyOf(req);
       const write = req.method === 'PATCH' && /^\/api\/v1\/tasks\//.test(path);
       const read = req.method === 'GET' && path.startsWith('/api/v1/plan-views/');
+      const projectQuery = req.method === 'POST' && path === '/api/v1/projects/query';
       const mode = { ...faults };
       if (write) patches.push({ path, body: JSON.parse(body.toString()), at: Date.now() });
       if (read) reads.push({ path, at: Date.now() });
-      if ((write && mode.write === 'slow') || (read && mode.read === 'slow')) await delay(1800);
+      if (projectQuery) projectQueries.push({ body: JSON.parse(body.toString()), at: Date.now() });
+      if ((write && mode.write === 'slow') || ((read || projectQuery) && mode.read === 'slow')) await delay(1800);
       if (read && mode.read === 'fail') { res.writeHead(503, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: { code: 'internal_error', message: 'P03 injected read failure' } })); return; }
       const upstream = request({ host: '127.0.0.1', port: apiPort, path: req.url, method: req.method, headers: { ...req.headers, host: `127.0.0.1:${apiPort}` } }, response => {
         // Lose the upstream result after commit. Return an explicit gateway failure

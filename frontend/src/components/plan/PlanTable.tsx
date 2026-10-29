@@ -69,7 +69,7 @@ export default function PlanTable({
   onOpenProject,
   activeTaskId = null,
   timeZone,
-  emptyHint = '当前筛选下没有项目或任务',
+  emptyHint = '当前筛选下没有项目或任务。',
 }: PlanTableProps) {
   const columns = React.useMemo<GridColDef<PlanRow>[]>(
     () => [

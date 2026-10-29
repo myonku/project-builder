@@ -124,7 +124,7 @@ export default function PersonalPlanView() {
             activeTaskId={taskId}
             onOpenTask={openTask}
             onOpenProject={(projectId) => navigate(`/projects/${projectId}`)}
-            emptyHint="你还没有参与任何项目（个人计划只包含你是项目成员的项目）"
+            emptyHint="你还没有参与任何项目（个人计划只包含你是项目成员的项目）。"
           />
         </PlanTableSection>
       </Stack>

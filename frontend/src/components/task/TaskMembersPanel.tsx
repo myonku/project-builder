@@ -220,7 +220,7 @@ export default function TaskMembersPanel({
 
       {!error && members.length === 0 && !loading ? (
         <Typography variant="body2" color="text.secondary">
-          暂无任务成员
+          暂无任务成员。
         </Typography>
       ) : null}
 

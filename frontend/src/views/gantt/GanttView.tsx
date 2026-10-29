@@ -29,8 +29,6 @@ import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import RefreshIcon from '@mui/icons-material/Refresh';
-import RestartAltIcon from '@mui/icons-material/RestartAlt';
-import SearchIcon from '@mui/icons-material/Search';
 import { useNavigate, useSearchParams } from 'react-router';
 import PageContainer from '@/components/common/PageContainer';
 import { filterItemSx, filterRowSx } from '@/components/common/filterLayout';
@@ -82,8 +80,9 @@ export default function GanttView() {
   const memberParam = searchParams.get('memberId') ?? '';
   const taskId = searchParams.get('taskId');
 
-  /** 项目名称是"主动查询"：输入框只改草稿，点查询/回车才写 URL 并重新拉选项 */
+  /** 服务端名称匹配；输入暂停 500ms 后应用，失焦/回车可立即应用。 */
   const [projectNameDraft, setProjectNameDraft] = React.useState(projectNameParam);
+  const [projectNameComposing, setProjectNameComposing] = React.useState(false);
   const [collapsedIds, setCollapsedIds] = React.useState<Set<string>>(() => new Set());
 
   const patchParams = React.useCallback(
@@ -109,10 +108,11 @@ export default function GanttView() {
     reload: reloadProjects,
   } = useProjectOptions(view === 'projects', projectNameParam);
 
-  // URL 是名称筛选的权威值：后退/外链进入时把草稿同步回来
+  // URL 是名称筛选的权威值；切换视图也丢弃尚未应用的输入与输入法状态。
   React.useEffect(() => {
     setProjectNameDraft(projectNameParam);
-  }, [projectNameParam]);
+    setProjectNameComposing(false);
+  }, [projectNameParam, view]);
   const {
     options: groupOptions,
     loading: groupsLoading,
@@ -241,15 +241,12 @@ export default function GanttView() {
   );
 
   const applyProjectName = React.useCallback(() => {
+    if (view !== 'projects' || projectNameComposing || interactionBusy.current) return;
     const name = projectNameDraft.trim();
+    if (name === projectNameParam) return;
     // 名称变化后让 effectiveProjectId 重新命中结果集；当前项目若仍在结果里会保留
-    patchParams({ projectName: name || null, taskId: null });
-  }, [projectNameDraft, patchParams]);
-
-  const resetProjectName = React.useCallback(() => {
-    setProjectNameDraft('');
-    patchParams({ projectName: null, taskId: null });
-  }, [patchParams]);
+    patchParams({ projectName: name || null, taskId: null }, true);
+  }, [view, projectNameDraft, projectNameParam, projectNameComposing, patchParams]);
 
   const summary = view === 'projects' ? projectPayload?.summary : planPayload?.summary;
   const loading = view === 'projects' ? projectLoading : planLoading;
@@ -257,12 +254,18 @@ export default function GanttView() {
   const optionsError = view === 'projects' ? projectsError : groupsError;
   const reload = view === 'projects' ? reloadProject : reloadPlan;
   const today = todayIn(userTimeZone);
-  const editableAvailable = !loading && !dataError && !optionsError && rows.some((row) => row.kind === 'task' && row.task.can_edit);
+  const editableAvailable = !loading && !(view === 'projects' && projectsLoading) && !dataError && !optionsError && rows.some((row) => row.kind === 'task' && row.task.can_edit);
   const editKey = `${view}:${effectiveProjectId}:${projectNameParam}:${effectiveGroupId}:${memberParam}:${scale}`;
   const edit = useGanttEdit(editKey, editableAvailable, view === 'projects' ? reloadProjectAsync : reloadPlanAsync);
   interactionBusy.current = edit.busy;
   React.useEffect(() => { if (taskId && edit.enabled && !edit.busy) edit.lock(); }, [taskId, edit.enabled, edit.busy, edit.lock]);
   const openTaskFromChart = (id: string) => { if (!edit.busy) { edit.lock(); openTask(id); } };
+
+  React.useEffect(() => {
+    if (view !== 'projects' || edit.busy || projectNameComposing || projectNameDraft.trim() === projectNameParam) return;
+    const timer = window.setTimeout(applyProjectName, 500);
+    return () => window.clearTimeout(timer);
+  }, [view, edit.busy, projectNameComposing, projectNameDraft, projectNameParam, applyProjectName]);
 
   React.useEffect(() => {
     if (dataError) {
@@ -347,9 +350,17 @@ export default function GanttView() {
                     size="small"
                     label="项目名称"
                     disabled={edit.busy}
-                    placeholder="包含匹配"
+                    placeholder="输入后自动筛选"
                     value={projectNameDraft}
                     onChange={(event) => setProjectNameDraft(event.target.value)}
+                    onBlur={applyProjectName}
+                    onCompositionStart={() => setProjectNameComposing(true)}
+                    onCompositionEnd={() => setProjectNameComposing(false)}
+                    onKeyDown={(event) => {
+                      if (event.key !== 'Enter') return;
+                      event.preventDefault();
+                      if (!event.nativeEvent.isComposing) applyProjectName();
+                    }}
                     sx={filterItemSx(200, 380)}
                   />
                   <TextField
@@ -461,22 +472,6 @@ export default function GanttView() {
                 </ToggleButtonGroup>
               </Box>
             </Box>
-
-            {view === 'projects' ? (
-              <Box sx={filterRowSx(true)}>
-                <Button type="submit" variant="contained" startIcon={<SearchIcon />}>
-                  查询
-                </Button>
-                <Button
-                  type="button"
-                  variant="outlined"
-                  startIcon={<RestartAltIcon />}
-                  onClick={resetProjectName}
-                >
-                  重置
-                </Button>
-              </Box>
-            ) : null}
           </Stack>
           </Box>
         </Box>
@@ -519,7 +514,7 @@ export default function GanttView() {
         {noProject ? (
           <Alert severity="info" variant="outlined">
             {projectNameParam
-              ? `没有名称包含「${projectNameParam}」的可查看项目。可以清空名称后重新查询。`
+              ? `没有名称包含「${projectNameParam}」的可查看项目。修改或清空名称会自动更新列表。`
               : '当前没有可查看的项目。项目甘特图只列出你有读权限的项目。'}
           </Alert>
         ) : null}
@@ -572,10 +567,10 @@ export default function GanttView() {
             view === 'projects'
               ? noProject
                 ? projectNameParam
-                  ? '没有匹配的项目'
-                  : '暂无可查看的项目'
-                : '这个项目还没有可见任务'
-              : '这个工作组还没有已共享的任务'
+                  ? '没有匹配的项目。'
+                  : '暂无可查看的项目。'
+                : '这个项目还没有可见任务。'
+              : '这个工作组还没有已共享的任务。'
           }
         />
 

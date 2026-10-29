@@ -182,7 +182,7 @@ export default function GroupPlanView() {
             activeTaskId={taskId}
             onOpenTask={openTask}
             onOpenProject={(projectId) => navigate(`/projects/${projectId}`)}
-            emptyHint="这个工作组里还没有共享出来的项目或任务"
+            emptyHint="这个工作组里还没有共享出来的项目或任务。"
           />
         </PlanTableSection>
       </Stack>

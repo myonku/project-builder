@@ -106,7 +106,7 @@ function NoAuditRows() {
   return (
     <Stack sx={{ alignItems: 'center', justifyContent: 'center', height: '100%' }}>
       <Typography variant="body2" color="text.secondary">
-        没有符合条件的操作记录
+        没有符合条件的操作记录。
       </Typography>
     </Stack>
   );

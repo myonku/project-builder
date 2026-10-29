@@ -157,7 +157,7 @@ export default function GanttChart({
   onOpenTask,
   onOpenProject,
   activeTaskId = null,
-  emptyHint = '当前选择下没有可展示的任务',
+  emptyHint = '当前选择下没有可展示的任务。',
 }: GanttChartProps) {
   const theme = useTheme();
   const scrollRef = React.useRef<HTMLDivElement | null>(null);
