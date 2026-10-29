@@ -177,7 +177,7 @@ func TestRollupLegacyMigrationRollback(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer migrator.Close()
-	if err = migrator.Steps(-1); err != nil {
+	if err = migrator.Steps(-2); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = h.Pool.Exec(context.Background(), `UPDATE tasks SET progress=80,status='in_progress' WHERE id=$1;`, a); err != nil {
@@ -193,7 +193,7 @@ func TestRollupLegacyMigrationRollback(t *testing.T) {
 	if err = h.Pool.QueryRow(context.Background(), `SELECT progress FROM tasks WHERE id=$1`, a).Scan(&value); err != nil || value != 20 {
 		t.Fatal(value, err)
 	}
-	if err = migrator.Steps(-1); err != nil {
+	if err = migrator.Steps(-2); err != nil {
 		t.Fatal(err)
 	}
 	if err = h.Pool.QueryRow(context.Background(), `SELECT progress FROM tasks WHERE id=$1`, a).Scan(&value); err != nil || value != 80 {
@@ -354,7 +354,7 @@ func TestRollupRemindersUseActualStatus(t *testing.T) {
 	if Int(data, "progress") != 100 || Str(data, "status") != "in_progress" || data["is_overdue"] != true {
 		t.Fatal("rounded percentage drove terminal state", data)
 	}
-	if _, err := h.Reminders.Generate(context.Background()); err != nil {
+	if _, err := inspectReminderPlans(h); err != nil {
 		t.Fatal(err)
 	}
 	if countReminders(t, h, parent, domain.ReminderKindOverdue) != 1 {
@@ -363,10 +363,10 @@ func TestRollupRemindersUseActualStatus(t *testing.T) {
 	child := owner.Client.Get(URL("/tasks/"+last)).RequireStatus(t, 200).Data(t)
 	owner.Client.Patch(URL("/tasks/"+last), map[string]any{"progress": 100, "expected_updated_at": child["updated_at"]}).RequireStatus(t, 200)
 	h.Clock.Advance(24 * time.Hour)
-	if _, err := h.Reminders.Generate(context.Background()); err != nil {
+	if _, err := inspectReminderPlans(h); err != nil {
 		t.Fatal(err)
 	}
-	if countReminders(t, h, parent, domain.ReminderKindOverdue) != 1 {
-		t.Fatal("completed parent generated another overdue reminder")
+	if countReminders(t, h, parent, domain.ReminderKindOverdue) != 0 {
+		t.Fatal("completed parent retained a sendable overdue reminder")
 	}
 }

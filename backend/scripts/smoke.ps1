@@ -1104,18 +1104,17 @@ Assert-True ($null -ne $reminderList) '调度器已生成提醒'
 
 if ($null -ne $reminderList) {
     $reminder = $reminderList.Body.data[0]
-    # 邮件未启用（smoke 没配 SMTP）→ 提醒被如实记为 skipped，
-    # 而不是伪装成"已发送"。这正是 Disabled 发送器返回错误而不是 nil 的意义。
-    Assert-Equal $reminder.status 'skipped' '邮件未启用时提醒记为 skipped'
-    Assert-True ($reminder.last_error -like '*邮件功能未启用*') '跳过原因可查询'
+    # P02：全局邮件关闭只暂停派发，事务内计划保留。
+    Assert-Equal $reminder.status 'pending' '邮件未启用时保留待发计划'
+    Assert-Equal $reminder.attempts 0 '暂停派发不增加发送尝试'
 
     $reminderDetail = Invoke-Api -Method GET -Path "/api/v1/reminders/$($reminder.id)"
     Assert-Equal $reminderDetail.Status 200 '提醒详情可查询'
 
-    # skipped 允许重试（例如运维刚把 SMTP 配好）；已发送的不允许。
+    # 已在队列中的计划无需手动重试。
     $retried = Invoke-Api -Method POST -Path "/api/v1/reminders/$($reminder.id)/retry" -Body @{}
-    Assert-Equal $retried.Status 200 'skipped 的提醒可以重试'
-    Assert-Equal $retried.Body.data.status 'pending' '重试后回到待发送'
+    Assert-Equal $retried.Status 409 '待发计划拒绝重复排队'
+    Assert-Equal $reminder.can_retry $false '待发计划不提供重试资格'
 }
 
 $badQuery = Invoke-Api -Method GET -Path '/api/v1/reminders?kinds=task_overdue'

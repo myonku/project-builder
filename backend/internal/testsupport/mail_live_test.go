@@ -129,7 +129,7 @@ func TestLiveSMTPTemplates(t *testing.T) {
 		}
 	}
 	capture := &FakeSender{}
-	preview := reminders.NewService(reminders.Options{Store: repo, Sender: capture, IDs: h.IDs, Clock: h.Clock, Logger: h.Logger, TaskURLTemplate: taskURL})
+	preview := reminders.NewService(reminders.Options{Store: repo, Sender: capture, Clock: h.Clock, Logger: h.Logger, TaskURLTemplate: taskURL})
 	previewReport, err := preview.Dispatch(ctx)
 	if err != nil || previewReport.Sent != 5 {
 		t.Fatal("five local reminder previews failed")
@@ -169,7 +169,7 @@ func TestLiveSMTPTemplates(t *testing.T) {
 	if _, _, err := repo.InsertIfAbsent(ctx, reminders.CreateParams{ID: id, TaskID: task, RecipientID: actor.UserID, RecipientEmail: to, Kind: domain.ReminderKindDueSoon, ScheduledFor: h.Clock.Now(), DedupeKey: "live-provider:one-reminder"}); err != nil {
 		t.Fatal(err)
 	}
-	liveReminders := reminders.NewService(reminders.Options{Store: repo, Sender: limited, IDs: h.IDs, Clock: h.Clock, Logger: h.Logger, TaskURLTemplate: taskURL, BatchSize: 1})
+	liveReminders := reminders.NewService(reminders.Options{Store: repo, Sender: limited, Clock: h.Clock, Logger: h.Logger, TaskURLTemplate: taskURL, BatchSize: 1})
 	liveReport, err := liveReminders.Dispatch(ctx)
 	if err != nil || liveReport.Sent != 1 || liveReport.Failed != 0 || len(limited.receipts) != 1 || !limited.receipts[0].Accepted {
 		t.Fatal("live reminder was not confirmed by SMTP; stopping without retries; see redacted receipt")

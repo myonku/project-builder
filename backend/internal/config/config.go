@@ -238,10 +238,12 @@ func (c RateLimitConfig) Rate() float64 {
 
 // SchedulerConfig 描述单实例应用内调度参数。
 type SchedulerConfig struct {
-	Enabled           bool `toml:"enabled"`
-	IntervalSeconds   int  `toml:"interval_seconds"`
-	ReminderBatchSize int  `toml:"reminder_batch_size"`
-	MaxRetries        int  `toml:"max_retries"`
+	Enabled                       bool `toml:"enabled"`
+	IntervalSeconds               int  `toml:"interval_seconds"`
+	ReminderBatchSize             int  `toml:"reminder_batch_size"`
+	MaxRetries                    int  `toml:"max_retries"`
+	ReminderSendIntervalMS        int  `toml:"reminder_send_interval_ms"`
+	ReminderAttemptTimeoutSeconds int  `toml:"reminder_attempt_timeout_seconds"`
 }
 
 // SessionTTL 返回会话有效期。
@@ -410,10 +412,11 @@ func defaultConfig() Config {
 			Burst:             300,
 		},
 		Scheduler: SchedulerConfig{
-			Enabled:           true,
-			IntervalSeconds:   60,
-			ReminderBatchSize: 100,
-			MaxRetries:        1,
+			Enabled:                true,
+			IntervalSeconds:        60,
+			ReminderBatchSize:      100,
+			ReminderSendIntervalMS: 1000, ReminderAttemptTimeoutSeconds: 120,
+			MaxRetries: 1,
 		},
 	}
 }
@@ -585,6 +588,8 @@ func envBindings() []envBinding {
 		{"SCHEDULER_ENABLED", boolSetter(func(c *Config) *bool { return &c.Scheduler.Enabled })},
 		{"SCHEDULER_INTERVAL_SECONDS", intSetter(func(c *Config) *int { return &c.Scheduler.IntervalSeconds })},
 		{"SCHEDULER_REMINDER_BATCH_SIZE", intSetter(func(c *Config) *int { return &c.Scheduler.ReminderBatchSize })},
+		{"SCHEDULER_REMINDER_SEND_INTERVAL_MS", intSetter(func(c *Config) *int { return &c.Scheduler.ReminderSendIntervalMS })},
+		{"SCHEDULER_REMINDER_ATTEMPT_TIMEOUT_SECONDS", intSetter(func(c *Config) *int { return &c.Scheduler.ReminderAttemptTimeoutSeconds })},
 		{"SCHEDULER_MAX_RETRIES", intSetter(func(c *Config) *int { return &c.Scheduler.MaxRetries })},
 
 		{"RATELIMIT_ENABLED", boolSetter(func(c *Config) *bool { return &c.RateLimit.Enabled })},
@@ -923,6 +928,15 @@ func (c Config) validate() error {
 	// 账号名/邮箱/密码的具体格式由 domain.NormalizeRegistration 在初始化时校验，
 	// 那里是这三项规则的唯一定义处（避免配置层再写一套）。
 
+	if c.Scheduler.ReminderSendIntervalMS < 0 {
+		add("scheduler.reminder_send_interval_ms 必须为非负数")
+	}
+	if c.Scheduler.ReminderAttemptTimeoutSeconds <= 0 {
+		add("scheduler.reminder_attempt_timeout_seconds 必须为正数")
+	}
+	if c.Scheduler.ReminderBatchSize <= 0 {
+		add("scheduler.reminder_batch_size 必须为正数")
+	}
 	if c.Scheduler.IntervalSeconds <= 0 {
 		add("scheduler.interval_seconds 必须为正数，实际为 %d", c.Scheduler.IntervalSeconds)
 	}

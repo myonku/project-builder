@@ -105,12 +105,11 @@ func (s *Service) TodayFor(actor domain.User) time.Time {
 
 // Service 承载任务用例。
 type Service struct {
-	repo      Store
-	projects  ProjectAccess
-	reminders ReminderRecorder
-	ids       *idgen.Generator
-	clk       clock.Clock
-	logger    *slog.Logger
+	repo     Store
+	projects ProjectAccess
+	ids      *idgen.Generator
+	clk      clock.Clock
+	logger   *slog.Logger
 	// audit 是操作记录的写入方：**由仓储在业务事务里调用**（见 apperr.AuditWrite）。
 	audit apperr.AuditWriter
 }
@@ -119,11 +118,9 @@ type Service struct {
 type Options struct {
 	Store    Store
 	Projects ProjectAccess
-	// Reminders 是可选的通知记录器；nil 表示不记录（例如单元测试装配）。
-	Reminders ReminderRecorder
-	IDs       *idgen.Generator
-	Clock     clock.Clock
-	Logger    *slog.Logger
+	IDs      *idgen.Generator
+	Clock    clock.Clock
+	Logger   *slog.Logger
 	// Audit 为 nil 时不记操作记录（单元测试或不需要审计的装配）。
 	Audit apperr.AuditWriter
 }
@@ -139,13 +136,12 @@ func NewService(opts Options) *Service {
 		clk = clock.NewSystem()
 	}
 	return &Service{
-		repo:      opts.Store,
-		projects:  opts.Projects,
-		reminders: opts.Reminders,
-		ids:       opts.IDs,
-		clk:       clk,
-		logger:    logger,
-		audit:     opts.Audit,
+		repo:     opts.Store,
+		projects: opts.Projects,
+		ids:      opts.IDs,
+		clk:      clk,
+		logger:   logger,
+		audit:    opts.Audit,
 	}
 }
 
@@ -909,9 +905,6 @@ func (s *Service) AddMember(ctx context.Context, in AddMemberInput) (MemberRecor
 
 	// 需求文档 5.7："新任务分配"可以触发邮件。这里只插入一行提醒记录，
 	// 发送由 reminders 的后台循环完成（不阻塞本次请求）。
-	s.recordReminder(ctx, func(recorder ReminderRecorder) {
-		recorder.RecordAssignment(ctx, record.ID, in.UserID)
-	})
 	return member, nil
 }
 
@@ -987,11 +980,6 @@ func (s *Service) ChangeMemberRole(ctx context.Context, in ChangeMemberInput) (M
 
 	// 需求文档 5.7："持有者变更"可以触发邮件。只在**转移**时记录：
 	// 普通角色调整（member ↔ 其他）不构成持有者变更。
-	if action == domain.GroupMemberActionTransfer {
-		s.recordReminder(ctx, func(recorder ReminderRecorder) {
-			recorder.RecordOwnerChange(ctx, record.ID, in.UserID)
-		})
-	}
 	return updated, nil
 }
 

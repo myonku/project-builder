@@ -158,8 +158,8 @@ func TestReminderTaskStillApplies(t *testing.T) {
 func TestReminderKindAppliesToStatus(t *testing.T) {
 	t.Parallel()
 
-	if ReminderKindAppliesToStatus(ReminderKindDueSoon, TaskStatusNotStarted) {
-		t.Error("尚未开始的任务不该收到期前提醒（该收的是开始前提醒）")
+	if !ReminderKindAppliesToStatus(ReminderKindDueSoon, TaskStatusNotStarted) {
+		t.Error("P02: 未开始任务也应收到期前提醒")
 	}
 	if !ReminderKindAppliesToStatus(ReminderKindStartSoon, TaskStatusNotStarted) {
 		t.Error("尚未开始的任务应能收开始前提醒")

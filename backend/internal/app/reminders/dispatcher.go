@@ -9,19 +9,7 @@ import (
 	"github.com/myonku/project-builder/internal/platform/mail"
 )
 
-// Dispatcher 按固定周期生成并派发提醒（需求文档 5.7："系统按固定周期检查待发送提醒"）。
-//
-// 为什么用周期扫描而不是"写任务时就把邮件发出去"：
-//
-//  1. 需求 §9 明确要求"邮件发送不得阻塞用户操作"——在请求路径上连 SMTP
-//     意味着一次超时就把用户的保存操作拖到 30 秒；
-//  2. 时间型提醒（开始前/到期前/延期）本来就不是某个写操作触发的，
-//     它们是"到点了"这件事本身；
-//  3. 周期扫描天然会重复运行，而幂等键让重复运行没有副作用——
-//     这正是 dedupe_key 存在的理由。
-//
-// 事件型提醒（新分配、持有者变更）走另一条路：写任务时只**插入一行**，
-// 发送仍由本循环完成（见 Service.RecordEvent）。
+// Dispatcher polls persisted due plans; business tasks are never scanned here.
 type Dispatcher struct {
 	service  *Service
 	interval time.Duration
@@ -60,7 +48,7 @@ func (d *Dispatcher) Run(ctx context.Context) {
 	}
 }
 
-// runOnce 执行一轮生成 + 派发。
+// runOnce executes one bounded dispatch round.
 //
 // 错误只记录不中断：一轮失败（数据库抖动、SMTP 超时）不该让派发器退出，
 // 否则服务会静默地永远不再提醒，而日志里只有一条早已滚走的错误。
@@ -69,11 +57,6 @@ func (d *Dispatcher) runOnce(ctx context.Context) {
 		return
 	}
 
-	generated, err := d.service.Generate(ctx)
-	if err != nil {
-		d.logger.Error("生成提醒失败，本轮跳过", slog.Any("cause", err))
-		return
-	}
 	dispatched, err := d.service.Dispatch(ctx)
 	if err != nil {
 		d.logger.Error("派发提醒失败", slog.Any("cause", err))
@@ -92,13 +75,11 @@ func (d *Dispatcher) runOnce(ctx context.Context) {
 		d.logger.Log(ctx, level, "提醒发送失败", slog.String("reason", reason))
 	}
 
-	if generated.Generated > 0 || dispatched.Sent > 0 || dispatched.Failed > 0 {
+	if dispatched.Sent > 0 || dispatched.Failed > 0 {
 		d.logger.Info("提醒周期完成",
-			slog.Int("generated", generated.Generated),
 			slog.Int("sent", dispatched.Sent),
 			slog.Int("failed", dispatched.Failed),
 			slog.Int("skipped", dispatched.Skipped),
-			slog.Int("skipped_recipients", generated.SkippedRecipients),
 		)
 	}
 }

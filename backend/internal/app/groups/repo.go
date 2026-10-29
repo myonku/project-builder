@@ -405,6 +405,9 @@ func (r *Repository) TransferOwnership(
 	var updated GroupRecord
 
 	err := apperr.InTx(ctx, r.pool, func(ctx context.Context, tx apperr.Querier) error {
+		if _, err := tx.Exec(ctx, `SELECT id FROM projects WHERE group_id=$1 ORDER BY id FOR UPDATE`, params.GroupID); err != nil {
+			return err
+		}
 		const updateOwner = `
 			UPDATE groups
 			   SET owner_id = $3, updated_at = now()
@@ -474,6 +477,9 @@ func (r *Repository) UpdateGroup(ctx context.Context, params GroupUpdateParams) 
 	// 单语句写入也显式开事务：审计必须与业务同事务（《A09》），
 	// 而"业务成功但审计缺失"是必须结构性排除的失败模式。
 	err := apperr.InTx(ctx, r.pool, func(ctx context.Context, tx apperr.Querier) error {
+		if _, err := tx.Exec(ctx, `SELECT id FROM projects WHERE group_id=$1 ORDER BY id FOR UPDATE`, params.ID); err != nil {
+			return err
+		}
 		if err := tx.QueryRow(ctx, query,
 			params.ID, params.ExpectedUpdated,
 			params.Name, params.DescriptionSet, params.Description, params.Status,
@@ -633,6 +639,9 @@ func (r *Repository) AddMember(
 
 	var member MemberRecord
 	err := apperr.InTx(ctx, r.pool, func(ctx context.Context, tx apperr.Querier) error {
+		if _, err := tx.Exec(ctx, `SELECT id FROM projects WHERE group_id=$1 ORDER BY id FOR UPDATE`, groupID); err != nil {
+			return err
+		}
 		if err := tx.QueryRow(ctx, query, id, groupID, userID, role).Scan(
 			&member.ID, &member.GroupID, &member.UserID, &member.Role, &member.Status, &member.JoinedAt,
 		); err != nil {
@@ -663,6 +672,9 @@ func (r *Repository) UpdateMember(
 
 	var member MemberRecord
 	err := apperr.InTx(ctx, r.pool, func(ctx context.Context, tx apperr.Querier) error {
+		if _, err := tx.Exec(ctx, `SELECT id FROM projects WHERE group_id=$1 ORDER BY id FOR UPDATE`, groupID); err != nil {
+			return err
+		}
 		if err := tx.QueryRow(ctx, query, groupID, userID, role, status).Scan(
 			&member.ID, &member.GroupID, &member.UserID, &member.Role, &member.Status, &member.JoinedAt,
 		); err != nil {
@@ -800,6 +812,9 @@ func (r *Repository) ReviewJoinRequestInTx(
 	var reviewed JoinRequestRecord
 
 	err := apperr.InTx(ctx, r.pool, func(ctx context.Context, tx apperr.Querier) error {
+		if _, err := tx.Exec(ctx, `SELECT id FROM projects WHERE group_id=$1 ORDER BY id FOR UPDATE`, groupID); err != nil {
+			return err
+		}
 		// 只允许从 pending 迁移，避免重复审核（并发下两个请求同时通过）。
 		const update = `
 			UPDATE group_join_requests

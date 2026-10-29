@@ -174,7 +174,8 @@ func reminderResponse(record Record) gin.H {
 		sentAt = &formatted
 	}
 	return gin.H{
-		"id":              record.ID,
+		"id":    record.ID,
+		"cycle": record.Cycle, "plan_version": record.PlanVersion, "covered_by": record.CoveredBy, "event_id": record.EventID, "can_retry": record.CanRetry, "delivery_attempts": record.Deliveries,
 		"task_id":         record.TaskID,
 		"recipient_id":    record.RecipientID,
 		"recipient_email": record.RecipientEmail,

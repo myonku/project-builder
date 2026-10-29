@@ -524,7 +524,6 @@ func NewHarnessWithOptions(t *testing.T, opts HarnessOptions) *Harness {
 	remindersService := reminders.NewService(reminders.Options{
 		Store:           reminders.NewRepository(pool),
 		Sender:          fakeSender,
-		IDs:             ids,
 		Clock:           clk,
 		Logger:          logger,
 		TaskURLTemplate: "https://example.test/projects/{project_id}?taskId={task_id}",
@@ -541,13 +540,13 @@ func NewHarnessWithOptions(t *testing.T, opts HarnessOptions) *Harness {
 		Audit: auditService,
 	})
 	tasksService := tasks.NewService(tasks.Options{
-		Store:     tasks.NewRepository(pool),
-		Projects:  ProjectAccessAdapter{Service: projectsService},
-		Reminders: ReminderRecorderAdapter{Service: remindersService, Logger: logger},
-		IDs:       ids,
-		Clock:     clk,
-		Logger:    logger,
-		Audit:     auditService,
+		Store:    tasks.NewRepository(pool),
+		Projects: ProjectAccessAdapter{Service: projectsService},
+
+		IDs:    ids,
+		Clock:  clk,
+		Logger: logger,
+		Audit:  auditService,
 	})
 	planViewsService := planviews.NewService(planviews.Options{
 		Store:     planviews.NewRepository(pool),

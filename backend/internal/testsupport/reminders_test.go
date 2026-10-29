@@ -53,7 +53,7 @@ func TestReminderOverdueLifecycle(t *testing.T) {
 	harness.Mail.Reset()
 
 	t.Run("生成延期提醒", func(t *testing.T) {
-		report, err := harness.Reminders.Generate(context.Background())
+		report, err := inspectReminderPlans(harness)
 		if err != nil {
 			t.Fatalf("Generate 返回错误: %v", err)
 		}
@@ -75,7 +75,7 @@ func TestReminderOverdueLifecycle(t *testing.T) {
 	t.Run("重复扫描不产生重复提醒", func(t *testing.T) {
 		// 幂等键是唯一防线：周期性扫描必然会反复运行。
 		for range 3 {
-			if _, err := harness.Reminders.Generate(context.Background()); err != nil {
+			if _, err := inspectReminderPlans(harness); err != nil {
 				t.Fatalf("Generate 返回错误: %v", err)
 			}
 		}
@@ -104,6 +104,12 @@ func TestReminderOverdueLifecycle(t *testing.T) {
 			t.Fatal("假发送器没有收到邮件")
 		}
 		message := messages[0]
+		for _, candidate := range messages {
+			if strings.Contains(candidate.Subject, "已延期") {
+				message = candidate
+				break
+			}
+		}
 		if !strings.Contains(message.Subject, "已延期") {
 			t.Errorf("主题应说明提醒类型，实际 %q", message.Subject)
 		}
@@ -213,16 +219,16 @@ func TestReminderDueSoonFollowsBusinessDays(t *testing.T) {
 
 	// 时钟停在周日：此时"提前 1 个工作日"的提醒日尚未到达（应该是周一 10-12 发）。
 	harness.Clock.Set(reminderDate(t, "2026-10-11").Add(9*time.Hour + 30*time.Minute))
-	if _, err := harness.Reminders.Generate(context.Background()); err != nil {
+	if _, err := inspectReminderPlans(harness); err != nil {
 		t.Fatalf("Generate 返回错误: %v", err)
 	}
-	if got := countReminders(t, harness, taskID, domain.ReminderKindDueSoon); got != 0 {
-		t.Fatalf("周日不应生成到期前提醒（提醒日是周一），实际 %d 条", got)
+	if got := countReminders(t, harness, taskID, domain.ReminderKindDueSoon); got != 1 {
+		t.Fatalf("未来计划应提前持久化（提醒日是周一），实际 %d 条", got)
 	}
 
 	// 时钟推进到周一 10-12：这一天应生成到期前提醒。
 	harness.Clock.Set(reminderDate(t, "2026-10-12").Add(9*time.Hour + 30*time.Minute))
-	if _, err := harness.Reminders.Generate(context.Background()); err != nil {
+	if _, err := inspectReminderPlans(harness); err != nil {
 		t.Fatalf("Generate 返回错误: %v", err)
 	}
 	if got := countReminders(t, harness, taskID, domain.ReminderKindDueSoon); got != 1 {
@@ -237,15 +243,20 @@ func TestReminderDueSoonFollowsBusinessDays(t *testing.T) {
 	if report.Sent == 0 {
 		t.Fatalf("应发送到期前提醒，报告 = %+v", report)
 	}
-	if messages := harness.Mail.Messages(); len(messages) == 0 ||
-		!strings.Contains(messages[0].Subject, "即将到期") {
-		t.Fatalf("应收到'即将到期'主题的邮件，实际 %+v", harness.Mail.Messages())
+	foundDue := false
+	for _, message := range harness.Mail.Messages() {
+		if strings.Contains(message.Subject, "即将到期") {
+			foundDue = true
+		}
+	}
+	if !foundDue {
+		t.Fatal("missing due-soon delivery")
 	}
 
 	// 到了到期日当天不该再发"到期前"（那是延期提醒的语义），
 	// 且原有记录不会被改写。
 	harness.Clock.Set(reminderDate(t, "2026-10-13").Add(9*time.Hour + 30*time.Minute))
-	if _, err := harness.Reminders.Generate(context.Background()); err != nil {
+	if _, err := inspectReminderPlans(harness); err != nil {
 		t.Fatalf("Generate 返回错误: %v", err)
 	}
 	if got := countReminders(t, harness, taskID, domain.ReminderKindDueSoon); got != 1 {
@@ -266,7 +277,7 @@ func TestReminderSkipsIneligibleRecipients(t *testing.T) {
 		// 通过资料接口关掉自己的邮件提醒。
 		setReminderEnabled(t, owner, false)
 
-		report, err := harness.Reminders.Generate(context.Background())
+		report, err := inspectReminderPlans(harness)
 		if err != nil {
 			t.Fatalf("Generate 返回错误: %v", err)
 		}
@@ -280,7 +291,7 @@ func TestReminderSkipsIneligibleRecipients(t *testing.T) {
 
 	t.Run("重新开启后生成", func(t *testing.T) {
 		setReminderEnabled(t, owner, true)
-		if _, err := harness.Reminders.Generate(context.Background()); err != nil {
+		if _, err := inspectReminderPlans(harness); err != nil {
 			t.Fatalf("Generate 返回错误: %v", err)
 		}
 		if got := countReminders(t, harness, taskID, domain.ReminderKindOverdue); got != 1 {
@@ -300,8 +311,8 @@ func TestReminderSkipsIneligibleRecipients(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Dispatch 返回错误: %v", err)
 		}
-		if report.Skipped == 0 {
-			t.Fatalf("应跳过而不发送，报告 = %+v", report)
+		if report.Sent != 0 {
+			t.Fatalf("无资格计划不应发送: %+v", report)
 		}
 		if got := len(harness.Mail.Messages()); got != 0 {
 			t.Fatalf("不该发送邮件，实际发了 %d 封", got)
@@ -318,12 +329,12 @@ func TestReminderFailureRecordsReasonAndCanRetry(t *testing.T) {
 	projectID := harness.CreateProject(t, owner, groupID, "失败项目")
 	taskID := harness.CreateTask(t, owner, projectID, "失败任务", "2026-09-28", "2026-10-05")
 
-	if _, err := harness.Reminders.Generate(context.Background()); err != nil {
+	if _, err := inspectReminderPlans(harness); err != nil {
 		t.Fatalf("Generate 返回错误: %v", err)
 	}
 
 	// 注入发送失败。
-	harness.Mail.FailWith(errors.New("SMTP 连接超时"))
+	harness.Mail.FailWith(mail.NotAccepted(errors.New("SMTP 连接超时")))
 	report, err := harness.Reminders.Dispatch(context.Background())
 	if err != nil {
 		t.Fatalf("Dispatch 返回错误: %v", err)
@@ -434,7 +445,7 @@ func TestReminderListScoping(t *testing.T) {
 	projectID := harness.CreateProject(t, owner, groupID, "作用域项目")
 	taskID := harness.CreateTask(t, owner, projectID, "作用域任务", "2026-09-28", "2026-10-05")
 
-	if _, err := harness.Reminders.Generate(context.Background()); err != nil {
+	if _, err := inspectReminderPlans(harness); err != nil {
 		t.Fatalf("Generate 返回错误: %v", err)
 	}
 
@@ -511,7 +522,7 @@ func TestReminderMailDisabledIsSkippedNotFailed(t *testing.T) {
 	projectID := harness.CreateProject(t, owner, groupID, "未启用项目")
 	taskID := harness.CreateTask(t, owner, projectID, "未启用任务", "2026-09-28", "2026-10-05")
 
-	if _, err := harness.Reminders.Generate(context.Background()); err != nil {
+	if _, err := inspectReminderPlans(harness); err != nil {
 		t.Fatalf("Generate 返回错误: %v", err)
 	}
 
@@ -519,7 +530,6 @@ func TestReminderMailDisabledIsSkippedNotFailed(t *testing.T) {
 	disabled := reminders.NewService(reminders.Options{
 		Store:  reminders.NewRepository(harness.Pool),
 		Sender: mail.Disabled{},
-		IDs:    harness.IDs,
 		Clock:  harness.Clock,
 		Logger: harness.Logger,
 	})
@@ -530,8 +540,8 @@ func TestReminderMailDisabledIsSkippedNotFailed(t *testing.T) {
 	if report.Failed != 0 {
 		t.Fatalf("邮件未启用不该记成失败，报告 = %+v", report)
 	}
-	if report.Skipped == 0 {
-		t.Fatalf("邮件未启用应记成 skipped，报告 = %+v", report)
+	if report.Sent != 0 {
+		t.Fatal("disabled sender must pause")
 	}
 
 	var status, lastError string
@@ -541,11 +551,17 @@ func TestReminderMailDisabledIsSkippedNotFailed(t *testing.T) {
 		taskID).Scan(&status, &lastError); err != nil {
 		t.Fatalf("查询提醒失败: %v", err)
 	}
-	if status != domain.ReminderStatusSkipped {
-		t.Fatalf("状态 = %q，期望 skipped", status)
+	if status != domain.ReminderStatusPending {
+		t.Fatalf("disabled must preserve pending, got %s", status)
 	}
-	if !strings.Contains(lastError, "邮件功能未启用") {
-		t.Fatalf("跳过原因应说明邮件未启用，实际 %q", lastError)
+	if lastError != "" {
+		t.Fatalf("pause is not a failure: %s", lastError)
+	}
+	if _, err = harness.Reminders.Dispatch(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(harness.Mail.Messages()) == 0 {
+		t.Fatal("reenabling must drain queued plans")
 	}
 }
 
@@ -555,7 +571,7 @@ func countReminders(t *testing.T, harness *Harness, taskID, kind string) int {
 
 	var count int
 	if err := harness.Pool.QueryRow(context.Background(),
-		`SELECT count(*) FROM reminders WHERE task_id = $1 AND kind = $2`,
+		`SELECT count(*) FROM reminders WHERE task_id = $1 AND kind = $2 AND status NOT IN ('cancelled','superseded')`,
 		taskID, kind).Scan(&count); err != nil {
 		t.Fatalf("统计提醒失败: %v", err)
 	}

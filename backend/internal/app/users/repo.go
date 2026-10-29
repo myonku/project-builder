@@ -223,6 +223,13 @@ func (r *Repository) UpdateProfile(ctx context.Context, params UpdateProfilePara
 	// （《A09》）。守卫为真时还要在同一事务内复查。
 	var record ProfileRecord
 	err := apperr.InTx(ctx, r.pool, func(ctx context.Context, tx apperr.Querier) error {
+		// Lock affected projects before user keys (email) and last-admin rows.
+		// Dispatch reads user facts without taking user locks.
+		if _, err := tx.Exec(ctx, `SELECT p.id FROM projects p WHERE EXISTS(SELECT 1 FROM project_members m WHERE m.project_id=p.id AND m.user_id=$1)
+   OR EXISTS(SELECT 1 FROM tasks t JOIN task_members m ON m.task_id=t.id WHERE t.project_id=p.id AND m.user_id=$1) ORDER BY p.id FOR UPDATE`, params.ID); err != nil {
+			return err
+		}
+
 		if params.GuardLastAdmin {
 			if err := r.ensureAdminRetained(ctx, tx, params); err != nil {
 				return err

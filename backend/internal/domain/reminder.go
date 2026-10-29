@@ -173,11 +173,10 @@ func ReminderKindAppliesToStatus(kind, status string) bool {
 	if !ReminderTaskStillApplies(ReminderTask{Status: status}) {
 		return false
 	}
-	// 尚未开始的任务不需要"到期前"提醒：它连开始都没开始，
-	// 该收的是"开始前"提醒。发出去只会让人以为系统算错了。
-	if kind == ReminderKindDueSoon && status == TaskStatusNotStarted {
+	if kind == ReminderKindStartSoon && status != TaskStatusNotStarted {
 		return false
 	}
+
 	return true
 }
 

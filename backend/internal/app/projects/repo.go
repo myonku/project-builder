@@ -682,6 +682,9 @@ func (r *Repository) AddMember(
 
 	var member MemberRecord
 	err := apperr.InTx(ctx, r.pool, func(ctx context.Context, tx apperr.Querier) error {
+		if _, err := tx.Exec(ctx, `SELECT id FROM projects WHERE id=$1 FOR UPDATE`, projectID); err != nil {
+			return err
+		}
 		if err := tx.QueryRow(ctx, query, id, projectID, userID, role).Scan(
 			&member.ID, &member.ProjectID, &member.UserID, &member.Role, &member.CreatedAt,
 		); err != nil {
@@ -712,6 +715,9 @@ func (r *Repository) TransferOwnership(
 	var updated MemberRecord
 
 	err := apperr.InTx(ctx, r.pool, func(ctx context.Context, tx apperr.Querier) error {
+		if _, err := tx.Exec(ctx, `SELECT id FROM projects WHERE id=$1 FOR UPDATE`, projectID); err != nil {
+			return err
+		}
 		const demote = `
 			UPDATE project_members
 			   SET role = 'member', updated_at = now()
@@ -766,6 +772,9 @@ func (r *Repository) UpdateMemberRole(
 
 	var member MemberRecord
 	err := apperr.InTx(ctx, r.pool, func(ctx context.Context, tx apperr.Querier) error {
+		if _, err := tx.Exec(ctx, `SELECT id FROM projects WHERE id=$1 FOR UPDATE`, projectID); err != nil {
+			return err
+		}
 		if err := tx.QueryRow(ctx, query, projectID, userID, role).Scan(
 			&member.ID, &member.ProjectID, &member.UserID, &member.Role, &member.CreatedAt,
 		); err != nil {
@@ -794,6 +803,9 @@ func (r *Repository) RemoveMember(
 	const query = `DELETE FROM project_members WHERE project_id = $1 AND user_id = $2`
 
 	return apperr.InTx(ctx, r.pool, func(ctx context.Context, tx apperr.Querier) error {
+		if _, err := tx.Exec(ctx, `SELECT id FROM projects WHERE id=$1 FOR UPDATE`, projectID); err != nil {
+			return err
+		}
 		tag, err := tx.Exec(ctx, query, projectID, userID)
 		if err != nil {
 			return apperr.Translate(err, constraintMap)

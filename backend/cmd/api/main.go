@@ -225,11 +225,12 @@ func run() error {
 	remindersService := reminders.NewService(reminders.Options{
 		Store:           reminders.NewRepository(postgres.Pool),
 		Sender:          mailSender,
-		IDs:             ids,
 		Clock:           clk,
 		Logger:          logger,
 		TaskURLTemplate: cfg.Mail.TaskURLTemplate,
 		BatchSize:       cfg.Scheduler.ReminderBatchSize,
+		SendInterval:    time.Duration(cfg.Scheduler.ReminderSendIntervalMS) * time.Millisecond,
+		AttemptTimeout:  time.Duration(cfg.Scheduler.ReminderAttemptTimeoutSeconds) * time.Second,
 		// 只有人工重试会写审计（后台派发没有操作人，见 reminders.auditWith）。
 		Audit: auditService,
 	})
@@ -252,10 +253,7 @@ func run() error {
 		IDs:      ids,
 		Clock:    clk,
 		Logger:   logger,
-		// 提醒的消费者接口：任务在事务提交后只插入一行提醒，
-		// 发送交给后台派发循环（需求文档 §9：邮件发送不得阻塞用户操作）。
-		Reminders: remindersRecorder{service: remindersService, logger: logger},
-		Audit:     auditService,
+		Audit:    auditService,
 	})
 
 	// 附件：对象存储适配器已在上面构造（与头像分开）。
@@ -399,43 +397,9 @@ func (a projectsAccessor) Access(
 	}, permission, nil
 }
 
-// remindersRecorder 把 tasks 模块的提醒记录请求适配为 reminders 模块的调用。
-//
-// 错误只记录日志，**不让任务操作失败**：任务已经写库成功，
-// 因为一封提醒没排上队就把它回滚，是把次要功能的失败放大成主要功能的失败。
-type remindersRecorder struct {
-	service *reminders.Service
-	logger  *slog.Logger
-}
+// attachmentsProjectAccess adapts the existing project permission service.
+type attachmentsProjectAccess struct{ service *projects.Service }
 
-// RecordAssignment 实现 tasks.ReminderRecorder：成员被加入任务后记一条提醒。
-func (r remindersRecorder) RecordAssignment(ctx context.Context, taskID, userID string) {
-	if r.service == nil {
-		return
-	}
-	if err := r.service.RecordEvent(ctx, taskID, userID, domain.ReminderKindAssigned); err != nil {
-		r.logger.Warn("记录新任务分配提醒失败",
-			slog.String("task_id", taskID), slog.String("user_id", userID), slog.Any("cause", err))
-	}
-}
-
-// RecordOwnerChange 实现 tasks.ReminderRecorder：任务持有者变更后记一条提醒。
-func (r remindersRecorder) RecordOwnerChange(ctx context.Context, taskID, userID string) {
-	if r.service == nil {
-		return
-	}
-	if err := r.service.RecordEvent(ctx, taskID, userID, domain.ReminderKindOwnerChanged); err != nil {
-		r.logger.Warn("记录持有者变更提醒失败",
-			slog.String("task_id", taskID), slog.String("user_id", userID), slog.Any("cause", err))
-	}
-}
-
-// attachmentsProjectAccess 把 projects 模块的项目记录适配为 attachments 所需的投影。
-type attachmentsProjectAccess struct {
-	service *projects.Service
-}
-
-// Access 实现 attachments.ProjectAccess。
 func (a attachmentsProjectAccess) Access(
 	ctx context.Context, projectID, actorID string,
 ) (attachments.ProjectInfo, domain.Permission, error) {

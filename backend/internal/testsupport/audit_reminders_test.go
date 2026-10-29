@@ -3,6 +3,7 @@ package testsupport
 import (
 	"context"
 	"errors"
+	"github.com/myonku/project-builder/internal/platform/mail"
 	"testing"
 )
 
@@ -20,12 +21,12 @@ func TestAuditCoversReminderRetry(t *testing.T) {
 	projectID := harness.CreateProject(t, owner, groupID, "审计提醒项目")
 	harness.CreateTask(t, owner, projectID, "审计提醒任务", "2026-09-28", "2026-10-05")
 
-	if _, err := harness.Reminders.Generate(context.Background()); err != nil {
+	if _, err := inspectReminderPlans(harness); err != nil {
 		t.Fatalf("Generate 返回错误: %v", err)
 	}
 
 	// 让派发失败，从而得到一条可重试的 failed 提醒。
-	harness.Mail.FailWith(errors.New("SMTP 连接超时"))
+	harness.Mail.FailWith(mail.NotAccepted(errors.New("SMTP 连接超时")))
 	if _, err := harness.Reminders.Dispatch(context.Background()); err != nil {
 		t.Fatalf("Dispatch 返回错误: %v", err)
 	}
@@ -52,7 +53,7 @@ func TestAuditCoversReminderRetry(t *testing.T) {
 	}
 
 	// 负向断言：已发送（sent）的提醒不允许重试，因此不留记录。
-	if _, err := harness.Reminders.Generate(context.Background()); err != nil {
+	if _, err := inspectReminderPlans(harness); err != nil {
 		t.Fatalf("Generate 返回错误: %v", err)
 	}
 	if _, err := harness.Reminders.Dispatch(context.Background()); err != nil {
