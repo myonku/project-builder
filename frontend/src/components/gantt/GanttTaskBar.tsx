@@ -9,7 +9,7 @@ import type { GanttEditController } from '@/hooks/useGanttEdit';
 import { barGeometry, type GanttTimeWindow } from './ganttModel';
 import { canEditProgress, DATE_HANDLE_GAP, DATE_HANDLE_WIDTH, DRAG_THRESHOLD, ganttEditHandles,
   offsetGanttDraft, progressHandleLeft, PROGRESS_HANDLE_WIDTH, taskBarWidth,
-  type GanttEditDraft, type GanttEditOperation } from './ganttEditModel';
+  validGanttDraft, type GanttEditDraft, type GanttEditOperation } from './ganttEditModel';
 
 interface PointerSession {
   original: GanttEditDraft;
@@ -39,9 +39,8 @@ export default function GanttTaskBar({ task, rowId, window: timeline, active, on
   const pointer = React.useRef<PointerSession | null>(null);
   const keyboard = React.useRef<GanttEditDraft | null>(null);
   const suppressClick = React.useRef(0);
-  const latestEdit = React.useRef(edit); latestEdit.current = edit;
   const ownPreview = edit.draft?.task.id === task.id ? edit.draft : null;
-  const displayTask = ownPreview ? { ...task, start_date: ownPreview.start, end_date: ownPreview.end, progress: ownPreview.progress } : task;
+  const displayTask = ownPreview && validGanttDraft(ownPreview) ? { ...task, start_date: ownPreview.start, end_date: ownPreview.end, progress: ownPreview.progress } : task;
   const geometry = barGeometry(displayTask.start_date, displayTask.end_date, timeline);
   const rawLeft = dayjs(displayTask.start_date).diff(timeline.start, 'day') * timeline.dayWidth;
   const rawWidth = taskBarWidth(displayTask, timeline.dayWidth);
@@ -62,21 +61,17 @@ export default function GanttTaskBar({ task, rowId, window: timeline, active, on
     const session = pointer.current;
     pointer.current = null; keyboard.current = null;
     if (session) { suppressClick.current = performance.now() + 500; release(session); }
-    latestEdit.current.cancel();
-  }, []);
+    edit.cancel();
+  }, [edit.cancel]);
   React.useEffect(() => {
-    const blur = () => { if (pointer.current || keyboard.current) cancelPointer(); };
-    const hidden = () => { if (document.hidden) blur(); };
-    const escape = (event: KeyboardEvent) => { if (event.key === 'Escape' && (pointer.current || keyboard.current)) { event.preventDefault(); blur(); } };
-    window.addEventListener('blur', blur); document.addEventListener('visibilitychange', hidden); document.addEventListener('keydown', escape);
     return () => {
-      window.removeEventListener('blur', blur); document.removeEventListener('visibilitychange', hidden); document.removeEventListener('keydown', escape);
       const session = pointer.current; pointer.current = null; if (session) release(session);
     };
-  }, [cancelPointer]);
+  }, []);
   React.useEffect(() => {
     if (edit.phase !== 'dragging') {
-      const session = pointer.current; pointer.current = null; keyboard.current = null; if (session) release(session);
+      const session = pointer.current; pointer.current = null; keyboard.current = null;
+      if (session) { suppressClick.current = performance.now() + 500; release(session); }
     }
   }, [edit.phase]);
 
@@ -114,7 +109,8 @@ export default function GanttTaskBar({ task, rowId, window: timeline, active, on
   };
   const open = () => { if (performance.now() >= suppressClick.current && !edit.busy) onOpenTask(task.id); };
   if (!geometry.visible) return null;
-  const title = `${task.name}\n${displayTask.start_date} ～ ${displayTask.end_date}\n进度 ${displayTask.progress}%`;
+  const statusText = { not_started: '未开始', in_progress: '进行中', completed: '已完成', cancelled: '已取消' }[task.status];
+  const title = `${task.name}\n${displayTask.start_date} ～ ${displayTask.end_date}\n${statusText} · 进度 ${displayTask.progress}%${task.is_milestone ? ' · 里程碑' : ''}`;
   const bodySx = {
     position: 'absolute', left: geometry.left, top: task.is_milestone ? 13 : 11,
     width: task.is_milestone ? 16 : geometry.width, height: task.is_milestone ? 16 : 22,
@@ -152,7 +148,7 @@ export default function GanttTaskBar({ task, rowId, window: timeline, active, on
               onPointerDown={(event) => down(event, operation)} {...pointerProps} onClick={(event) => event.stopPropagation()}
               sx={{ position: 'absolute', left: start ? edge - DATE_HANDLE_GAP - DATE_HANDLE_WIDTH : edge + DATE_HANDLE_GAP,
                 top: 10, height: 24, width: DATE_HANDLE_WIDTH, border: 1, borderColor: 'divider', p: 0,
-                borderRadius: 0.5, backgroundColor: 'background.paper', cursor: 'ew-resize', touchAction: 'none',
+                borderRadius: 0.5, backgroundColor: 'background.paper', cursor: 'ew-resize',
                 '&:after': { content: '""', display: 'block', width: 2, height: 12, mx: 'auto', backgroundColor: color } }} />
           </Tooltip>
         </React.Fragment>;
@@ -174,7 +170,7 @@ export default function GanttTaskBar({ task, rowId, window: timeline, active, on
         }}
         onBlur={() => { if (keyboard.current) { const value = keyboard.current; keyboard.current = null; edit.finish(value); } }}
         sx={{ position: 'absolute', left: rawLeft + progressLeft, top: 9, width: PROGRESS_HANDLE_WIDTH, height: 26,
-          cursor: 'ew-resize', touchAction: 'none', zIndex: 1, outline: 'none',
+          cursor: 'ew-resize', zIndex: 1, outline: 'none',
           '&:after': { content: '""', position: 'absolute', left: Math.max(0, Math.min(PROGRESS_HANDLE_WIDTH - 6, boundary - progressLeft - 3)),
             top: 0, bottom: 0, width: 6, backgroundColor: 'background.paper', border: `1px solid ${theme.palette.text.primary}`, borderRadius: 0.5 },
           '&:hover:after, &:focus-visible:after': { boxShadow: `0 0 0 2px ${theme.palette.warning.main}` } }} />

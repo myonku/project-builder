@@ -34,6 +34,7 @@ export function useGanttEdit(viewKey: string, available: boolean, reload: () => 
   identity.current = viewKey;
   const alive = React.useRef(true);
   const source = React.useRef<HTMLElement | null>(null);
+  const sourceRow = React.useRef('');
   const session = React.useRef(0);
   const { handle } = useApiError();
   const transition = React.useCallback((next: GanttEditPhase, value: GanttEditDraft | null = null) => {
@@ -43,7 +44,11 @@ export function useGanttEdit(viewKey: string, available: boolean, reload: () => 
     const element = source.current;
     requestAnimationFrame(() => {
       if (element?.isConnected) element.focus();
-      else document.querySelector<HTMLElement>('[data-gantt-edit-toggle]')?.focus();
+      else {
+        const row = [...document.querySelectorAll<HTMLElement>('[data-gantt-row]')].find(node => node.dataset.ganttRow === sourceRow.current);
+        const fallback = row?.querySelector<HTMLElement>('[role="button"][tabindex="0"], button:not(:disabled)') ?? document.querySelector<HTMLElement>('[data-gantt-edit-toggle]');
+        fallback?.focus();
+      }
     });
   }, []);
   const lock = React.useCallback(() => {
@@ -58,18 +63,34 @@ export function useGanttEdit(viewKey: string, available: boolean, reload: () => 
     if (!['dragging', 'confirming'].includes(state.current.phase)) return;
     transition('ready'); setError(''); focus();
   }, [transition, focus]);
+  React.useEffect(() => {
+    const abortPreview = () => { if (state.current.phase === 'dragging') cancel(); };
+    const hidden = () => { if (document.hidden) abortPreview(); };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && state.current.phase === 'dragging') { event.preventDefault(); abortPreview(); }
+    };
+    window.addEventListener('blur', abortPreview);
+    document.addEventListener('visibilitychange', hidden);
+    document.addEventListener('keydown', escape);
+    return () => {
+      window.removeEventListener('blur', abortPreview);
+      document.removeEventListener('visibilitychange', hidden);
+      document.removeEventListener('keydown', escape);
+    };
+  }, [cancel]);
   const begin: GanttEditController['begin'] = (task, rowId, operation, element, direct = false) => {
     if (!available || state.current.phase !== 'ready' || !task.can_edit || (operation === 'progress' && !canEditProgress(task))) return null;
     source.current = element;
+    sourceRow.current = rowId;
     const value = makeGanttDraft(task, rowId, operation, viewKey);
-    session.current++; setMessage(''); setError(''); transition(direct ? 'confirming' : 'dragging', value);
+    session.current++; setError(''); transition(direct ? 'confirming' : 'dragging', value);
     return value;
   };
   const preview = (value: GanttEditDraft) => {
     if (state.current.phase === 'dragging' && value.viewKey === identity.current && state.current.draft?.task.id === value.task.id) transition('dragging', value);
   };
   const finish = (value: GanttEditDraft) => {
-    if (state.current.phase !== 'dragging' || value.viewKey !== identity.current) return;
+    if (state.current.phase !== 'dragging' || value.viewKey !== identity.current || state.current.draft?.rowId !== value.rowId || state.current.draft.task.id !== value.task.id) return;
     if (!validGanttDraft(value) || !changedGanttDraft(value)) { cancel(); return; }
     transition('confirming', value);
   };
@@ -110,7 +131,13 @@ export function useGanttEdit(viewKey: string, available: boolean, reload: () => 
   };
   const verified = React.useRef(true);
   // A completed external read enables a fresh session; loading disables the switch.
-  React.useEffect(() => { if (available) verified.current = true; }, [available, viewKey]);
+  React.useEffect(() => {
+    if (!available) return;
+    if (!verified.current) setMessage((previous) => previous.includes('保存结果未确认') || previous.includes('先刷新核对')
+      ? '当前数据已刷新，请核对后重新开启编辑；此前请求的执行归属仍未确认。'
+      : previous.includes('已保存，视图刷新失败') ? '已保存，视图已刷新，可重新开启编辑。' : previous);
+    verified.current = true;
+  }, [available, viewKey]);
   return {
     phase, draft, message, error, enabled: phase !== 'locked', busy: phase !== 'locked' && phase !== 'ready',
     lock, begin, preview, finish, cancel, save,

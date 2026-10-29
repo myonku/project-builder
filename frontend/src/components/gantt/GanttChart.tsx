@@ -74,6 +74,7 @@ function TaskRowLabel({ row, collapsed, onToggle, onOpenTask, edit }: TaskRowLab
           <IconButton
             size="small"
             aria-label={collapsed ? '展开子任务' : '收起子任务'}
+            disabled={edit.busy}
             onClick={onToggle}
             sx={{ p: 0.25 }}
           >
@@ -160,7 +161,7 @@ export default function GanttChart({
 }: GanttChartProps) {
   const theme = useTheme();
   const scrollRef = React.useRef<HTMLDivElement | null>(null);
-  const finePointer = useMediaQuery('(any-pointer: fine)');
+  const finePointer = useMediaQuery('(pointer: fine)');
   const [viewport, setViewport] = React.useState({ start: 0, end: 0 });
   const measure = React.useCallback(() => {
     const node = scrollRef.current;
@@ -385,6 +386,7 @@ export default function GanttChart({
           return (
             <Box
               key={row.id}
+              data-gantt-row={row.id}
               sx={{
                 display: 'flex',
                 height: ROW_HEIGHT,
@@ -415,6 +417,7 @@ export default function GanttChart({
                     <IconButton
                       size="small"
                       aria-label={collapsed ? '展开项目任务' : '收起项目任务'}
+                      disabled={edit.busy}
                       onClick={() => onToggleRow(row.id)}
                       sx={{ p: 0.25 }}
                     >
@@ -476,6 +479,7 @@ export default function GanttChart({
                     <IconButton
                       size="small"
                       aria-label={collapsed ? '展开成员任务' : '收起成员任务'}
+                      disabled={edit.busy}
                       onClick={() => onToggleRow(row.id)}
                       sx={{ p: 0.25 }}
                     >

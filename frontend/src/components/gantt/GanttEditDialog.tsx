@@ -12,19 +12,21 @@ import dayjs from 'dayjs';
 import type { GanttEditController } from '@/hooks/useGanttEdit';
 import { changedGanttDraft, progressStatus, validGanttDraft } from './ganttEditModel';
 
-export default function GanttEditDialog({ edit, projectName }: { edit: GanttEditController; projectName: string }) {
+export default function GanttEditDialog({ edit, projectName, taskPath }: { edit: GanttEditController; projectName: string; taskPath: string }) {
   const draft = edit.draft;
   const open = Boolean(draft && ['confirming', 'saving', 'refreshing'].includes(edit.phase));
   const pending = edit.phase === 'saving' || edit.phase === 'refreshing';
   if (!draft) return null;
   const progress = draft.operation === 'progress';
+  const shift = dayjs(draft.start).diff(dayjs(draft.task.start_date), 'day');
+  const isTranslation = draft.operation === 'move' && shift === dayjs(draft.end).diff(dayjs(draft.task.end_date), 'day');
   return <Dialog open={open} fullWidth maxWidth="sm"
     onClose={() => { if (!pending) edit.cancel(); }} aria-labelledby="gantt-edit-title"
     disableRestoreFocus>
     <DialogTitle id="gantt-edit-title">{progress ? '确认修改进度' : '确认修改日期'}</DialogTitle>
     <DialogContent>
       <Stack spacing={2} sx={{ pt: 0.5 }}>
-        <Typography variant="body2" color="text.secondary">项目：{projectName} · 任务：{draft.task.name}</Typography>
+        <Typography variant="body2" color="text.secondary">项目：{projectName} · 任务：{taskPath || draft.task.name}</Typography>
         {progress ? <>
           <Typography>{draft.task.progress}% → {Number.isFinite(draft.progress) ? draft.progress : '—'}%</Typography>
           <Slider aria-label="任务进度" min={0} max={100} step={1} valueLabelDisplay="auto" disabled={pending}
@@ -36,7 +38,7 @@ export default function GanttEditDialog({ edit, projectName }: { edit: GanttEdit
           <Alert severity="info">目标状态：{validGanttDraft(draft) ? progressStatus(draft.progress) : '请输入 0–100 整数'}。进度下降可能重新激活已完成任务及其提醒；保存后可能更新父任务和项目的汇总状态/进度。</Alert>
         </> : <>
           <Typography variant="body2">原日期：{draft.task.start_date} ～ {draft.task.end_date}<br />新日期：{draft.start || '—'} ～ {draft.end || '—'}
-            {draft.operation === 'move' && validGanttDraft(draft) ? `（平移 ${dayjs(draft.start).diff(dayjs(draft.task.start_date), 'day')} 天）` : ''}</Typography>
+            {isTranslation && validGanttDraft(draft) ? `（平移 ${shift} 天）` : ''}</Typography>
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
             <TextField label="开始日期" type="date" value={draft.start} disabled={pending} fullWidth
               slotProps={{ inputLabel: { shrink: true } }} onChange={(event) => edit.change({ start: event.target.value })} />

@@ -275,6 +275,21 @@ export default function GanttView() {
     return tasks.find((task) => task.id === taskId) ?? null;
   }, [taskId, view, projectPayload, planPayload]);
 
+  const editTaskPath = React.useMemo(() => {
+    if (!edit.draft) return '';
+    const tasks = view === 'projects' ? projectPayload?.tasks ?? [] : planPayload?.tasks ?? [];
+    const names = [edit.draft.task.name];
+    const seen = new Set([edit.draft.task.id]);
+    let parentId = edit.draft.task.parent_id;
+    while (parentId && !seen.has(parentId)) {
+      seen.add(parentId);
+      const parent = tasks.find(task => task.id === parentId);
+      if (!parent) break; // Never fetch or reveal a hidden ancestor for the label.
+      names.unshift(parent.name); parentId = parent.parent_id;
+    }
+    return names.join(' / ');
+  }, [edit.draft, view, projectPayload, planPayload]);
+
   const noProject = view === 'projects' && !projectsLoading && projectOptions.length === 0;
   const noGroup = view === 'members' && !groupsLoading && groupOptions.length === 0;
 
@@ -313,8 +328,8 @@ export default function GanttView() {
               }
               aria-label="甘特图类型"
             >
-              <Tab value="projects" label="项目视图" />
-              <Tab value="members" label="成员视图" />
+              <Tab value="projects" label="项目视图" disabled={edit.busy} />
+              <Tab value="members" label="成员视图" disabled={edit.busy} />
             </Tabs>
 
             <Box sx={filterRowSx(false)}>
@@ -323,6 +338,7 @@ export default function GanttView() {
                   <TextField
                     size="small"
                     label="项目名称"
+                    disabled={edit.busy}
                     placeholder="包含匹配"
                     value={projectNameDraft}
                     onChange={(event) => setProjectNameDraft(event.target.value)}
@@ -334,7 +350,7 @@ export default function GanttView() {
                     label="项目"
                     value={effectiveProjectId}
                     onChange={(event) => patchParams({ projectId: event.target.value, taskId: null })}
-                    disabled={projectsLoading || projectOptions.length === 0}
+                    disabled={edit.busy || projectsLoading || projectOptions.length === 0}
                     sx={filterItemSx(220, 360)}
                     slotProps={{
                       inputLabel: { shrink: true },
@@ -365,7 +381,7 @@ export default function GanttView() {
                       setCurrentGroupId(nextGroupId || null);
                       patchParams({ groupId: nextGroupId, memberId: null, taskId: null });
                     }}
-                    disabled={groupsLoading || groupOptions.length === 0}
+                    disabled={edit.busy || groupsLoading || groupOptions.length === 0}
                     sx={filterItemSx(180, 300)}
                     slotProps={{
                       inputLabel: { shrink: true },
@@ -390,7 +406,7 @@ export default function GanttView() {
                     label="成员"
                     value={memberParam}
                     onChange={(event) => patchParams({ memberId: event.target.value || null, taskId: null })}
-                    disabled={planLoading || memberOptions.length === 0}
+                    disabled={edit.busy || planLoading || memberOptions.length === 0}
                     sx={filterItemSx(160, 260)}
                     slotProps={{
                       inputLabel: { shrink: true },
@@ -419,6 +435,7 @@ export default function GanttView() {
                 </Typography>
                 <ToggleButtonGroup
                   exclusive
+                  disabled={edit.busy}
                   size="small"
                   value={scale}
                   onChange={(_event, next: GanttScale | null) => {
@@ -562,7 +579,7 @@ export default function GanttView() {
         </Box>
       </Stack>
 
-      <GanttEditDialog edit={edit} projectName={view === 'projects' ? projectPayload?.project.name ?? '' : planPayload?.projects.find((project) => project.id === edit.draft?.task.project_id)?.name ?? ''} />
+      <GanttEditDialog edit={edit} taskPath={editTaskPath} projectName={view === 'projects' ? projectPayload?.project.name ?? '' : planPayload?.projects.find((project) => project.id === edit.draft?.task.project_id)?.name ?? ''} />
       <TaskDetailDrawer
         key={taskId ?? 'none'}
         taskId={taskId}
