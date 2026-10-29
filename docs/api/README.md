@@ -167,3 +167,5 @@ Project.status/progress 保存有效结果：has_tasks=false 时手工维护，�
   "updated_at": "2026-09-30T04:00:00Z"
 }
 ```
+
+P03 甘特图编辑已合并，复用 A05 的日期 PATCH 与任务 progress PATCH；A06 仍仅提供读取投影。无新增端点、查询参数或数据库迁移，基线继续为 69 端点 / head 11。交互规则见 S01 §5.5 / F01 §5.11，投影重读与状态影响见 A05/A06。

@@ -477,4 +477,8 @@
 - **归档项目**：`project.is_archived` 与 `project.is_read_only` 为 `true`，`can_edit_tasks` 与每个任务的 `can_edit` 均为 `false`；本项目**默认不进入** §1 / §2 的视图（除非 `include_archived=true`），但本端点直接按 id 访问时**归档项目仍可读**（"归档 = 只读"，不是删除）。
 - `can_manage_project` 与 `can_edit_tasks` 相互独立：项目普通成员通常是 `can_manage_project=false` 且 `can_edit_tasks=true`。
 - **已知差异（供复核）**：`can_manage_project` 的判定只使用"当前用户 + 项目成员关系"，未携带系统角色，因此**系统管理员若不是该项目的持有者，本字段为 `false`**；而 `can_edit_tasks` 与逐任务 `can_edit` 对系统管理员照常放行（《A03》–§4.6 的管理员放行、§6 的相应条目）。**前端不要用 `can_manage_project=false` 推断"此人对该项目没有管理权"**，服务端写入口仍会独立判定。
-- "拖拽改日期"属于客户端交互，落库走 `PATCH /api/v1/tasks/{task_id}/dates`（《A05》）；"时间尺度（日/周/月）"与"折叠"是纯展示参数，**服务端不提供**，客户端用响应里的完整日期区间自行换算。
+- 甘特图日期/进度编辑属于客户端交互：日期落库走 `PATCH /api/v1/tasks/{task_id}/dates`，进度走 `PATCH /api/v1/tasks/{task_id}` 且只发 progress 与原样版本（《A05》）；"时间尺度（日/周/月）"与"折叠"是纯展示参数，**服务端不提供**，客户端用响应里的完整日期区间自行换算。
+
+## 甘特图写入后的投影刷新（P03）
+
+PlanTask 仍是读取投影，不直接回传或原地修改。任务 can_edit 决定入口资格，has_children 决定父任务进度只读；不能用筛选/折叠后可见子行判断叶子。成员泳道的重复行按 task_id 对应同一对象，确认时使用本笔开始时的 updated_at。PATCH 返回 Task，不将其强行合并为 PlanTask；成功后重新读取当前项目甘特图或组内计划，整体更新重复行、祖先、项目和 summary。前端不得按可见子集重算汇总，也不能在重读完成前释放下一笔编辑。无新增查询参数、端点或权限投影；客户端状态和刷新完成反馈见 F01 §5.11 / F02 §5.2。
