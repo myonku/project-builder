@@ -15,6 +15,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/myonku/project-builder/internal/domain"
+	"github.com/myonku/project-builder/internal/platform/clock"
+	"time"
 )
 
 // 常用 SQLSTATE。
@@ -56,6 +58,11 @@ func InTx(ctx context.Context, pool *pgxpool.Pool, fn TxFunc) error {
 	// 回滚在已提交后是空操作，因此无需区分提交与否。
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	if at, ok := clock.ContextTime(ctx); ok {
+		if _, err := tx.Exec(ctx, `SELECT set_config('worklane.reminder_now',$1,true)`, at.Format(time.RFC3339Nano)); err != nil {
+			return err
+		}
+	}
 	if err := fn(ctx, tx); err != nil {
 		return err
 	}

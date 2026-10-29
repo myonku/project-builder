@@ -21,7 +21,8 @@ import (
 type fakeSMTP struct {
 	listener net.Listener
 	// startTLS 控制是否在 EHLO 回复里声明 STARTTLS。
-	startTLS bool
+	startTLS   bool
+	resultMode string
 
 	mu       sync.Mutex
 	authLine string
@@ -31,14 +32,15 @@ type fakeSMTP struct {
 	messages int
 }
 
-func newFakeSMTP(t *testing.T, startTLS bool) *fakeSMTP {
+func newFakeSMTP(t *testing.T, startTLS bool) *fakeSMTP { return newFakeSMTPMode(t, startTLS, "") }
+func newFakeSMTPMode(t *testing.T, startTLS bool, mode string) *fakeSMTP {
 	t.Helper()
 
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("启动假 SMTP 服务器失败: %v", err)
 	}
-	server := &fakeSMTP{listener: listener, startTLS: startTLS}
+	server := &fakeSMTP{listener: listener, startTLS: startTLS, resultMode: mode}
 	go server.serve()
 	t.Cleanup(func() { _ = listener.Close() })
 	return server
@@ -137,8 +139,18 @@ func (f *fakeSMTP) handle(connection net.Conn) {
 			f.data = payload.String()
 			f.messages++
 			f.mu.Unlock()
+			if f.resultMode == "lost-reply" {
+				return
+			}
+			if f.resultMode == "reject" {
+				reply("550 rejected")
+				continue
+			}
 			reply("250 2.0.0 Ok: queued")
 		case strings.HasPrefix(upper, "QUIT"):
+			if f.resultMode == "quit-fails" {
+				return
+			}
 			reply("221 2.0.0 Bye")
 			return
 		case strings.HasPrefix(upper, "RSET"), strings.HasPrefix(upper, "NOOP"):
@@ -404,5 +416,36 @@ func TestDisabledSenderIsNotSuccess(t *testing.T) {
 	err := Disabled{}.Send(context.Background(), Message{To: "a@example.com"})
 	if !errors.Is(err, ErrDisabled) {
 		t.Fatalf("Disabled.Send 应返回 ErrDisabled，实际 %v", err)
+	}
+}
+
+func TestSMTPAcceptanceClassification(t *testing.T) {
+	for _, mode := range []string{"quit-fails", "reject", "lost-reply"} {
+		t.Run(mode, func(t *testing.T) {
+			server := newFakeSMTPMode(t, false, mode)
+			host, port := server.address(t)
+			sender, err := NewSMTP(SMTPConfig{Host: host, Port: port, FromAddress: "sender@example.test", Timeout: time.Second})
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = sender.Send(context.Background(), Message{To: "user@example.test", Subject: "classification", Body: "body"})
+			switch mode {
+			case "quit-fails":
+				if err != nil {
+					t.Fatalf("accepted DATA must survive QUIT failure: %v", err)
+				}
+			case "reject":
+				if err == nil || !DefinitelyNotAccepted(err) {
+					t.Fatalf("rejection: %v", err)
+				}
+			case "lost-reply":
+				if err == nil || DefinitelyNotAccepted(err) {
+					t.Fatalf("uncertain: %v", err)
+				}
+			}
+		})
+	}
+	if DefinitelyNotAccepted(errors.New("untyped timeout")) {
+		t.Fatal("untyped errors must be uncertain")
 	}
 }

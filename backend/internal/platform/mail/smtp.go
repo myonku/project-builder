@@ -8,6 +8,7 @@ import (
 	"mime"
 	"net"
 	"net/smtp"
+	"net/textproto"
 	"strconv"
 	"strings"
 	"time"
@@ -86,10 +87,10 @@ func NewSMTP(cfg SMTPConfig) (*SMTP, error) {
 // 账号锁定策略，而那时我们会把"密码错了"报成更难懂的错误。
 func (s *SMTP) Send(ctx context.Context, message Message) error {
 	if strings.TrimSpace(message.To) == "" {
-		return errors.New("mail: 收件地址不能为空")
+		return NotAccepted(errors.New("mail: 收件地址不能为空"))
 	}
 	if err := ctx.Err(); err != nil {
-		return err
+		return NotAccepted(err)
 	}
 
 	if s.cfg.AuthMethod == "xoauth2" {
@@ -112,7 +113,7 @@ func (s *SMTP) Send(ctx context.Context, message Message) error {
 	if secondErr == nil {
 		return nil
 	}
-	return fmt.Errorf("mail: 两种认证机制都被拒绝（LOGIN: %v；PLAIN: %v）", firstErr, secondErr)
+	return secondErr
 }
 
 // isUnrecognizedAuthMechanism 报告错误是否表示"服务器不认识该认证机制"。
@@ -221,7 +222,7 @@ func (s *SMTP) sendWith(ctx context.Context, message Message, auth func() smtp.A
 		connection, err = dialer.DialContext(ctx, "tcp", address)
 	}
 	if err != nil {
-		return fmt.Errorf("mail: 连接 SMTP 服务器失败: %w", err)
+		return NotAccepted(fmt.Errorf("mail: 连接 SMTP 服务器失败: %w", err))
 	}
 	defer func() { _ = connection.Close() }()
 
@@ -235,12 +236,12 @@ func (s *SMTP) sendOverConnection(
 ) error {
 	// 整个会话的每一步都受同一个截止时间约束，避免某一步卡住让请求悬挂。
 	if err := connection.SetDeadline(deadline); err != nil {
-		return fmt.Errorf("mail: 设置连接超时失败: %w", err)
+		return NotAccepted(fmt.Errorf("mail: 设置连接超时失败: %w", err))
 	}
 
 	client, err := smtp.NewClient(connection, s.cfg.Host)
 	if err != nil {
-		return fmt.Errorf("mail: 建立 SMTP 会话失败: %w", err)
+		return NotAccepted(fmt.Errorf("mail: 建立 SMTP 会话失败: %w", err))
 	}
 
 	// STARTTLS：仅当配置要求且服务端声明支持时执行。
@@ -250,14 +251,14 @@ func (s *SMTP) sendOverConnection(
 		supported, _ := client.Extension("STARTTLS")
 		if !supported {
 			_ = client.Close()
-			return errors.New("mail: 服务器未声明支持 STARTTLS，拒绝以明文发送凭据")
+			return NotAccepted(errors.New("mail: 服务器未声明支持 STARTTLS，拒绝以明文发送凭据"))
 		}
 		if err := client.StartTLS(&tls.Config{
 			ServerName: s.cfg.Host,
 			MinVersion: tls.VersionTLS12,
 		}); err != nil {
 			_ = client.Close()
-			return fmt.Errorf("mail: STARTTLS 协商失败: %w", err)
+			return NotAccepted(fmt.Errorf("mail: STARTTLS 协商失败: %w", err))
 		}
 	}
 
@@ -266,46 +267,39 @@ func (s *SMTP) sendOverConnection(
 		// （官方页面写的 OAuth2/Modern Auth 需要应用注册，本系统不用它）。
 		if err := client.Auth(authFunc()); err != nil {
 			_ = client.Close()
-			return fmt.Errorf("mail: SMTP 身份验证失败: %w", err)
+			return NotAccepted(fmt.Errorf("mail: SMTP 身份验证失败: %w", err))
 		}
 	}
 
 	if err := client.Mail(s.cfg.FromAddress); err != nil {
 		_ = client.Close()
-		return fmt.Errorf("mail: 设置发件人失败: %w", err)
+		return NotAccepted(fmt.Errorf("mail: 设置发件人失败: %w", err))
 	}
 	if err := client.Rcpt(message.To); err != nil {
 		_ = client.Close()
-		return fmt.Errorf("mail: 设置收件人失败: %w", err)
+		return NotAccepted(fmt.Errorf("mail: 设置收件人失败: %w", err))
 	}
 
 	writer, err := client.Data()
 	if err != nil {
 		_ = client.Close()
-		return fmt.Errorf("mail: 开始写入邮件正文失败: %w", err)
+		return NotAccepted(fmt.Errorf("mail: 开始写入邮件正文失败: %w", err))
 	}
 	if _, err := writer.Write(s.buildRFC822(message)); err != nil {
-		_ = writer.Close()
 		_ = client.Close()
 		return fmt.Errorf("mail: 写入邮件正文失败: %w", err)
 	}
 	if err := writer.Close(); err != nil {
 		_ = client.Close()
-		return fmt.Errorf("mail: 提交邮件正文失败: %w", err)
+		var reply *textproto.Error
+		if errors.As(err, &reply) {
+			return NotAccepted(err)
+		}
+		return fmt.Errorf("mail: 提交邮件正文结果未知: %w", err)
 	}
 
-	// Quit 的返回值在部分服务器上是"连接被对端关闭"，此时邮件其实已经收下。
-	// 因此这里以错误为准只在它明确反映命令失败时返回——net/smtp 的 Quit
-	// 失败无法与"已接收"区分，故记录为错误但不阻断（由调用方决定是否重试，
-	// 而 dedupe_key 保证重试不会重复发送）。
-	if err := client.Quit(); err != nil {
-		return fmt.Errorf("mail: 结束 SMTP 会话失败（邮件可能已投递）: %w", err)
-	}
-
-	// ctx 在会话过程中被取消时也要让调用方知道。
-	if err := ctx.Err(); err != nil {
-		return err
-	}
+	// DATA final acceptance is authoritative; QUIT/cancellation cannot undo it.
+	_ = client.Quit()
 	return nil
 }
 

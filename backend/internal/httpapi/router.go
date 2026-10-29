@@ -52,7 +52,14 @@ func Router(deps Dependencies) *gin.Engine {
 		gin.SetMode(gin.TestMode)
 	}
 
+	if deps.Clock == nil {
+		deps.Clock = clock.NewSystem()
+	}
 	engine := gin.New()
+	engine.Use(func(c *gin.Context) {
+		c.Request = c.Request.WithContext(clock.WithTime(c.Request.Context(), deps.Clock.Now()))
+		c.Next()
+	})
 	// 关闭自动重定向，避免 /projects 被 301 到 /projects/ 绕过客户端的路径假设。
 	engine.RedirectTrailingSlash = false
 	// 开启 405 处理：路径存在但方法不被支持时走 engine.NoMethod，
