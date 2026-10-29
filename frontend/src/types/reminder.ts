@@ -12,10 +12,16 @@ export type ReminderKind =
   | 'task_overdue'
   | 'task_owner_changed';
 
-export type ReminderStatus = 'pending' | 'sent' | 'failed' | 'skipped';
+export type ReminderStatus = 'pending' | 'sending' | 'sent' | 'failed' | 'unknown' | 'skipped' | 'cancelled' | 'superseded' | 'suppressed';
 
 export interface Reminder {
   readonly id: string;
+ readonly cycle: number;
+ readonly plan_version: number;
+ readonly can_retry: boolean;
+ readonly covered_by: string | null;
+ readonly event_id: string | null;
+ readonly delivery_attempts: readonly DeliveryEvidence[] | null;
   readonly task_id: string;
   readonly recipient_id: string;
   /** 生成时刻的快照 */
@@ -26,7 +32,7 @@ export interface Reminder {
   /** 计划发送时刻（UTC，可能带亚秒） */
   readonly scheduled_for: string;
   readonly status: ReminderStatus;
-  /** 成功/失败/跳过都各计一次 */
+  /** 获得发送授权的次数；取消/抑制不计次数 */
   readonly attempts: number;
   /** 成功时为 `""`（不是 null） */
   readonly last_error: string;
@@ -42,4 +48,15 @@ export interface ReminderQuery {
   page?: number;
   page_size?: number;
   sort?: 'scheduled_for' | 'created_at' | 'updated_at' | 'kind' | 'status' | 'attempts';
+}
+
+export interface DeliveryEvidence {
+ readonly id: string;
+ readonly status: string;
+ readonly authorized_at: string;
+ readonly expires_at: string;
+ readonly sent_at: string | null;
+ readonly timezone: string;
+ readonly error: string;
+ readonly snapshot: { readonly To?: string; readonly Subject?: string; readonly Body?: string; readonly legacy?: boolean };
 }

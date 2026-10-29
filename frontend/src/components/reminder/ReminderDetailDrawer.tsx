@@ -28,7 +28,7 @@ import { getReminder, retryReminder } from '@/api/reminders';
 import { toApiError, type ApiError } from '@/api/client';
 import FullPageLoading from '@/components/common/FullPageLoading';
 import StatusTag from '@/components/common/StatusTag';
-import { canRetryReminder, reminderStatusMeta } from '@/components/reminder/reminderMeta';
+import { reminderStatusMeta } from '@/components/reminder/reminderMeta';
 import { describeApiError, useApiError } from '@/hooks/useApiError';
 import { useDialogs } from '@/hooks/useDialogs';
 import { useNotifications } from '@/hooks/useNotifications';
@@ -127,7 +127,7 @@ export default function ReminderDetailDrawer({
   }, [dialogs, handle, load, onChanged, reminder, show]);
 
   const statusMeta = reminderStatusMeta(reminder?.status);
-  const retryable = canRetryReminder(reminder?.status);
+  const retryable = reminder?.can_retry === true;
 
   return (
     <Drawer
@@ -158,7 +158,7 @@ export default function ReminderDetailDrawer({
               title={
                 retryable
                   ? '重新排入待发送队列'
-                  : '只有“发送失败”或“已跳过”的提醒可以重试'
+                  : '该计划当前不可重试；结果待核实需由管理员处置'
               }
             >
               <span>
@@ -259,7 +259,7 @@ export default function ReminderDetailDrawer({
                   <Divider />
                   <Stack spacing={0.5}>
                     <Typography variant="subtitle2" color="text.secondary">
-                      失败 / 跳过原因
+                      处理原因
                     </Typography>
                     <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
                       {reminder.last_error}
@@ -268,6 +268,16 @@ export default function ReminderDetailDrawer({
                 </>
               ) : null}
 
+              {reminder.status==='unknown' ? <Alert severity="warning">邮件可能已被服务器接受。为避免重复，同一任务发给您的同类提醒已暂停，请联系管理员核实。</Alert> : null}
+              {reminder.covered_by ? <Typography variant="body2">本周期已由当天同类提醒覆盖，不会再次补发。</Typography> : null}
+              {reminder.delivery_attempts?.map((attempt)=>(<Stack key={attempt.id} spacing={0.5}>
+                <Divider /><Typography variant="subtitle2">发送尝试 · {reminderStatusMeta(attempt.status).label}</Typography>
+                <Typography variant="caption">授权时间：{formatForDisplay(attempt.authorized_at,userTimeZone)}</Typography>
+                {attempt.snapshot.To ? <Typography variant="body2" sx={{overflowWrap:"anywhere"}}>收件地址：{attempt.snapshot.To}</Typography> : null}
+                {attempt.snapshot.Subject ? <Typography variant="body2" sx={{overflowWrap:"anywhere"}}>{attempt.snapshot.Subject}</Typography> : null}
+                {attempt.snapshot.Body ? <Typography variant="body2" sx={{whiteSpace:'pre-wrap',overflowWrap:'anywhere'}}>{attempt.snapshot.Body}</Typography> : null}
+                {attempt.error ? <Typography variant="body2" sx={{overflowWrap:'anywhere'}}>{attempt.error}</Typography> : null}
+              </Stack>))}
               <Divider />
               <Typography variant="caption" color="text.secondary">
                 重试不会立即发信：只是把状态改回「待发送」并把计划时间设为当前时刻，

@@ -45,7 +45,6 @@ import ReminderDetailDrawer from '@/components/reminder/ReminderDetailDrawer';
 import {
   REMINDER_KIND_OPTIONS,
   REMINDER_STATUS_OPTIONS,
-  canRetryReminder,
   reminderStatusMeta,
 } from '@/components/reminder/reminderMeta';
 import { describeApiError, useApiError } from '@/hooks/useApiError';
@@ -289,7 +288,7 @@ export default function ReminderListView() {
         sortable: false,
         renderCell: (params: GridRenderCellParams<Reminder>) => {
           const reminder = params.row;
-          const retryable = canRetryReminder(reminder.status);
+          const retryable = reminder.can_retry === true;
           return (
             <Stack direction="row" spacing={0.5}>
               <DataTooltip title="查看详情（发送时间与失败原因）">

@@ -21,6 +21,11 @@ export interface ReminderStatusMeta {
 }
 
 const STATUS_META: Record<ReminderStatus, ReminderStatusMeta> = {
+  sending: {label:'发送中',tone:'info',hint:'发送已获授权，正在等待结果。'},
+  unknown: {label:'结果待核实',tone:'warning',hint:'邮件可能已被接受，暂停同类发送，请联系管理员核实。'},
+  cancelled: {label:'已取消',tone:'default',hint:'任务或收件人资格已失效。'},
+  superseded: {label:'已替代',tone:'default',hint:'已有新的日期安排或事件。'},
+  suppressed: {label:'同日已提醒',tone:'default',hint:'本周期已由当天同类发送覆盖，不再补发。'},
   pending: {
     label: '待发送',
     tone: 'info',
@@ -39,7 +44,7 @@ const STATUS_META: Record<ReminderStatus, ReminderStatusMeta> = {
   skipped: {
     label: '已跳过',
     tone: 'warning',
-    hint: '提醒已跳过，请查看原因，确认仍需发送后再重试。',
+    hint: '历史跳过记录，请查看原因；当前重试资格由服务端确认。',
   },
 };
 
@@ -52,12 +57,17 @@ export function reminderStatusMeta(status: ReminderStatus | string | null | unde
 
 /** **只有 `failed` / `skipped` 可重试**；`pending` / `sent` 会拿到 409（《A08》§端点 3） */
 export function canRetryReminder(status: ReminderStatus | string | null | undefined): boolean {
-  return status === 'failed' || status === 'skipped';
+  return status === 'failed';
 }
 
 /** 状态筛选下拉的选项（**客户端筛选当前页**，因为接口没有 `status` 参数） */
 export const REMINDER_STATUS_OPTIONS: { value: ReminderStatus; label: string }[] = [
   { value: 'failed', label: '发送失败' },
+  {value:'unknown',label:'结果待核实'},
+  {value:'sending',label:'发送中'},
+  {value:'cancelled',label:'已取消'},
+  {value:'superseded',label:'已替代'},
+  {value:'suppressed',label:'同日已提醒'},
   { value: 'skipped', label: '已跳过' },
   { value: 'pending', label: '待发送' },
   { value: 'sent', label: '已发送' },
