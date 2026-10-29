@@ -41,13 +41,13 @@ export function getTask(taskId: string, signal?: AbortSignal): Promise<Task> {
 }
 
 /** `PATCH /tasks/{id}` */
-export function updateTask(taskId: string, body: UpdateTaskBody): Promise<Task> {
-  return apiPatch<Task>(`/tasks/${taskId}`, body);
+export function updateTask(taskId: string, body: UpdateTaskBody, signal?: AbortSignal): Promise<Task> {
+  return apiPatch<Task>(`/tasks/${taskId}`, body, { signal });
 }
 
 /** `PATCH /tasks/{id}/dates`：**只接受日期与版本字段**，多带字段会 422 */
-export function updateTaskDates(taskId: string, body: UpdateTaskDatesBody): Promise<Task> {
-  return apiPatch<Task>(`/tasks/${taskId}/dates`, body);
+export function updateTaskDates(taskId: string, body: UpdateTaskDatesBody, signal?: AbortSignal): Promise<Task> {
+  return apiPatch<Task>(`/tasks/${taskId}/dates`, body, { signal });
 }
 
 /** `DELETE /tasks/{id}`：逻辑删除，也要求 JSON 请求体 */

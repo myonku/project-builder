@@ -16,6 +16,7 @@ import * as React from 'react';
 import { getGroupPlan, getPersonalPlan } from '@/api/planViews';
 import { toApiError, type ApiError } from '@/api/client';
 import type { PlanProject, PlanViewPayload, PlanViewQuery } from '@/types/plan';
+import { useReloadCompletion } from './useReloadCompletion';
 
 export interface UsePlanViewOptions {
   /** `null` = 个人计划；给值 = 组内计划（该组的共享计划） */
@@ -33,6 +34,7 @@ export interface UsePlanViewResult {
   /** 项目下拉选项：来自**未按项目筛选**的那次响应 */
   projectOptions: PlanProject[];
   reload: () => void;
+  reloadAsync: () => Promise<boolean>;
 }
 
 export function usePlanView({
@@ -44,7 +46,7 @@ export function usePlanView({
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<ApiError | null>(null);
   const [projectOptions, setProjectOptions] = React.useState<PlanProject[]>([]);
-  const [reloadToken, setReloadToken] = React.useState(0);
+  const { token: reloadToken, reload, reloadAsync, settle } = useReloadCompletion();
   const requestSeq = React.useRef(0);
 
   /**
@@ -63,6 +65,8 @@ export function usePlanView({
     if (!enabled) {
       setPayload(null);
       setError(null);
+      setLoading(false);
+      settle(reloadToken, false);
       return undefined;
     }
     const controller = new AbortController();
@@ -79,7 +83,7 @@ export function usePlanView({
           groupId === null
             ? await getPersonalPlan(current, controller.signal)
             : await getGroupPlan(groupId, current, controller.signal);
-        if (requestSeq.current !== seq) {
+        if (controller.signal.aborted || requestSeq.current !== seq) {
           return; // 已有更新的请求发出，丢弃本次结果
         }
         setPayload(next);
@@ -87,11 +91,13 @@ export function usePlanView({
           // 只有"未按项目筛选"的响应才能给出完整的项目选项
           setProjectOptions(next.projects);
         }
+        settle(reloadToken, true);
       } catch (caught) {
         if (requestSeq.current !== seq) {
           return;
         }
         const apiError = toApiError(caught);
+        settle(reloadToken, false);
         if (apiError.code !== 'aborted') {
           setError(apiError);
           setPayload(null);
@@ -103,11 +109,9 @@ export function usePlanView({
       }
     })();
 
-    return () => controller.abort();
+    return () => { controller.abort(); settle(reloadToken, false); };
     // 依赖里用 queryKey（序列化值）而不是 query 对象本身，见上方注释
-  }, [enabled, groupId, queryKey, reloadToken]);
+  }, [enabled, groupId, queryKey, reloadToken, settle]);
 
-  const reload = React.useCallback(() => setReloadToken((token) => token + 1), []);
-
-  return { payload, loading, error, projectOptions, reload };
+  return { payload, loading, error, projectOptions, reload, reloadAsync };
 }

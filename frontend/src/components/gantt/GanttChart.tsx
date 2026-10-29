@@ -1,5 +1,5 @@
 /**
- * 只读甘特图（初版，F05 §7.2）。
+ * 甘特图时间轴与编辑入口（P03）。
  *
  * 为什么没有直接用 `frappe-gantt`：本轮实际装了 1.2.2 做可行性验证，但它
  * 没有 TypeScript 声明、没有"成员泳道/层级行"抽象；要把两类视图塞进同一个
@@ -7,11 +7,11 @@
  * 只需要"时间轴 + 任务条 + 左侧行标签"，自研简化版更小、更可控（F04 D3）。
  *
  * 组件只负责画：数据行由 `ganttModel.ts` 生成，页面负责取数与筛选。
- * **没有任何拖拽/改期手势**；点击任务条只打开既有任务抽屉。
+ * 编辑会话由页面控制器统一管理；组件只上报草稿，不直接写 API。
  */
 
 import * as React from 'react';
-import { useTheme, type Theme } from '@mui/material/styles';
+import { useTheme } from '@mui/material/styles';
 import Box from '@mui/material/Box';
 import IconButton from '@mui/material/IconButton';
 import Tooltip from '@mui/material/Tooltip';
@@ -31,15 +31,18 @@ import {
   type GanttRow,
   type GanttScale,
   type GanttTaskRow,
-  type GanttTimeWindow,
 } from './ganttModel';
 import { formatNaturalDate } from '@/utils/datetime';
 import UserAvatar from '@/components/common/UserAvatar';
-import type { PlanTask } from '@/types/plan';
-import type { TaskStatus } from '@/types/task';
+import useMediaQuery from '@mui/material/useMediaQuery';
+import EditCalendarOutlinedIcon from '@mui/icons-material/EditCalendarOutlined';
+import type { GanttEditController } from '@/hooks/useGanttEdit';
+import GanttTaskBar from './GanttTaskBar';
+import { canEditProgress } from './ganttEditModel';
 
 export interface GanttChartProps {
   rows: GanttRow[];
+  edit: GanttEditController;
   scale: GanttScale;
   /** 左侧第一列表头：项目视图为"项目 / 任务"，成员视图为"成员 / 任务" */
   labelHeader: string;
@@ -55,152 +58,15 @@ export interface GanttChartProps {
 const LABEL_WIDTH = 300;
 const ROW_HEIGHT = 42;
 
-function taskColor(theme: Theme, task: PlanTask): string {
-  switch (task.status) {
-    case 'completed':
-      return theme.palette.success.main;
-    case 'in_progress':
-      return theme.palette.primary.main;
-    case 'cancelled':
-      return theme.palette.grey[500];
-    case 'not_started':
-    default:
-      return theme.palette.grey[600];
-  }
-}
-
-function statusLabel(status: TaskStatus): string {
-  switch (status) {
-    case 'completed':
-      return '已完成';
-    case 'in_progress':
-      return '进行中';
-    case 'cancelled':
-      return '已取消';
-    case 'not_started':
-    default:
-      return '未开始';
-  }
-}
-
-interface TaskBarProps {
-  task: PlanTask;
-  window: GanttTimeWindow;
-  active: boolean;
-  onOpenTask: (taskId: string) => void;
-}
-
-function TaskBar({ task, window, active, onOpenTask }: TaskBarProps) {
-  const theme = useTheme();
-  const geometry = barGeometry(task.start_date, task.end_date, window);
-  if (!geometry.visible) {
-    return null;
-  }
-  const color = taskColor(theme, task);
-  const tooltip =
-    `${task.name}\n${formatNaturalDate(task.start_date)} ~ ${formatNaturalDate(task.end_date)}\n` +
-    `${statusLabel(task.status)} · 进度 ${task.progress}%${task.is_milestone ? ' · 里程碑' : ''}`;
-  const commonSx = {
-    position: 'absolute',
-    border: 0,
-    p: 0,
-    m: 0,
-    cursor: 'pointer',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'flex-end',
-    font: 'inherit',
-    color: 'common.white',
-    backgroundColor: color,
-    outline: active ? `2px solid ${theme.palette.warning.main}` : 'none',
-    outlineOffset: 2,
-    '&:focus-visible': {
-      outline: `2px solid ${theme.palette.warning.main}`,
-      outlineOffset: 2,
-    },
-    '&:hover': { filter: 'brightness(0.94)' },
-  } as const;
-
-  if (task.is_milestone) {
-    return (
-      <Tooltip title={tooltip}>
-        <Box
-          component="button"
-          type="button"
-          aria-label={`打开里程碑 ${task.name}`}
-          onClick={() => onOpenTask(task.id)}
-          sx={{
-            ...commonSx,
-            left: geometry.left,
-            top: 13,
-            width: 16,
-            height: 16,
-            transform: 'rotate(45deg)',
-            borderRadius: 0.5,
-          }}
-        />
-      </Tooltip>
-    );
-  }
-
-  return (
-    <Tooltip title={<Box sx={{ whiteSpace: 'pre-line' }}>{tooltip}</Box>}>
-      <Box
-        component="button"
-        type="button"
-        aria-label={`打开任务 ${task.name}`}
-        onClick={() => onOpenTask(task.id)}
-        sx={{
-          ...commonSx,
-          left: geometry.left,
-          top: 11,
-          width: geometry.width,
-          height: 22,
-          borderRadius: 1,
-          overflow: 'hidden',
-          // 逾期任务加一圈红边；状态色仍然保留
-          border: task.is_overdue ? `1px solid ${theme.palette.error.main}` : 0,
-          opacity: task.status === 'cancelled' ? 0.58 : 1,
-        }}
-      >
-        <Box
-          aria-hidden
-          sx={{
-            position: 'absolute',
-            inset: 0,
-            width: `${Math.min(100, Math.max(0, task.progress))}%`,
-            backgroundColor: 'rgba(0,0,0,0.16)',
-          }}
-        />
-        {geometry.width >= 34 ? (
-          <Typography
-            variant="caption"
-            sx={{
-              position: 'relative',
-              zIndex: 1,
-              px: 0.75,
-              fontSize: '0.72rem',
-              fontWeight: 600,
-              lineHeight: 1,
-              whiteSpace: 'nowrap',
-            }}
-          >
-            {task.progress}%
-          </Typography>
-        ) : null}
-      </Box>
-    </Tooltip>
-  );
-}
-
 interface TaskRowLabelProps {
+  edit: GanttEditController;
   row: GanttTaskRow;
   collapsed: boolean;
   onToggle: () => void;
   onOpenTask: (taskId: string) => void;
 }
 
-function TaskRowLabel({ row, collapsed, onToggle, onOpenTask }: TaskRowLabelProps) {
+function TaskRowLabel({ row, collapsed, onToggle, onOpenTask, edit }: TaskRowLabelProps) {
   return (
     <Box sx={{ display: 'flex', alignItems: 'center', minWidth: 0, width: '100%' }}>
       <Box sx={{ width: 24, flexShrink: 0, display: 'flex', justifyContent: 'center' }}>
@@ -261,19 +127,27 @@ function TaskRowLabel({ row, collapsed, onToggle, onOpenTask }: TaskRowLabelProp
           </Typography>
         </Box>
       </Tooltip>
-      <Typography
-        variant="caption"
-        color="text.secondary"
-        sx={{ flexShrink: 0, ml: 0.5, fontVariantNumeric: 'tabular-nums' }}
-      >
-        {row.task.progress}%
-      </Typography>
+      {edit.enabled && row.task.can_edit ? <Tooltip title="编辑日期">
+        <IconButton size="small" aria-label={`编辑日期 ${row.task.name}`} disabled={edit.busy}
+          onClick={(event) => edit.begin(row.task, row.id, 'move', event.currentTarget, true)} sx={{ p: 0.25 }}>
+          <EditCalendarOutlinedIcon sx={{ fontSize: 16 }} />
+        </IconButton>
+      </Tooltip> : null}
+      {edit.enabled ? <Tooltip title={row.task.has_children ? '进度由下级汇总' : row.task.status === 'cancelled' ? '已取消任务请在详情中恢复' : !row.task.can_edit ? '任务只读' : '编辑进度'}>
+        <Box component="span"><Box component="button" type="button" aria-label={`编辑进度 ${row.task.name}`}
+          disabled={edit.busy || !canEditProgress(row.task)}
+          onClick={(event) => edit.begin(row.task, row.id, 'progress', event.currentTarget, true)}
+          sx={{ border: 0, bgcolor: 'transparent', color: 'text.secondary', font: 'inherit', fontSize: 12, cursor: 'pointer', p: 0.5 }}>
+          {row.task.progress}%
+        </Box></Box>
+      </Tooltip> : <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0, ml: 0.5 }}>{row.task.progress}%</Typography>}
     </Box>
   );
 }
 
 export default function GanttChart({
   rows,
+  edit,
   scale,
   labelHeader,
   today,
@@ -286,6 +160,20 @@ export default function GanttChart({
 }: GanttChartProps) {
   const theme = useTheme();
   const scrollRef = React.useRef<HTMLDivElement | null>(null);
+  const finePointer = useMediaQuery('(any-pointer: fine)');
+  const [viewport, setViewport] = React.useState({ start: 0, end: 0 });
+  const measure = React.useCallback(() => {
+    const node = scrollRef.current;
+    if (node) setViewport({ start: node.scrollLeft, end: node.scrollLeft + Math.max(0, node.clientWidth - LABEL_WIDTH) });
+  }, []);
+  React.useEffect(() => {
+    const node = scrollRef.current;
+    if (!node) return;
+    measure();
+    const observer = new ResizeObserver(measure); observer.observe(node);
+    return () => observer.disconnect();
+  }, [measure, rows.length]);
+  const priorWindow = React.useRef<{ start: string; scale: GanttScale } | null>(null);
 
   const window = React.useMemo(() => {
     const dates = rows.flatMap(rowDates);
@@ -298,16 +186,23 @@ export default function GanttChart({
   // 周/月尺度通常整张图能放下，强行居中反而会把当前月份的表头推到左侧标签列后面。
   React.useEffect(() => {
     const node = scrollRef.current;
-    if (!node || window.todayIndex === null) {
-      return;
+    if (!node) return;
+    const start = window.start.format('YYYY-MM-DD');
+    const previous = priorWindow.current;
+    priorWindow.current = { start, scale };
+    if (previous && previous.scale === scale) {
+      node.scrollLeft += window.start.diff(previous.start, 'day') * -window.dayWidth;
+      measure(); return;
     }
+    if (window.todayIndex === null) { measure(); return; }
     const viewportWidth = Math.max(0, node.clientWidth - LABEL_WIDTH);
     const todayOffset = window.todayIndex * window.dayWidth;
     node.scrollLeft =
       todayOffset < viewportWidth * 0.75
         ? 0
         : Math.max(0, todayOffset - viewportWidth * 0.35);
-  }, [windowKey, window.dayWidth, window.todayIndex]);
+    measure();
+  }, [windowKey, window.dayWidth, window.todayIndex, window.start, scale, measure]);
 
   const headerHeight = scale === 'month' ? 40 : 70;
   const monthBandHeight = scale === 'month' ? 40 : 32;
@@ -340,6 +235,8 @@ export default function GanttChart({
   return (
     <Box
       ref={scrollRef}
+      data-gantt-scroll
+      onScroll={measure}
       sx={{
         overflow: 'auto',
         // 比初版高约 100px：成员泳道/任务多时优先让图自己滚，避免只看得到 8–9 行
@@ -632,6 +529,7 @@ export default function GanttChart({
                   >
                     <TaskRowLabel
                       row={row}
+                      edit={edit}
                       collapsed={collapsed}
                       onToggle={() => onToggleRow(row.id)}
                       onOpenTask={onOpenTask}
@@ -747,8 +645,13 @@ export default function GanttChart({
                   : null}
 
                 {isTaskGanttRow(row) ? (
-                  <TaskBar
+                  <GanttTaskBar
                     task={row.task}
+                    rowId={row.id}
+                    edit={edit}
+                    scrollRef={scrollRef}
+                    viewport={viewport}
+                    finePointer={finePointer}
                     window={window}
                     active={row.task.id === activeTaskId}
                     onOpenTask={onOpenTask}
