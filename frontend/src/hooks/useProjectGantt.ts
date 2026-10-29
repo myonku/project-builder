@@ -9,19 +9,21 @@ import * as React from 'react';
 import { getProjectGantt } from '@/api/planViews';
 import { toApiError, type ApiError } from '@/api/client';
 import type { GanttPayload } from '@/types/plan';
+import { useReloadCompletion } from './useReloadCompletion';
 
 export interface UseProjectGanttResult {
   payload: GanttPayload | null;
   loading: boolean;
   error: ApiError | null;
   reload: () => void;
+  reloadAsync: () => Promise<boolean>;
 }
 
 export function useProjectGantt(projectId: string | null): UseProjectGanttResult {
   const [payload, setPayload] = React.useState<GanttPayload | null>(null);
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<ApiError | null>(null);
-  const [reloadToken, setReloadToken] = React.useState(0);
+  const { token: reloadToken, reload, reloadAsync, settle } = useReloadCompletion();
   const requestSeq = React.useRef(0);
 
   React.useEffect(() => {
@@ -29,6 +31,7 @@ export function useProjectGantt(projectId: string | null): UseProjectGanttResult
       setPayload(null);
       setError(null);
       setLoading(false);
+      settle(reloadToken, false);
       return undefined;
     }
 
@@ -41,15 +44,17 @@ export function useProjectGantt(projectId: string | null): UseProjectGanttResult
     void (async () => {
       try {
         const next = await getProjectGantt(projectId, controller.signal);
-        if (requestSeq.current !== seq) {
+        if (controller.signal.aborted || requestSeq.current !== seq) {
           return;
         }
         setPayload(next);
+        settle(reloadToken, true);
       } catch (caught) {
         if (requestSeq.current !== seq) {
           return;
         }
         const apiError = toApiError(caught);
+        settle(reloadToken, false);
         if (apiError.code !== 'aborted') {
           setError(apiError);
           setPayload(null);
@@ -61,10 +66,8 @@ export function useProjectGantt(projectId: string | null): UseProjectGanttResult
       }
     })();
 
-    return () => controller.abort();
-  }, [projectId, reloadToken]);
+    return () => { controller.abort(); settle(reloadToken, false); };
+  }, [projectId, reloadToken, settle]);
 
-  const reload = React.useCallback(() => setReloadToken((token) => token + 1), []);
-
-  return { payload, loading, error, reload };
+  return { payload, loading, error, reload, reloadAsync };
 }

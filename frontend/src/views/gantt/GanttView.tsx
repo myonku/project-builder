@@ -1,11 +1,11 @@
 /**
- * 视图 / 甘特图（`/gantt`，初版只读；F05 §7.2）。
+ * 视图 / 甘特图（`/gantt`，P03 日期与进度编辑）。
  *
  * 两类图放在**同一个一级路由**里，用页内 Tab 切换（与 F05 记录的方案一致）：
  * - **项目视图**：选定一个项目，展示项目周期与任务层级/进度；
  * - **成员视图**：选定工作组，按任务成员拆分泳道，展示成员的工作分布与进度。
  *
- * 初版刻意**不做拖拽改期**：任务条只负责展示，点击打开既有任务抽屉。
+ * 图形编辑默认锁定，页面控制器串行管理草稿、确认、保存及权威刷新。
  * 时间尺度（日/周/月）是纯客户端展示参数，服务端不提供（《A06》§3 备注）。
  *
  * URL 参数：`view=members`、`projectId`、`groupId`、`memberId`、`scale=day|month`、
@@ -17,21 +17,24 @@ import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
+import FormControlLabel from '@mui/material/FormControlLabel';
 import MenuItem from '@mui/material/MenuItem';
 import Stack from '@mui/material/Stack';
+import Switch from '@mui/material/Switch';
 import Tab from '@mui/material/Tab';
 import Tabs from '@mui/material/Tabs';
 import TextField from '@mui/material/TextField';
 import ToggleButton from '@mui/material/ToggleButton';
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
+import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import RefreshIcon from '@mui/icons-material/Refresh';
-import RestartAltIcon from '@mui/icons-material/RestartAlt';
-import SearchIcon from '@mui/icons-material/Search';
 import { useNavigate, useSearchParams } from 'react-router';
 import PageContainer from '@/components/common/PageContainer';
 import { filterItemSx, filterRowSx } from '@/components/common/filterLayout';
 import GanttChart from '@/components/gantt/GanttChart';
+import GanttEditDialog from '@/components/gantt/GanttEditDialog';
+import { useGanttEdit } from '@/hooks/useGanttEdit';
 import {
   buildMemberGanttRows,
   buildProjectGanttRows,
@@ -67,6 +70,7 @@ export default function GanttView() {
   const currentGroupId = useUiStore((state) => state.currentGroupId);
   const setCurrentGroupId = useUiStore((state) => state.setCurrentGroupId);
   const { handle } = useApiError();
+  const interactionBusy = React.useRef(false);
 
   const view: GanttViewMode = searchParams.get('view') === 'members' ? 'members' : 'projects';
   const scale = parseScale(searchParams.get('scale'));
@@ -76,12 +80,14 @@ export default function GanttView() {
   const memberParam = searchParams.get('memberId') ?? '';
   const taskId = searchParams.get('taskId');
 
-  /** 项目名称是"主动查询"：输入框只改草稿，点查询/回车才写 URL 并重新拉选项 */
+  /** 服务端名称匹配；输入暂停 500ms 后应用，失焦/回车可立即应用。 */
   const [projectNameDraft, setProjectNameDraft] = React.useState(projectNameParam);
+  const [projectNameComposing, setProjectNameComposing] = React.useState(false);
   const [collapsedIds, setCollapsedIds] = React.useState<Set<string>>(() => new Set());
 
   const patchParams = React.useCallback(
     (patch: Record<string, string | null>, replace = false) => {
+      if (interactionBusy.current) return;
       const next = new URLSearchParams(searchParams);
       for (const [key, value] of Object.entries(patch)) {
         if (value === null || value === '') {
@@ -102,10 +108,11 @@ export default function GanttView() {
     reload: reloadProjects,
   } = useProjectOptions(view === 'projects', projectNameParam);
 
-  // URL 是名称筛选的权威值：后退/外链进入时把草稿同步回来
+  // URL 是名称筛选的权威值；切换视图也丢弃尚未应用的输入与输入法状态。
   React.useEffect(() => {
     setProjectNameDraft(projectNameParam);
-  }, [projectNameParam]);
+    setProjectNameComposing(false);
+  }, [projectNameParam, view]);
   const {
     options: groupOptions,
     loading: groupsLoading,
@@ -151,6 +158,7 @@ export default function GanttView() {
     loading: projectLoading,
     error: projectError,
     reload: reloadProject,
+    reloadAsync: reloadProjectAsync,
   } = useProjectGantt(view === 'projects' && effectiveProjectId ? effectiveProjectId : null);
 
   const {
@@ -158,6 +166,7 @@ export default function GanttView() {
     loading: planLoading,
     error: planError,
     reload: reloadPlan,
+    reloadAsync: reloadPlanAsync,
   } = usePlanView({
     groupId: effectiveGroupId || null,
     query: GANTT_PLAN_QUERY,
@@ -210,6 +219,7 @@ export default function GanttView() {
   }, [dataKey]);
 
   const toggleRow = React.useCallback((rowId: string) => {
+    if (interactionBusy.current) return;
     setCollapsedIds((previous) => {
       const next = new Set(previous);
       if (next.has(rowId)) {
@@ -231,15 +241,12 @@ export default function GanttView() {
   );
 
   const applyProjectName = React.useCallback(() => {
+    if (view !== 'projects' || projectNameComposing || interactionBusy.current) return;
     const name = projectNameDraft.trim();
+    if (name === projectNameParam) return;
     // 名称变化后让 effectiveProjectId 重新命中结果集；当前项目若仍在结果里会保留
-    patchParams({ projectName: name || null, taskId: null });
-  }, [projectNameDraft, patchParams]);
-
-  const resetProjectName = React.useCallback(() => {
-    setProjectNameDraft('');
-    patchParams({ projectName: null, taskId: null });
-  }, [patchParams]);
+    patchParams({ projectName: name || null, taskId: null }, true);
+  }, [view, projectNameDraft, projectNameParam, projectNameComposing, patchParams]);
 
   const summary = view === 'projects' ? projectPayload?.summary : planPayload?.summary;
   const loading = view === 'projects' ? projectLoading : planLoading;
@@ -247,6 +254,18 @@ export default function GanttView() {
   const optionsError = view === 'projects' ? projectsError : groupsError;
   const reload = view === 'projects' ? reloadProject : reloadPlan;
   const today = todayIn(userTimeZone);
+  const editableAvailable = !loading && !(view === 'projects' && projectsLoading) && !dataError && !optionsError && rows.some((row) => row.kind === 'task' && row.task.can_edit);
+  const editKey = `${view}:${effectiveProjectId}:${projectNameParam}:${effectiveGroupId}:${memberParam}:${scale}`;
+  const edit = useGanttEdit(editKey, editableAvailable, view === 'projects' ? reloadProjectAsync : reloadPlanAsync);
+  interactionBusy.current = edit.busy;
+  React.useEffect(() => { if (taskId && edit.enabled && !edit.busy) edit.lock(); }, [taskId, edit.enabled, edit.busy, edit.lock]);
+  const openTaskFromChart = (id: string) => { if (!edit.busy) { edit.lock(); openTask(id); } };
+
+  React.useEffect(() => {
+    if (view !== 'projects' || edit.busy || projectNameComposing || projectNameDraft.trim() === projectNameParam) return;
+    const timer = window.setTimeout(applyProjectName, 500);
+    return () => window.clearTimeout(timer);
+  }, [view, edit.busy, projectNameComposing, projectNameDraft, projectNameParam, applyProjectName]);
 
   React.useEffect(() => {
     if (dataError) {
@@ -262,8 +281,28 @@ export default function GanttView() {
     return tasks.find((task) => task.id === taskId) ?? null;
   }, [taskId, view, projectPayload, planPayload]);
 
+  const editTaskPath = React.useMemo(() => {
+    if (!edit.draft) return '';
+    const tasks = view === 'projects' ? projectPayload?.tasks ?? [] : planPayload?.tasks ?? [];
+    const names = [edit.draft.task.name];
+    const seen = new Set([edit.draft.task.id]);
+    let parentId = edit.draft.task.parent_id;
+    while (parentId && !seen.has(parentId)) {
+      seen.add(parentId);
+      const parent = tasks.find(task => task.id === parentId);
+      if (!parent) break; // Never fetch or reveal a hidden ancestor for the label.
+      names.unshift(parent.name); parentId = parent.parent_id;
+    }
+    return names.join(' / ');
+  }, [edit.draft, view, projectPayload, planPayload]);
+
   const noProject = view === 'projects' && !projectsLoading && projectOptions.length === 0;
   const noGroup = view === 'members' && !groupsLoading && groupOptions.length === 0;
+  const editHint = [
+    edit.enabled ? '已启用编辑模式，每笔修改均需确认。' : '只读模式，开启后可编辑有权限的任务。',
+    edit.busy ? '当前修改确认、保存或刷新完成后，才能切换模式。' : '',
+    !editableAvailable ? loading ? '数据加载中，暂不可编辑。' : '当前没有可编辑任务或数据不可用。' : '',
+  ].filter(Boolean).join(' ');
 
   return (
     <PageContainer
@@ -273,8 +312,8 @@ export default function GanttView() {
         <Button
           variant="outlined"
           startIcon={<RefreshIcon />}
-          onClick={reload}
-          disabled={loading || noProject || noGroup}
+          onClick={() => { edit.lock(); reload(); }}
+          disabled={edit.busy || loading || noProject || noGroup}
         >
           刷新
         </Button>
@@ -291,6 +330,7 @@ export default function GanttView() {
           }}
           sx={{ pb: 2, borderBottom: 1, borderColor: 'divider' }}
         >
+          <Box component="fieldset" disabled={edit.busy} sx={{ border: 0, p: 0, m: 0, minWidth: 0 }}>
           <Stack spacing={1.5}>
             <Tabs
               value={view}
@@ -299,8 +339,8 @@ export default function GanttView() {
               }
               aria-label="甘特图类型"
             >
-              <Tab value="projects" label="项目视图" />
-              <Tab value="members" label="成员视图" />
+              <Tab value="projects" label="项目视图" disabled={edit.busy} />
+              <Tab value="members" label="成员视图" disabled={edit.busy} />
             </Tabs>
 
             <Box sx={filterRowSx(false)}>
@@ -309,9 +349,18 @@ export default function GanttView() {
                   <TextField
                     size="small"
                     label="项目名称"
-                    placeholder="包含匹配"
+                    disabled={edit.busy}
+                    placeholder="输入后自动筛选"
                     value={projectNameDraft}
                     onChange={(event) => setProjectNameDraft(event.target.value)}
+                    onBlur={applyProjectName}
+                    onCompositionStart={() => setProjectNameComposing(true)}
+                    onCompositionEnd={() => setProjectNameComposing(false)}
+                    onKeyDown={(event) => {
+                      if (event.key !== 'Enter') return;
+                      event.preventDefault();
+                      if (!event.nativeEvent.isComposing) applyProjectName();
+                    }}
                     sx={filterItemSx(200, 380)}
                   />
                   <TextField
@@ -320,7 +369,7 @@ export default function GanttView() {
                     label="项目"
                     value={effectiveProjectId}
                     onChange={(event) => patchParams({ projectId: event.target.value, taskId: null })}
-                    disabled={projectsLoading || projectOptions.length === 0}
+                    disabled={edit.busy || projectsLoading || projectOptions.length === 0}
                     sx={filterItemSx(220, 360)}
                     slotProps={{
                       inputLabel: { shrink: true },
@@ -351,7 +400,7 @@ export default function GanttView() {
                       setCurrentGroupId(nextGroupId || null);
                       patchParams({ groupId: nextGroupId, memberId: null, taskId: null });
                     }}
-                    disabled={groupsLoading || groupOptions.length === 0}
+                    disabled={edit.busy || groupsLoading || groupOptions.length === 0}
                     sx={filterItemSx(180, 300)}
                     slotProps={{
                       inputLabel: { shrink: true },
@@ -376,7 +425,7 @@ export default function GanttView() {
                     label="成员"
                     value={memberParam}
                     onChange={(event) => patchParams({ memberId: event.target.value || null, taskId: null })}
-                    disabled={planLoading || memberOptions.length === 0}
+                    disabled={edit.busy || planLoading || memberOptions.length === 0}
                     sx={filterItemSx(160, 260)}
                     slotProps={{
                       inputLabel: { shrink: true },
@@ -405,6 +454,7 @@ export default function GanttView() {
                 </Typography>
                 <ToggleButtonGroup
                   exclusive
+                  disabled={edit.busy}
                   size="small"
                   value={scale}
                   onChange={(_event, next: GanttScale | null) => {
@@ -422,27 +472,13 @@ export default function GanttView() {
                 </ToggleButtonGroup>
               </Box>
             </Box>
-
-            {view === 'projects' ? (
-              <Box sx={filterRowSx(true)}>
-                <Button type="submit" variant="contained" startIcon={<SearchIcon />}>
-                  查询
-                </Button>
-                <Button
-                  type="button"
-                  variant="outlined"
-                  startIcon={<RestartAltIcon />}
-                  onClick={resetProjectName}
-                >
-                  重置
-                </Button>
-              </Box>
-            ) : null}
           </Stack>
+          </Box>
         </Box>
 
+        {edit.message ? <Alert severity={edit.message.startsWith('修改已保存') ? 'success' : 'info'}>{edit.message}</Alert> : null}
         <Alert severity="info" variant="outlined" icon={false}>
-          点击任务条或左侧任务名查看详情；如需调整日期，请在任务详情中编辑。
+          点击任务条或左侧任务名查看详情；开启“允许编辑”后，条外手柄改日期，条内竖柄改进度，主体拖动平移。短条和触屏使用行内编辑入口；每笔修改均需确认。
         </Alert>
 
         {optionsError ? (
@@ -478,7 +514,7 @@ export default function GanttView() {
         {noProject ? (
           <Alert severity="info" variant="outlined">
             {projectNameParam
-              ? `没有名称包含「${projectNameParam}」的可查看项目。可以清空名称后重新查询。`
+              ? `没有名称包含「${projectNameParam}」的可查看项目。修改或清空名称会自动更新列表。`
               : '当前没有可查看的项目。项目甘特图只列出你有读权限的项目。'}
           </Alert>
         ) : null}
@@ -489,41 +525,52 @@ export default function GanttView() {
           </Alert>
         ) : null}
 
-        <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', alignItems: 'center', rowGap: 1 }}>
-          <Chip size="small" label={`任务 ${summary?.task_count ?? 0}`} />
-          <Chip size="small" label={`进行中 ${summary?.in_progress_task_count ?? 0}`} color="primary" variant="outlined" />
-          <Chip
-            size="small"
-            label={`逾期 ${summary?.overdue_task_count ?? 0}`}
-            color={(summary?.overdue_task_count ?? 0) > 0 ? 'error' : 'default'}
-            variant="outlined"
-          />
-          <Chip size="small" label={`总体进度 ${summary?.overall_progress ?? 0}%`} />
-          <Typography variant="caption" color="text.secondary" sx={{ ml: 1 }}>
-            灰=未开始　蓝=进行中　绿=已完成　红框=逾期　◆=里程碑
-          </Typography>
-        </Stack>
+        <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) max-content', gap: 2, alignItems: 'start' }}>
+          <Stack direction="row" sx={{ minWidth: 0, flexWrap: 'wrap', alignItems: 'center', gap: 1, '& .MuiChip-root': { maxWidth: '100%' } }}>
+            <Chip size="small" label={`任务 ${summary?.task_count ?? 0}`} />
+            <Chip size="small" label={`进行中 ${summary?.in_progress_task_count ?? 0}`} color="primary" variant="outlined" />
+            <Chip
+              size="small"
+              label={`逾期 ${summary?.overdue_task_count ?? 0}`}
+              color={(summary?.overdue_task_count ?? 0) > 0 ? 'error' : 'default'}
+              variant="outlined"
+            />
+            <Chip size="small" label={`总体进度 ${summary?.overall_progress ?? 0}%`} />
+            <Typography variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+              灰=未开始　蓝=进行中　绿=已完成　红框=逾期　◆=里程碑
+            </Typography>
+          </Stack>
+          <Tooltip title={editHint} describeChild>
+            <Box component="span" sx={{ display: 'inline-flex', whiteSpace: 'nowrap' }}>
+              <FormControlLabel label="允许编辑" labelPlacement="start" sx={{ m: 0, gap: 0.5, '& .MuiFormControlLabel-label': { fontSize: '0.875rem', color: edit.enabled ? 'warning.main' : 'text.secondary' } }}
+                control={<Switch size="small" color="warning" checked={edit.enabled} disabled={edit.busy || !editableAvailable}
+                  slotProps={{ input: { role: 'switch', 'aria-label': '允许编辑', 'aria-description': editHint, ...{ 'data-gantt-edit-toggle': '' } } }}
+                  onChange={() => { if (taskId) closeTask(); edit.toggle(); }} />} />
+            </Box>
+          </Tooltip>
+        </Box>
 
         <GanttChart
+          edit={edit}
           rows={visibleRows}
           scale={scale}
           labelHeader={view === 'projects' ? '项目 / 任务' : '成员 / 任务'}
           today={today}
           collapsedIds={collapsedIds}
           onToggleRow={toggleRow}
-          onOpenTask={openTask}
+          onOpenTask={openTaskFromChart}
           onOpenProject={
-            view === 'projects' ? (projectId) => navigate(`/projects/${projectId}`) : undefined
+            view === 'projects' ? (projectId) => { if (!edit.busy) { edit.lock(); navigate(`/projects/${projectId}`); } } : undefined
           }
           activeTaskId={taskId}
           emptyHint={
             view === 'projects'
               ? noProject
                 ? projectNameParam
-                  ? '没有匹配的项目'
-                  : '暂无可查看的项目'
-                : '这个项目还没有可见任务'
-              : '这个工作组还没有已共享的任务'
+                  ? '没有匹配的项目。'
+                  : '暂无可查看的项目。'
+                : '这个项目还没有可见任务。'
+              : '这个工作组还没有已共享的任务。'
           }
         />
 
@@ -534,11 +581,12 @@ export default function GanttView() {
               : '多人参与的任务会在每位成员名下显示；顶部任务总数不重复计算。'}
           </Typography>
           <Typography variant="caption" color="text.secondary" component="p" sx={{ mt: 0.5 }}>
-            任务条用于查看时间安排；任务日期可在详情中调整。
+            编辑时拖动仅预览；松开后确认才保存。父任务进度由下级汇总，修改日期不会自动移动子任务。
           </Typography>
         </Box>
       </Stack>
 
+      <GanttEditDialog edit={edit} taskPath={editTaskPath} projectName={view === 'projects' ? projectPayload?.project.name ?? '' : planPayload?.projects.find((project) => project.id === edit.draft?.task.project_id)?.name ?? ''} />
       <TaskDetailDrawer
         key={taskId ?? 'none'}
         taskId={taskId}

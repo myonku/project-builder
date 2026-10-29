@@ -31,7 +31,7 @@ export interface UseProjectOptionsResult {
 /**
  * @param enabled 为 false 时不发请求（成员视图用不到项目下拉）
  * @param name 已应用的项目名称筛选；空串表示不筛。**不要传输入框草稿值**，
- *             否则每敲一个字都会打一次 `POST /projects/query`。
+ *             调用方应防抖后应用名称，避免每敲一个字都请求一次。
  */
 export function useProjectOptions(
   enabled = true,

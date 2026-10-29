@@ -162,7 +162,7 @@ export default function AttachmentListView() {
           paginationMode="server" sortingMode="server" filterMode="server" disableColumnFilter disableRowSelectionOnClick
           paginationModel={list.paginationModel} onPaginationModelChange={list.onPaginationModelChange}
           sortModel={list.sortModel} onSortModelChange={list.onSortModelChange} pageSizeOptions={[10, 20, 50, 100]}
-          localeText={{ ...zhCN.components.MuiDataGrid.defaultProps.localeText, noRowsLabel: '没有符合条件的附件' }}
+          localeText={{ ...zhCN.components.MuiDataGrid.defaultProps.localeText, noRowsLabel: '没有符合条件的附件。' }}
           sx={{ '& .MuiDataGrid-cell': { display: 'flex', alignItems: 'center' }, '& .MuiDataGrid-virtualScroller': { scrollbarGutter: 'stable' } }} />
       </Box>
     </Stack>
