@@ -17,13 +17,16 @@ import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
+import FormControlLabel from '@mui/material/FormControlLabel';
 import MenuItem from '@mui/material/MenuItem';
 import Stack from '@mui/material/Stack';
+import Switch from '@mui/material/Switch';
 import Tab from '@mui/material/Tab';
 import Tabs from '@mui/material/Tabs';
 import TextField from '@mui/material/TextField';
 import ToggleButton from '@mui/material/ToggleButton';
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
+import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import RestartAltIcon from '@mui/icons-material/RestartAlt';
@@ -292,6 +295,11 @@ export default function GanttView() {
 
   const noProject = view === 'projects' && !projectsLoading && projectOptions.length === 0;
   const noGroup = view === 'members' && !groupsLoading && groupOptions.length === 0;
+  const editHint = [
+    edit.enabled ? '已启用编辑模式，每笔修改均需确认。' : '只读模式，开启后可编辑有权限的任务。',
+    edit.busy ? '当前修改确认、保存或刷新完成后，才能切换模式。' : '',
+    !editableAvailable ? loading ? '数据加载中，暂不可编辑。' : '当前没有可编辑任务或数据不可用。' : '',
+  ].filter(Boolean).join(' ');
 
   return (
     <PageContainer
@@ -473,12 +481,6 @@ export default function GanttView() {
           </Box>
         </Box>
 
-        <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-          <ToggleButton value="edit" selected={edit.enabled} aria-pressed={edit.enabled} data-gantt-edit-toggle
-            size="small" disabled={edit.busy || !editableAvailable}
-            onClick={() => { if (taskId) closeTask(); edit.toggle(); }}>允许编辑</ToggleButton>
-          <Typography variant="body2" color="text.secondary">{edit.enabled ? '已启用编辑模式' : '只读模式'}{!editableAvailable && !loading ? ' · 当前没有可编辑任务或数据不可用' : ''}</Typography>
-        </Stack>
         {edit.message ? <Alert severity={edit.message.startsWith('修改已保存') ? 'success' : 'info'}>{edit.message}</Alert> : null}
         <Alert severity="info" variant="outlined" icon={false}>
           点击任务条或左侧任务名查看详情；开启“允许编辑”后，条外手柄改日期，条内竖柄改进度，主体拖动平移。短条和触屏使用行内编辑入口；每笔修改均需确认。
@@ -528,20 +530,30 @@ export default function GanttView() {
           </Alert>
         ) : null}
 
-        <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', alignItems: 'center', rowGap: 1 }}>
-          <Chip size="small" label={`任务 ${summary?.task_count ?? 0}`} />
-          <Chip size="small" label={`进行中 ${summary?.in_progress_task_count ?? 0}`} color="primary" variant="outlined" />
-          <Chip
-            size="small"
-            label={`逾期 ${summary?.overdue_task_count ?? 0}`}
-            color={(summary?.overdue_task_count ?? 0) > 0 ? 'error' : 'default'}
-            variant="outlined"
-          />
-          <Chip size="small" label={`总体进度 ${summary?.overall_progress ?? 0}%`} />
-          <Typography variant="caption" color="text.secondary" sx={{ ml: 1 }}>
-            灰=未开始　蓝=进行中　绿=已完成　红框=逾期　◆=里程碑
-          </Typography>
-        </Stack>
+        <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) max-content', gap: 2, alignItems: 'start' }}>
+          <Stack direction="row" sx={{ minWidth: 0, flexWrap: 'wrap', alignItems: 'center', gap: 1, '& .MuiChip-root': { maxWidth: '100%' } }}>
+            <Chip size="small" label={`任务 ${summary?.task_count ?? 0}`} />
+            <Chip size="small" label={`进行中 ${summary?.in_progress_task_count ?? 0}`} color="primary" variant="outlined" />
+            <Chip
+              size="small"
+              label={`逾期 ${summary?.overdue_task_count ?? 0}`}
+              color={(summary?.overdue_task_count ?? 0) > 0 ? 'error' : 'default'}
+              variant="outlined"
+            />
+            <Chip size="small" label={`总体进度 ${summary?.overall_progress ?? 0}%`} />
+            <Typography variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+              灰=未开始　蓝=进行中　绿=已完成　红框=逾期　◆=里程碑
+            </Typography>
+          </Stack>
+          <Tooltip title={editHint} describeChild>
+            <Box component="span" sx={{ display: 'inline-flex', whiteSpace: 'nowrap' }}>
+              <FormControlLabel label="允许编辑" labelPlacement="start" sx={{ m: 0, gap: 0.5, '& .MuiFormControlLabel-label': { fontSize: '0.875rem', color: edit.enabled ? 'warning.main' : 'text.secondary' } }}
+                control={<Switch size="small" color="warning" checked={edit.enabled} disabled={edit.busy || !editableAvailable}
+                  slotProps={{ input: { role: 'switch', 'aria-label': '允许编辑', 'aria-description': editHint, ...{ 'data-gantt-edit-toggle': '' } } }}
+                  onChange={() => { if (taskId) closeTask(); edit.toggle(); }} />} />
+            </Box>
+          </Tooltip>
+        </Box>
 
         <GanttChart
           edit={edit}
