@@ -16,6 +16,7 @@ ALTER TABLE reminders ADD CONSTRAINT ck_reminders_status CHECK
 
 CREATE TABLE reminder_delivery_attempts (
  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+ created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now(),
  reminder_id uuid NOT NULL REFERENCES reminders(id) ON DELETE CASCADE,
  task_id uuid NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
  recipient_id uuid NOT NULL REFERENCES users(id), kind varchar(32) NOT NULL,
@@ -28,11 +29,17 @@ CREATE TABLE reminder_delivery_attempts (
 );
 CREATE INDEX reminder_attempt_success ON reminder_delivery_attempts(task_id,recipient_id,kind,sent_at) WHERE status='sent';
 CREATE TABLE reminder_delivery_guards (
+ id uuid NOT NULL UNIQUE DEFAULT gen_random_uuid(),
+ created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now(),
  task_id uuid NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
  recipient_id uuid NOT NULL REFERENCES users(id), kind varchar(32) NOT NULL,
  active_attempt uuid REFERENCES reminder_delivery_attempts(id),
  PRIMARY KEY(task_id,recipient_id,kind)
 );
+CREATE FUNCTION reminder_delivery_touched() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN NEW.updated_at:=clock_timestamp(); RETURN NEW; END $$;
+CREATE TRIGGER reminder_attempt_touched BEFORE UPDATE ON reminder_delivery_attempts FOR EACH ROW EXECUTE FUNCTION reminder_delivery_touched();
+CREATE TRIGGER reminder_guard_touched BEFORE UPDATE ON reminder_delivery_guards FOR EACH ROW EXECUTE FUNCTION reminder_delivery_touched();
 ALTER TABLE reminders ADD CONSTRAINT reminder_covered_attempt FOREIGN KEY(covered_by) REFERENCES reminder_delivery_attempts(id);
 
 CREATE FUNCTION reminder_now() RETURNS timestamptz LANGUAGE sql STABLE AS $$
@@ -40,9 +47,13 @@ CREATE FUNCTION reminder_now() RETURNS timestamptz LANGUAGE sql STABLE AS $$
 $$;
 
 -- Corrupt legacy timezone values use the same UTC fallback as read paths.
-CREATE FUNCTION reminder_timezone(tz text) RETURNS text LANGUAGE sql STABLE AS $$
- SELECT CASE WHEN EXISTS(SELECT 1 FROM pg_timezone_names WHERE name=tz) THEN tz ELSE 'UTC' END
-$$;
+CREATE FUNCTION reminder_timezone(tz text) RETURNS text LANGUAGE plpgsql STABLE AS $$
+BEGIN
+ IF tz IS NULL OR btrim(tz)='' THEN RETURN 'UTC'; END IF;
+ PERFORM timestamp '2000-01-01' AT TIME ZONE tz;
+ RETURN tz;
+EXCEPTION WHEN invalid_parameter_value THEN RETURN 'UTC';
+END $$;
 
 -- Pure rule function: no business reads and no implicit clock.
 CREATE FUNCTION reminder_schedule(k text, st text, sd date, ed date, tz text, at_time timestamptz, immediate boolean)
@@ -226,7 +237,7 @@ UPDATE reminders r SET plan_timezone=reminder_timezone(u.timezone),target_date=C
 INSERT INTO reminder_delivery_attempts(id,reminder_id,task_id,recipient_id,kind,plan_version,cycle,authorized_at,expires_at,status,sent_at,timezone,snapshot,error)
  SELECT gen_random_uuid(),id,task_id,recipient_id,kind,plan_version,cycle,COALESCE(sent_at,created_at),COALESCE(sent_at,created_at)+interval '5 minutes',
  CASE WHEN status='sent' THEN 'sent' ELSE 'unknown' END,sent_at,plan_timezone,
- jsonb_build_object('legacy',true,'email',recipient_email,'original_status',status,'original_error',last_error),last_error
+ jsonb_build_object('legacy',true,'email',recipient_email,'original_status',status,'original_error',last_error,'timezone_source','current_user_projection'),last_error
  FROM reminders WHERE status IN ('sent','failed');
 INSERT INTO reminder_delivery_guards(task_id,recipient_id,kind,active_attempt)
  SELECT DISTINCT ON (task_id,recipient_id,kind) task_id,recipient_id,kind,id FROM reminder_delivery_attempts WHERE status='unknown'

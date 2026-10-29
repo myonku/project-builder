@@ -244,6 +244,10 @@ func TestP02UnknownIsolationAndResolution(t *testing.T) {
 	if err := repo.Settle(context.Background(), d, "unknown", now, "final response lost"); err != nil {
 		t.Fatal(err)
 	}
+	plain := h.RegisterAndLogin(t, "p02_non_admin")
+	if err := repo.ResolveUnknown(context.Background(), d.Token, plain.UserID, "not_accepted", "fixture", nil, true, now); err == nil {
+		t.Fatal("non-admin resolved unknown delivery")
+	}
 	owner.Client.Post(URL("/reminders/"+id+"/retry"), nil).RequireStatus(t, 409)
 	p02SQL(t, h, task, now, `UPDATE tasks SET end_date='2026-10-09' WHERE id=$1`)
 	newer, _, _ := p02Plan(t, h, task, "task_overdue")
@@ -582,5 +586,152 @@ func TestP02SingleConnectionPool(t *testing.T) {
 	report, err := service.Dispatch(ctx)
 	if err != nil || report.Sent != 2 {
 		t.Fatal("operational lock exhausted pool", report, err)
+	}
+}
+
+func TestP02MailpitDeliveryEvidence(t *testing.T) {
+	if !mailpitReachable() {
+		t.Skip("P02 SMTP acceptance requires local Mailpit")
+	}
+	h, _, _, task := p02Fixture(t, "2026-10-10")
+	name := fmt.Sprintf("P02-Mailpit-%d", time.Now().UnixNano())
+	p02SQL(t, h, task, h.Clock.Now(), `UPDATE tasks SET name=$2 WHERE id=$1`, name)
+	sender, err := mail.NewSMTP(mail.SMTPConfig{Host: "127.0.0.1", Port: 11025, FromAddress: "p02@example.test", Timeout: 5 * time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := reminders.NewService(reminders.Options{Store: reminders.NewRepository(h.Pool), Sender: sender, Clock: h.Clock, BatchSize: 1})
+	report, err := service.Dispatch(context.Background())
+	if err != nil || report.Sent != 1 {
+		t.Fatal(report, err)
+	}
+	var subject string
+	err = h.Pool.QueryRow(context.Background(), `SELECT snapshot->>'Subject' FROM reminder_delivery_attempts WHERE task_id=$1 AND status='sent'`, task).Scan(&subject)
+	if err != nil || !strings.Contains(subject, name) || !mailpitHasSubject(t, subject) {
+		t.Fatal("SMTP receipt and stored evidence differ", subject, err)
+	}
+}
+
+func TestP02ProjectCapacityAndAtomicQualification(t *testing.T) {
+	h, owner, project, task := p02Fixture(t, "2026-10-13")
+	ctx := context.Background()
+	// One transaction inserts a representative small-group project. Deferred
+	// rollup notifications must not cause an unbounded synchronization cascade.
+	tx, err := h.Pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err = tx.Exec(ctx, `SELECT set_config('worklane.reminder_now',$1,true)`, h.Clock.Now().Format(time.RFC3339Nano)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = tx.Exec(ctx, `SELECT id FROM projects WHERE id=$1 FOR UPDATE`, project); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = tx.Exec(ctx, `WITH created AS (INSERT INTO tasks(id,project_id,created_by,updated_by,name,start_date,end_date)
+ SELECT gen_random_uuid(),$1,$2,$2,'capacity-'||n,'2026-10-01','2026-10-13' FROM generate_series(1,40) n RETURNING id)
+ INSERT INTO task_members(id,task_id,user_id,role) SELECT gen_random_uuid(),id,$2,'owner' FROM created`, project, owner.UserID); err != nil {
+		t.Fatal(err)
+	}
+	begin := time.Now()
+	if err = tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	elapsed := time.Since(begin)
+	if elapsed > 15*time.Second {
+		t.Fatalf("41-task project synchronization exceeded acceptance bound: %v", elapsed)
+	}
+	setReminderEnabled(t, owner, false)
+	var n int
+	err = h.Pool.QueryRow(ctx, `SELECT count(*) FROM reminders r JOIN tasks t ON t.id=r.task_id WHERE t.project_id=$1 AND r.status='pending'`, project).Scan(&n)
+	if err != nil || n != 0 {
+		t.Fatal("bulk qualification left sendable plans", task, n, err)
+	}
+	setReminderEnabled(t, owner, true)
+	err = h.Pool.QueryRow(ctx, `SELECT count(*) FROM reminders r JOIN tasks t ON t.id=r.task_id WHERE t.project_id=$1 AND r.kind='task_due_soon' AND r.status='pending'`, project).Scan(&n)
+	if err != nil || n != 41 {
+		t.Fatal("bulk restore missed plans", n, err)
+	}
+	t.Logf("41-task deferred commit: %s; qualification cancellation/restoration verified", elapsed)
+}
+
+func TestP02FutureTaskNeedsNoFurtherEdits(t *testing.T) {
+	h := NewHarness(t)
+	owner := h.RegisterAndLogin(t, "p02future")
+	group := h.CreateGroup(t, owner, "future")
+	project := h.CreateProject(t, owner, group, "future")
+	task := h.CreateTask(t, owner, project, "no further edits", "2026-10-19", "2026-10-22")
+	for _, kind := range []string{"task_start_soon", "task_due_soon", "task_overdue"} {
+		_, at, state := p02Plan(t, h, task, kind)
+		if state != "pending" {
+			t.Fatal("future plan absent", kind, state)
+		}
+		h.Clock.Set(at.Add(time.Minute))
+		if _, err := h.Reminders.Dispatch(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		_, _, state = p02Plan(t, h, task, kind)
+		if state != "sent" {
+			t.Fatal("clock advancement alone did not deliver", kind, state)
+		}
+	}
+	before := len(h.Mail.Messages())
+	h.Clock.Set(h.Clock.Now().Add(24 * time.Hour))
+	if _, err := h.Reminders.Dispatch(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(h.Mail.Messages()) != before {
+		t.Fatal("persistent overdue became daily nagging")
+	}
+}
+
+func TestP02ParentDeletionAndReparentSynchronize(t *testing.T) {
+	h, owner, project, parent := p02Fixture(t, "2026-10-20")
+	now := h.Clock.Now()
+	child := Str(owner.Client.Post(URL("/projects/"+project+"/tasks"), map[string]any{"name": "child", "parent_id": parent, "start_date": "2026-10-01", "end_date": "2026-10-13"}).RequireStatus(t, 201).Data(t), "id")
+	p02SQL(t, h, parent, now, `UPDATE tasks SET deleted_at=now() WHERE id=$1`)
+	_, _, state := p02Plan(t, h, child, "task_due_soon")
+	if state != "pending" {
+		t.Fatal("deleting parent cancelled surviving child", state)
+	}
+	_, _, state = p02Plan(t, h, parent, "task_due_soon")
+	if state != "cancelled" {
+		t.Fatal("deleted parent kept plan", state)
+	}
+	p02SQL(t, h, parent, now, `UPDATE tasks SET deleted_at=NULL WHERE id=$1`)
+	target := h.CreateTask(t, owner, project, "new parent", "2026-10-01", "2026-10-20")
+	p02SQL(t, h, child, now, `UPDATE tasks SET progress=100,status='completed' WHERE id=$1`)
+	_, _, state = p02Plan(t, h, parent, "task_due_soon")
+	if state == "pending" {
+		t.Fatal("derived completion did not cancel parent")
+	}
+	p02SQL(t, h, child, now, `UPDATE tasks SET parent_id=$2 WHERE id=$1`, target)
+	_, _, state = p02Plan(t, h, target, "task_due_soon")
+	if state == "pending" {
+		t.Fatal("new ancestor completion did not cancel plan")
+	}
+}
+
+func TestP02AuthorizationCommitFailureDoesNotSend(t *testing.T) {
+	h, _, _, _ := p02Fixture(t, "2026-10-10")
+	ctx := context.Background()
+	_, err := h.Pool.Exec(ctx, `CREATE FUNCTION p02_fail_authorization() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected authorization commit failure'; END $$;
+ CREATE CONSTRAINT TRIGGER p02_fail_authorization AFTER INSERT ON reminder_delivery_attempts DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION p02_fail_authorization()`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = h.Pool.Exec(ctx, `DROP TRIGGER IF EXISTS p02_fail_authorization ON reminder_delivery_attempts; DROP FUNCTION IF EXISTS p02_fail_authorization()`)
+	})
+	if _, err = h.Reminders.Dispatch(ctx); err == nil {
+		t.Fatal("authorization commit failure hidden")
+	}
+	if len(h.Mail.Messages()) != 0 {
+		t.Fatal("SMTP invoked without confirmed authorization commit")
+	}
+	var n int
+	_ = h.Pool.QueryRow(ctx, `SELECT count(*) FROM reminder_delivery_attempts`).Scan(&n)
+	if n != 0 {
+		t.Fatal("failed commit retained authorization", n)
 	}
 }

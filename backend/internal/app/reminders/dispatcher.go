@@ -75,10 +75,11 @@ func (d *Dispatcher) runOnce(ctx context.Context) {
 		d.logger.Log(ctx, level, "提醒发送失败", slog.String("reason", reason))
 	}
 
-	if dispatched.Sent > 0 || dispatched.Failed > 0 {
+	if dispatched.Sent > 0 || dispatched.Failed > 0 || dispatched.Unknown > 0 {
 		d.logger.Info("提醒周期完成",
 			slog.Int("sent", dispatched.Sent),
 			slog.Int("failed", dispatched.Failed),
+			slog.Int("unknown", dispatched.Unknown),
 			slog.Int("skipped", dispatched.Skipped),
 		)
 	}

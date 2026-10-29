@@ -38,15 +38,16 @@ func TestMigrationsApplyFromEmptyDatabase(t *testing.T) {
 		t.Fatalf("迁移版本 = %d，期望 11（000001 初始 schema + 000002 tasks.updated_by "+
 			"+ 000003 attachments + 000004 reminders + 000005 activity_logs "+
 			"+ 000006 registration_requests + 000007 attachments.storage_backend "+
-			"+ 000008 users avatar columns + 000009 password reset + 000010 hierarchical rollup）", version)
+			"+ 000008 users avatar columns + 000009 password reset + 000010 hierarchical rollup + 000011 reminder plans）", version)
 	}
 
-	// 全部 15 张业务表必须存在。
+	// 全部 17 张业务表必须存在。
 	expected := []string{
 		"users", "groups", "group_members", "group_join_requests",
 		"projects", "project_members", "tasks", "task_members",
 		"attachments", "reminders", "idempotency_keys", "activity_logs",
 		"registration_requests", "password_reset_states", "password_reset_tokens",
+		"reminder_delivery_guards", "reminder_delivery_attempts",
 	}
 	for _, table := range expected {
 		var exists bool
@@ -190,6 +191,7 @@ func TestEveryBusinessTableHasAuditColumns(t *testing.T) {
 		"projects", "project_members", "tasks", "task_members",
 		"attachments", "reminders", "idempotency_keys", "activity_logs",
 		"registration_requests", "password_reset_states", "password_reset_tokens",
+		"reminder_delivery_guards", "reminder_delivery_attempts",
 	}
 	required := []string{"id", "created_at", "updated_at"}
 

@@ -153,7 +153,7 @@ func (s *Service) Dispatch(ctx context.Context) (Report, error) {
 			case <-timer.C:
 			}
 		}
-		delivery, err := s.repo.Authorize(ctx, id, s.clk.Now().UTC(), s.attemptTimeout, s.render)
+		delivery, err := s.repo.Authorize(ctx, id, s.clk.Now().UTC(), s.attemptTimeout, s.RenderMessage)
 		if err != nil {
 			return report, err
 		}
@@ -197,7 +197,8 @@ func (s *Service) Dispatch(ctx context.Context) (Report, error) {
 //
 // 需求文档 5.7 要求邮件"至少包含项目名、任务名、负责人、日期、状态、进度、
 // 任务链接和提醒原因"，这里逐项落实——缺项是验收会直接查的。
-func (s *Service) render(item DispatchItem) mail.Message {
+// RenderMessage renders a supplied snapshot without claiming or sending it.
+func (s *Service) RenderMessage(item DispatchItem) mail.Message {
 	candidate := item.Candidate
 	context := strings.Builder{}
 

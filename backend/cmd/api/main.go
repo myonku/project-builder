@@ -130,7 +130,7 @@ func run() error {
 	}
 
 	// 邮件发送器：未启用时注入 Disabled（它返回错误而不是假装成功，
-	// 于是"没配邮件"会如实记成 skipped 而不是 sent）。
+	// 未启用邮件时暂停派发并保留计划）。
 	var mailSender mail.Sender = mail.Disabled{}
 	if cfg.Mail.Enabled {
 		smtpSender, smtpErr := mail.NewSMTP(mail.SMTPConfig{
@@ -151,7 +151,7 @@ func run() error {
 		mailSender = smtpSender
 		logger.Info("邮件发送已启用", slog.String("host", cfg.Mail.Host), slog.Int("port", cfg.Mail.Port))
 	} else {
-		logger.Info("邮件发送未启用；提醒仍会生成并记录为 skipped")
+		logger.Info("邮件发送未启用；保留提醒计划并暂停派发")
 	}
 
 	authStore := auth.NewRepository(postgres.Pool)

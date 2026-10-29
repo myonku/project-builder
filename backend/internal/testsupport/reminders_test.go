@@ -299,7 +299,7 @@ func TestReminderSkipsIneligibleRecipients(t *testing.T) {
 		}
 	})
 
-	t.Run("派发前收件人被停用则记为 skipped", func(t *testing.T) {
+	t.Run("派发前收件人停用使计划取消", func(t *testing.T) {
 		// 生成与发送之间收件人可能失效，因此派发时要**重新判定**。
 		if _, err := harness.Pool.Exec(context.Background(),
 			`UPDATE users SET reminder_enabled = false WHERE id = $1`, owner.UserID); err != nil {
@@ -392,7 +392,7 @@ func TestReminderFailureRecordsReasonAndCanRetry(t *testing.T) {
 
 // TestReminderEventKinds 覆盖事件型提醒：新任务分配与持有者变更。
 //
-// 这两类**不是**时间驱动的，因此由 tasks 在事务提交后插入一行，
+// 这两类由成员关系的真实变化在业务事务内生成，
 // 发送仍走同一个派发循环。
 func TestReminderEventKinds(t *testing.T) {
 	harness := NewHarness(t)

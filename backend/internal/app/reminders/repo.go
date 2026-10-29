@@ -127,14 +127,9 @@ type DispatchItem struct {
 	Recipient Recipient
 }
 
-// ResetForRetry 把一条提醒重新排入待发送。
-//
-// 允许从 failed 与 skipped 两种状态重试：前者是发送失败，
-// 后者可能是"邮件未启用"这类当时不成立、后来成立的条件
-// （例如运维刚刚把 SMTP 配好），此时用户应当能手动补发。
-//
-// 已发送的（sent）不允许重试：重试就等于重复发送，
-// 而"同一提醒不重复发送"是需求里的硬要求。
+// ResetForRetry rechecks a safely failed, current plan in the same transaction
+// as the queue transition and audit record. Unknown and legacy evidence cannot
+// be retried by this API.
 func (r *Repository) ResetForRetry(ctx context.Context, rid string, at time.Time, audit *apperr.AuditWrite) (Record, error) {
 	var record Record
 	err := apperr.InTx(clock.WithTime(ctx, at), r.pool, func(ctx context.Context, tx apperr.Querier) error {

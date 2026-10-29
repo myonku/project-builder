@@ -111,7 +111,7 @@ func (r *Repository) Authorize(ctx context.Context, rid string, at time.Time, ti
 		}
 		var token string
 		err = tx.QueryRow(ctx, `INSERT INTO reminder_delivery_attempts(reminder_id,task_id,recipient_id,kind,plan_version,cycle,event_id,
-   authorized_at,expires_at,status,timezone,snapshot) SELECT id,task_id,recipient_id,kind,plan_version,cycle,event_id,$2,$3,'sending',$4,$5 FROM reminders WHERE id=$1 RETURNING id`,
+   authorized_at,expires_at,status,timezone,snapshot) SELECT r.id,r.task_id,r.recipient_id,r.kind,r.plan_version,r.cycle,r.event_id,$2,$3,'sending',$4,$5::jsonb||jsonb_build_object('task_version',t.updated_at,'project_version',p.updated_at) FROM reminders r JOIN tasks t ON t.id=r.task_id JOIN projects p ON p.id=t.project_id WHERE r.id=$1 RETURNING id`,
 			rid, at, at.Add(timeout), item.Recipient.Timezone, snapshot).Scan(&token)
 		if err != nil {
 			return err

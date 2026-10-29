@@ -115,26 +115,16 @@ func TestLiveSMTPTemplates(t *testing.T) {
 	// Match the normal frontend template, including both dynamic identifiers.
 	taskURL := "http://localhost:5173/projects/{project_id}?taskId={task_id}"
 	repo := reminders.NewRepository(h.Pool)
-	if _, err := h.Pool.Exec(ctx, `DELETE FROM reminders`); err != nil {
-		t.Fatal(err)
-	}
+
+	preview := reminders.NewService(reminders.Options{Store: repo, Clock: h.Clock, Logger: h.Logger, TaskURLTemplate: taskURL})
+	previews := []mail.Message{}
 	kinds := []string{domain.ReminderKindAssigned, domain.ReminderKindStartSoon, domain.ReminderKindDueSoon, domain.ReminderKindOverdue, domain.ReminderKindOwnerChanged}
 	for _, kind := range kinds {
-		id, err := h.IDs.UUID()
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, _, err := repo.InsertIfAbsent(ctx, reminders.CreateParams{ID: id, TaskID: task, RecipientID: actor.UserID, RecipientEmail: to, Kind: kind, ScheduledFor: h.Clock.Now(), DedupeKey: "offline-preview:" + kind}); err != nil {
-			t.Fatal(err)
-		}
+		previews = append(previews, preview.RenderMessage(reminders.DispatchItem{
+			Record:    reminders.Record{Kind: kind, RecipientEmail: to},
+			Candidate: reminders.Candidate{TaskID: task, TaskName: "真实邮件验收：中文主题与进度 40%", ProjectID: project, ProjectName: "Worklane 真实邮件模板验收", Status: "in_progress", Progress: 40, OwnerNames: "Worklane 邮件验收（隔离测试账号）", StartDate: reminderDate(t, "2026-10-26"), EndDate: reminderDate(t, "2026-10-30")},
+		}))
 	}
-	capture := &FakeSender{}
-	preview := reminders.NewService(reminders.Options{Store: repo, Sender: capture, Clock: h.Clock, Logger: h.Logger, TaskURLTemplate: taskURL})
-	previewReport, err := preview.Dispatch(ctx)
-	if err != nil || previewReport.Sent != 5 {
-		t.Fatal("five local reminder previews failed")
-	}
-	previews := capture.Messages()
 	for _, message := range previews {
 		for _, required := range []string{"提醒原因：", "项目：Worklane", "任务：", "负责人：", "计划周期：2026-10-26 ~ 2026-10-30", "状态：进行中", "进度：40%", "?taskId=" + task, "关闭邮件提醒"} {
 			if !strings.Contains(message.Body, required) {
@@ -162,13 +152,11 @@ func TestLiveSMTPTemplates(t *testing.T) {
 		t.Fatal("exclusive sending marker could not be acquired")
 	}
 	_ = marker.Close()
-	id, err := h.IDs.UUID()
-	if err != nil {
-		t.Fatal(err)
+	ids, err := repo.DueIDs(ctx, h.Clock.Now(), 1)
+	if err != nil || len(ids) != 1 {
+		t.Fatal("no valid persisted reminder available; refusing to fabricate a sending plan")
 	}
-	if _, _, err := repo.InsertIfAbsent(ctx, reminders.CreateParams{ID: id, TaskID: task, RecipientID: actor.UserID, RecipientEmail: to, Kind: domain.ReminderKindDueSoon, ScheduledFor: h.Clock.Now(), DedupeKey: "live-provider:one-reminder"}); err != nil {
-		t.Fatal(err)
-	}
+	id := ids[0]
 	liveReminders := reminders.NewService(reminders.Options{Store: repo, Sender: limited, Clock: h.Clock, Logger: h.Logger, TaskURLTemplate: taskURL, BatchSize: 1})
 	liveReport, err := liveReminders.Dispatch(ctx)
 	if err != nil || liveReport.Sent != 1 || liveReport.Failed != 0 || len(limited.receipts) != 1 || !limited.receipts[0].Accepted {

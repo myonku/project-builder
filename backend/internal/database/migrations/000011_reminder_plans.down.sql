@@ -22,6 +22,7 @@ DROP INDEX reminder_current_plan;
 ALTER TABLE reminders DROP CONSTRAINT reminder_covered_attempt;
 DROP TABLE reminder_delivery_guards;
 DROP TABLE reminder_delivery_attempts;
+DROP FUNCTION reminder_delivery_touched();
 ALTER TABLE reminders DROP CONSTRAINT ck_reminders_status;
 UPDATE reminders SET status=CASE WHEN status IN ('sending','unknown') THEN 'failed' ELSE 'skipped' END
  WHERE status NOT IN ('pending','sent','failed','skipped');
