@@ -240,7 +240,7 @@ RETURNING id, updated_at;
 若对外只渲染到秒，回传值会丢掉微秒部分，原子 CAS 的等值比较必然失败
 （表现为"刚读到的版本立刻被判为冲突"）。
 - 可重试操作使用 `Idempotency-Key`，不得产生重复成员、提醒、上传或状态副作用。
-- **审计记录与业务写在同一个事务里**（见 §2.6 与 [api/A09](api/A09-audit.md)）；提醒派发与文件收尾仍在事务提交之后，
+- **提醒计划同步、审计记录与业务写在同一个事务里**（见 §2.6 与 [api/A09](api/A09-audit.md)）；提醒派发与文件收尾仍在事务提交之后，
   因为它们是外部副作用，不得进入请求路径（需求文档 §9）。
 
 ### 2.7 请求体字段严格性
@@ -280,7 +280,7 @@ RETURNING id, updated_at;
 
 ## 3. 端点总览
 
-> **逐接口的请求/响应数据结构不在本文档**：它们在同目录的 `api/`（`A01`–`A09`），
+> **逐接口的请求/响应数据结构不在本文档**：它们在同目录的 `api/`（`A01`–`A10`），
 > 每个端点的方法、权限、路径/查询参数、请求体、响应字段、错误码与边界都在那里。
 > 本文档只保留**约定性叙述**（信封、认证、分页、并发与幂等、限流、字段严格性、处理顺序、契约加强项）。
 > 公共资源表示（用户 / 项目 / 任务的规范化字段）见 [api/README.md](api/README.md)。
@@ -288,9 +288,9 @@ RETURNING id, updated_at;
 | 域 | 端点数 | 逐接口明细 |
 | --- | --- | --- |
 | Health | 4 | [api/README.md](api/README.md) 的"健康检查"一节 |
-| Auth | 4 | [api/A01-auth.md](api/A01-auth.md) |
+| Auth | 6 | [api/A01-auth.md](api/A01-auth.md) |
 | Users | 9 | [api/A02-users.md](api/A02-users.md) |
-| Groups | 11 | [api/A03-groups.md](api/A03-groups.md) |
+| Groups | 13 | [api/A03-groups.md](api/A03-groups.md) |
 | Projects | 9 | [api/A04-projects.md](api/A04-projects.md) |
 | Tasks | 11 | [api/A05-tasks.md](api/A05-tasks.md) |
 | Plan Views | 3 | [api/A06-plan-views.md](api/A06-plan-views.md) |
@@ -299,7 +299,7 @@ RETURNING id, updated_at;
 | Audit | 1 | [api/A09-audit.md](api/A09-audit.md) |
 | Registration Requests | 2 | [api/A10-registration-requests.md](api/A10-registration-requests.md) |
 
-合计 **60 个业务端点** + 4 个健康检查端点（共 64）。业务端点一律以 `/api/v1` 为前缀；
+合计 **65 个业务端点** + 4 个健康检查端点（共 69）。业务端点一律以 `/api/v1` 为前缀；
 根级 `/healthz` 供容器/反向代理使用（无版本前缀）。
 
 ## 4. 写接口处理顺序
@@ -312,7 +312,7 @@ RETURNING id, updated_at;
   -> expected_updated_at / Idempotency-Key（冲突 → 409）
   -> 领域规则（非法 → 400 / 422）
   -> 用例服务与事务写入（CAS + RETURNING）
-  -> 同一事务：审计写入（与业务同生共死）
+  -> 同一事务：审计、持久化汇总、提醒计划同步（任一步失败一起回滚）
   -> 提交后：提醒派发 / 文件收尾（外部副作用，不得进入请求路径）
   -> 统一响应信封
 ```
@@ -378,6 +378,14 @@ API 层只负责请求解析、响应序列化与错误映射，不直接查询�
 ### 5.3 工作组目录与本人申请
 
 登录用户可通过 A03 §12 搜索启用工作组的基本资料，及通过 §13 查询本人申请最新状态；两个接口使用标准列表信封、分页和排序白名单。目录中的组名/ID/说明可供非成员查看，但不改变组详情、成员、项目和组内计划的原有可见性。本人查询的申请人固定取会话，系统管理员也不得扩展为全局申请列表。字段与错误码以 A03 为准。
+
+### 5.4 提醒计划与生命周期
+
+提醒保留三个现有端点，详见 [A08](api/A08-reminders.md)。业务与计划同事务，SMTP 在短授权事务提交后由后台执行。状态包括 pending、sending、sent、failed、unknown、skipped、cancelled、superseded、suppressed；skipped 为保留历史，当前全局邮件关闭不再产生 skipped。
+
+新增 `cycle / plan_version / event_id / covered_by / can_retry / delivery_attempts`。列表和重试响应的 `delivery_attempts` 为 null；详情按既有收件人/管理员作用域返回尝试历史，无历史仍为 null。`snapshot` 为原始邮件/迁移证据 JSON，保留 `To / ToName / Subject / Body` 等原始键及业务版本；这是字段 snake_case 约定的显式不透明载荷例外，不应把它当可写 DTO。
+
+客户端按 `can_retry` 展示按钮，但 POST 仍会复核周期、时效、资格及同日事实，可能返回 409。未知结果仅管理员运维入口处置，不新增公共计划维护或尝试重发端点。重试本身不执行 SMTP、不增加 attempts；只有获得发送授权才增加一次。普通 HTTP 成功响应不代表邮件已发送。
 
 ## 6. 变更规则
 

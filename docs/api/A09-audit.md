@@ -176,7 +176,7 @@ Cookie: <会话 Cookie>
 - **未知参数一律拒绝**：把 `object_type` 拼成 `objectType`、把 `action` 拼成 `actions` 都会得到 `400`，而不是"筛选没生效但看起来成功了"。
 - **成员变更记在容器上**：`object_id` 是工作组/项目/任务的 id，**不是**成员行 id。因此"这个项目上发生过什么"用一次 `object_id` 查询就能答完；成员行 id 属于实现细节。
 - **覆盖范围**：审计行由各业务写路径在**自己的事务里**写入，因此"业务写成功 ⇒ 一定有记录""记录写不进去 ⇒ 业务整体回滚"。反过来说，**审计表里有的就是真正成功过的写操作**，不存在"操作失败但留下记录"。
-- **哪些角色/动作不可见**：审计只记录**用户发起的**写操作。后台周期任务没有操作人，不写记录——最典型的是**提醒的发送结果**（`sent` / `failed` / `skipped`）：它们只在 `GET /api/v1/reminders` 的 `status` / `last_error` / `attempts` 里可见；**人工重试**有操作人，因此记为 `object_type = reminder`、`action = updated`，`changes = {"status":"pending","reason":"manual_retry"}`。
+- **哪些角色/动作不可见**：审计只记录**用户发起的**写操作。后台周期任务没有操作人，不写记录——最典型的是**提醒的发送结果**：计划结果在提醒的 `status` / `last_error` / `attempts` 中可见，授权快照及尝试结果在详情 `delivery_attempts` 中追溯（[A08](A08-reminders.md)）；unknown 人工核实依据另保存在维护工具可导出的 resolution 中；**人工重试**有操作人，因此记为 `object_type = reminder`、`action = updated`，`changes = {"status":"pending","reason":"manual_retry"}`。
 - **`changes` 的键是字段名，不是中文文案**：例如提醒重试的 `reason` 值 `manual_retry`、附件相关记录的 `original_name` / `extension` / `size_bytes` 等，都由服务端按业务语义写入。前端若要展示中文，需要自己维护映射（键集合随业务扩展，契约未穷举列出全部可能键）。
 - **不做自动清理**：记录只增不删，没有 TTL、没有归档接口，也没有"删除记录"的端点；分页是唯一的浏览方式。数据量增长在内部小组规模下可忽略，这是刻意的取舍。
 - **`request_id` 与响应头同名但含义不同**：记录里的 `request_id` 是**当初产生这条记录的那次请求**的 id，不是你这次查询的 id。排查时可以把《S02》§2.4 错误响应里的 `request_id` 与它对齐，得到"同一次请求都改了什么"。

@@ -16,7 +16,7 @@ Worklane（Work Items & Layered Timelines）的服务端，使用 **Go 1.26 + Gi
 **四个阶段已全部完成并经真实依赖验证**：地基 + Auth、Groups / Projects / Tasks、Users、Plan Views、Attachments、Reminders、Audit，以及交付收口（端到端验收、备份恢复演练、部署核对）。
 
 > **2026-10 状态**：W1 品牌、W2 `/me`、W3 Mongo/GridFS、W4 头像已落地；W5 邮箱重置密码已落地。
-> 当前迁移 head **10**、HTTP 端点 **69**（业务 65 + 健康检查 4）；详见文档总览与 B05 文末。
+> 当前迁移 head **11**、HTTP 端点 **69**（业务 65 + 健康检查 4）；详见文档总览与 B05 文末。
 
 | 能力 | 状态 |
 | --- | --- |
@@ -24,7 +24,7 @@ Worklane（Work Items & Layered Timelines）的服务端，使用 **Go 1.26 + Gi
 | `platform`：PostgreSQL(pgxpool)、Redis、可注入时钟、UUIDv7/安全令牌、Argon2id、对象存储、SMTP、request id 传递 | ✅ 已实现 |
 | `domain`：错误类型体系、用户规则、时间与逾期规则、权限基线、审计枚举与脱敏 | ✅ 已实现 |
 | `httpapi`：requestID、访问日志、panic 恢复、CORS、会话网关、全局限流、统一信封、错误映射、健康检查 | ✅ 已实现 |
-| 迁移 `000001_init`（9 张表、CHECK、部分唯一索引、外键删除行为）+ `000002`–`000010`（回退数据边界见 B02） | ✅ 已实现（head `10`） |
+| 迁移 `000001_init`（9 张表、CHECK、部分唯一索引、外键删除行为）+ `000002`–`000011`（回退数据边界见 B02） | ✅ 已实现（head `11`） |
 | Auth：注册、登录、登出、当前用户（Argon2id + Redis 会话 + HttpOnly Cookie） | ✅ 已实现 |
 | Groups / Projects / Tasks | ✅ 已实现；含工作组自助申请、层级任务/项目汇总、无任务项目手工进度与归档恢复 |
 | Users：资料查询/更新、管理员停用、管理员创建/列表/重置密码、按用户时区计算"今天" | ✅ 已实现（第三阶段） |
@@ -38,7 +38,7 @@ Worklane（Work Items & Layered Timelines）的服务端，使用 **Go 1.26 + Gi
 真实依赖验证结果（PostgreSQL 16 + Redis 7 + **MongoDB 9.0.4**，2026-10-27 验收记录）：
 
 - `go test ./... -count=1 -p 1` 全量通过：顶层 **360** 项、含子用例合计 **961** 项，0 失败、0 跳过（设置 `TEST_MONGO_URI` 后 GridFS 用例一并执行），覆盖真实数据库上的迁移可逆性、约束生效性、单一 owner 不变式、审计的同事务与脱敏语义，以及八个域的端到端用例。
-- `scripts/smoke.ps1` 对运行中的服务执行 **207 项断言全部通过**（健康检查、认证全链路、用户资料与管理员端点（含成功路径）、计划视图三端点、持有者与工作组所有权转移、管理员兜底、附件全链路（含 multipart 与两步删除）、提醒生成与派发、**审计的可见性、脱敏与全链路可追溯**、三域 CRUD、分页边界、排序白名单、版本冲突、组合筛选、幂等复制、归档只读）。
+- `scripts/smoke.ps1` 对运行中的服务执行 **207 项断言全部通过**（健康检查、认证全链路、用户资料与管理员端点（含成功路径）、计划视图三端点、持有者与工作组所有权转移、管理员兜底、附件全链路（含 multipart 与两步删除）、提醒计划与暂停派发、**审计的可见性、脱敏与全链路可追溯**、三域 CRUD、分页边界、排序白名单、版本冲突、组合筛选、幂等复制、归档只读）。
   **前提**：服务以 `SCHEDULER_INTERVAL_SECONDS=5` 且 `SECURITY_REGISTRATION_REQUIRES_APPROVAL=false` 启动（`config.toml` 的注册审核默认是 `true`，而冒烟会在注册后直接登录）；换用别的配置会得到 201 通过 / 1 失败或 141 项失败，原因见 [backend/docs/B05 §7.0.1](./docs/B05-进度与验证记录.md) 第 4/6 条坑。
 - 关键实现经**变异验证**：逐条注入缺陷并确认对应用例确实失败，见 [backend/docs/B05](./docs/B05-进度与验证记录.md) 5.7。
 - **首个管理员**在系统初始化时按 `security.bootstrap_admin_*` 录入（幂等、绝不覆盖既有密码）；本系统面向内部小组，不做管理员分发。见 [backend/docs/B03](./docs/B03-配置与运行.md) 3.6.1。
@@ -129,10 +129,7 @@ make run-test-config
 pwsh -File ./scripts/smoke.ps1 -BaseUrl http://127.0.0.1:8000
 ```
 
-> **必须与服务同配方**：脚本对"调度器已生成提醒"只轮询 30 秒，因此服务侧的
-> `SCHEDULER_INTERVAL_SECONDS` 必须是 5（`make run-test-config` 已包含）。
-> 用 `docker/config.test.toml` 启动会得到 201 通过 / 1 失败——它的 scheduler 是关闭的、
-> mail 指向 Mailpit，而脚本断言的是"邮件未启用 → skipped"（见 [backend/docs/B05 §7.0.1](./docs/B05-进度与验证记录.md)）。
+> **与服务同配方**：使用 `make run-test-config` 或等价配置，关闭实际邮件外发；当前脚本断言“邮件关闭 → pending 保留、零新增尝试”。`docker/config.test.toml` 的 mail 指向 Mailpit，不应直接作为该冒烟配方。`SCHEDULER_INTERVAL_SECONDS=5` 便于观察派发，但 P02 的计划由业务事务即时建立，不再等待扫描；脚本“调度器已生成提醒”的断言名称是历史文案。
 
 ### 5. 运行测试
 
@@ -149,6 +146,12 @@ make check         # 格式 + vet
 不集中到顶层 `tests/` —— 位于其他目录的测试无法访问包内未导出标识符，
 而本仓库有多处测试需要直接验证私有实现细节（`.env` 解析、脱敏语义、错误映射表完整性等）。
 完整理由见 [backend/docs/B03](./docs/B03-配置与运行.md) 9.1。
+
+## 提醒计划运行边界
+
+P02 已合并：业务事务同步持久化计划，后台仅派发到时计划；同任务/收件人/类型使用数据库 guard，unknown 隔离且不自动重发。无新增缓存/MQ。当前完整验收为 384 顶层 / 1002 含子用例、HTTP 冒烟 207/207，详见 B05 文末。
+
+升级至 head 11 必须停旧派发、备份、迁移并显式初始化，不能只更新二进制。`go run ./cmd/reminders inspect|initialize|resolve|export` 为不发信维护工具，各子命令分别执行；默认 initialize 预演且不释放历史逾期积压。执行参数、未知结果核实及有损回退见 [B03 §8.5](docs/B03-配置与运行.md#85-提醒计划升级核实与回退000011)。
 
 ## 目录结构
 
@@ -177,7 +180,7 @@ project-builder/                 # 仓库根
     │   │   ├── tasks/           # 任务、成员、层级、幂等复制
     │   │   ├── planviews/       # 计划视图：个人 / 组内 / 甘特图（只读）
     │   │   ├── attachments/     # 附件：上传/列表/下载/逻辑删除/彻底删除
-    │   │   ├── reminders/       # 提醒：生成、周期派发、三端点（额外含 dispatcher.go）
+    │   │   ├── reminders/       # 提醒：事务计划、授权派发、证据与维护命令、三端点
     │   │   └── audit/           # 操作记录：查询端点 + 供各域复用的写入端口
     │   ├── httpapi/             # 跨模块 HTTP：router、middleware、problem、bind、session、cors、ratelimit、types
     │   ├── database/migrations/ # 版本化 SQL 迁移（embed 进二进制）

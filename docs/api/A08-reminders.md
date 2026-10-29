@@ -1,25 +1,20 @@
 # A08 提醒接口详解
 
-> 归属：**前后端共用**（`docs/api/`）。通用约定（基础路径 `/api/v1`、成功/错误信封、认证、分页、并发与幂等、限流、未知字段拒绝）见《S02-HTTP接口契约》§2，本文不重复。
-> 业务范围见《S01》，跨端规则见《S02》；本文定义各接口的请求与响应数据结构。
+> 前后端共用。业务规则见 [S01 §5.7](../S01-需求文档.md#57-邮件提醒)，通用协议见 [S02](../S02-HTTP接口契约.md)。本页描述当前已交付的提醒计划及发送历史契约。
 
-> 层级汇总后，提醒候选读取任务持久化有效状态/进度；父任务显示 100% 但实际未全完成时仍可逾期。真正完成/取消后停止新增相应时间型提醒，既有记录保留。
+## 接口清单与作用域
 
-## 接口清单
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/api/v1/reminders` | 提醒列表，分页、筛选、排序 |
+| GET | `/api/v1/reminders/{reminder_id}` | 提醒详情与发送尝试证据 |
+| POST | `/api/v1/reminders/{reminder_id}/retry` | 把仍有效的明确失败计划重新排队 |
 
-| # | 方法 | 路径 | 权限 | 说明 |
-| --- | --- | --- | --- | --- |
-| 1 | `GET` | `/api/v1/reminders` | 登录用户；普通用户只看发给自己的，系统管理员看全部 | 提醒列表（筛选、分页、排序） |
-| 2 | `GET` | `/api/v1/reminders/{reminder_id}` | 收件人本人或系统管理员 | 提醒详情 |
-| 3 | `POST` | `/api/v1/reminders/{reminder_id}/retry` | 收件人本人或系统管理员 | 手动重试：仅 `failed` / `skipped` 可重试，其余 `409` |
-
-3 个端点都要求登录（会话 Cookie，见《S02》§2.2）；未登录返回 `401 authentication_required`。
-
-**作用域（三个端点一致）**：普通用户只能看到**发给自己的**提醒（`recipient_id = 当前用户`）；系统管理员看全部——"谁没收到、为什么没收到"是处置异常所需的信息。**他人的提醒按不存在处理（`404`）**，不是 `403`：这样"这个 id 存不存在"本身不会被非管理员探测出来。
+三个端点均需登录，未登录返回 `401 authentication_required`。普通用户仅可读取/重试发给自己的记录；系统管理员可访问全部。非本人且非管理员的详情和重试返回 `404 reminder_not_found`，与不存在一致，不泄漏记录存在性。计划、事件、尝试的内部维护不新增公共写接口。
 
 ## 提醒对象
 
-本文所有返回提醒的端点（1 的 `data[]` 元素，2、3 的 `data`）结构一致：
+列表的 `data[]`、详情及重试的 `data` 使用相同字段。**历史载荷按场景加载**：列表、重试响应的 `delivery_attempts` 为 null；详情有尝试时为数组，无尝试时仍为 null。
 
 ```json
 {
@@ -27,289 +22,124 @@
     "id": "01a12d87-0b3c-7c4d-8e5f-6a7b8c9d0e1f",
     "task_id": "01a12d87-0b3c-7c4d-8e5f-6a7b8c9d0e20",
     "recipient_id": "01a12d87-0b3c-7c4d-8e5f-6a7b8c9d0e30",
-    "recipient_email": "alice@example.com",
-    "kind": "task_due_soon",
-    "kind_label": "任务即将到期",
-    "scheduled_for": "2026-10-12T01:00:00Z",
-    "status": "failed",
-    "attempts": 1,
-    "last_error": "SMTP 连接超时",
-    "sent_at": null,
-    "created_at": "2026-10-11T03:00:00Z",
-    "updated_at": "2026-10-12T01:00:05.417293Z"
-  }
-}
-```
-
-| 字段 | 类型 | 说明 |
-| --- | --- | --- |
-| `id` | string(UUID) | 提醒 id（详情与重试都用它） |
-| `task_id` | string(UUID) | 关联任务 |
-| `recipient_id` | string(UUID) | 收件人用户 id |
-| `recipient_email` | string | 收件人邮箱，是**生成提醒那一刻的快照**。用户之后改邮箱不会改写既有提醒，因此它回答的是"当时发到哪个地址" |
-| `kind` | string | 提醒类型枚举，见下 |
-| `kind_label` | string | 类型的中文说明，**前端可直接展示**，不必自己维护映射表 |
-| `scheduled_for` | string | **计划发送时刻**（UTC，可能带亚秒）。由工作日规则与收件人时区算出，是"什么时候该发"而不是"什么时候发了" |
-| `status` | string | 状态枚举，见下 |
-| `attempts` | number | 已尝试次数：**发送成功、发送失败、被跳过都各计一次**。因此 `attempts >= 1` 只说明"这一行至少被处理过一轮" |
-| `last_error` | string | 失败原因或跳过原因；成功时为**空串**（不是 `null`）。失败原因可能被截断（发送失败最多 500 字符，邮件功能未启用最多 200 字符） |
-| `sent_at` | string \| null | 发送成功时刻；未成功时为 `null` |
-| `created_at` / `updated_at` | string | 记录写入时间 / 最后一次状态变更时间 |
-
-刻意**不返回** `dedupe_key`：它是幂等机制的载体（`<类型>:<任务>:<收件人>:<时间窗口>`），属于实现细节，客户端不需要也不该依赖它。
-
-### `kind` 枚举（5 种）
-
-| `kind` | `kind_label` | 触发方式 | 含义 |
-| --- | --- | --- | --- |
-| `task_assigned` | 新任务分配 | 事件型 | 用户被加入任务成员 |
-| `task_start_soon` | 任务即将开始 | 时间型 | 任务开始日**前 1 个工作日** |
-| `task_due_soon` | 任务即将到期 | 时间型 | 任务到期日**前 1 个工作日**（尚未开始的任务不产生此类提醒——它该收的是"开始前"提醒） |
-| `task_overdue` | 任务已延期 | 时间型 | 到期日已过；**每个任务只提醒一次** |
-| `task_owner_changed` | 任务持有者变更 | 事件型 | 任务持有者被转移给该用户 |
-
-枚举取值在领域常量与本文档两处一致；服务端**不校验** `kind` 查询参数的取值集合（见端点 1 的备注）。
-
-### `status` 枚举（4 种）
-
-| `status` | 含义 | 是否可手动重试 |
-| --- | --- | --- |
-| `pending` | 待发送（在队列中，计划时间未到或尚未被派发循环取走） | 否，`409`（已在队列中，无需重试） |
-| `sent` | 已发送成功 | 否，`409`（重试等于重复发送） |
-| `failed` | **发送尝试失败**：SMTP 报错、连接超时等，需要人排查 | 是 |
-| `skipped` | **按规则就不该发**：收件人没有邮箱/已停用/关闭了邮件提醒、任务已完成/已取消/已删除、**邮件功能未启用** | 是（原因可能已经消失，例如运维刚把 SMTP 配好） |
-
-`failed` 与 `skipped` **必须分开消费**：把 `skipped` 混进失败列表，会让失败列表永远噪声不断，而 `failed` 的语义是"需要人排查"。前端做"异常提醒"视图时应只取 `failed`。
-
-**为什么 `sent` 不允许重试**：需求要求"同一提醒不重复发送"。`pending` 与 `sent` 的重试请求都返回 `409 conflict`，且**不产生任何副作用**（不写审计、不改 `attempts`）。
-
-## 1. `GET /api/v1/reminders`
-
-**用途**：分页查询提醒；普通用户查自己的提醒收件箱，管理员用来排查"谁没收到、为什么没收到"。
-**权限**：登录用户；系统管理员看全部。
-
-**路径参数**：无。
-
-**查询参数**：
-
-| 参数 | 类型 | 默认 | 约束 | 说明 |
-| --- | --- | --- | --- | --- |
-| `kind` | string | 无（不筛选） | 建议取 5 个枚举值之一 | 按提醒类型筛选 |
-| `task_id` | string(UUID) | 无（不筛选） | — | 按任务筛选（"这条任务的提醒都发给谁了"） |
-| `page` | number | `1` | `>= 1`，越界 `400` | 页码 |
-| `page_size` | number | `20` | `1..100`，越界 `400` | 每页条数 |
-| `sort` | string | `-scheduled_for` | 白名单见下 | 排序表达式，逗号分隔多字段，前缀 `-` 表示降序 |
-
-`sort` 白名单：`scheduled_for`、`created_at`、`updated_at`、`kind`、`status`、`attempts`。默认按**计划发送时间倒序**（最近要发的排前面）。服务端始终追加 `id` 作为次级排序键，保证翻页不重不漏。
-
-**请求体**：无请求体。
-
-请求示例：
-
-```http
-GET /api/v1/reminders?kind=task_overdue&page=1&page_size=20&sort=-scheduled_for
-Cookie: <会话 Cookie>
-```
-
-**响应 `200`**：
-
-```json
-{
-  "data": [
-    {
-      "id": "01a12d87-0b3c-7c4d-8e5f-6a7b8c9d0e1f",
-      "task_id": "01a12d87-0b3c-7c4d-8e5f-6a7b8c9d0e20",
-      "recipient_id": "01a12d87-0b3c-7c4d-8e5f-6a7b8c9d0e30",
-      "recipient_email": "alice@example.com",
-      "kind": "task_overdue",
-      "kind_label": "任务已延期",
-      "scheduled_for": "2026-10-11T00:00:00Z",
-      "status": "sent",
-      "attempts": 1,
-      "last_error": "",
-      "sent_at": "2026-10-11T01:02:03Z",
-      "created_at": "2026-10-11T00:00:00Z",
-      "updated_at": "2026-10-11T01:02:03.114287Z"
-    }
-  ],
-  "pagination": {
-    "page": 1,
-    "page_size": 20,
-    "total": 1,
-    "has_next": false
-  }
-}
-```
-
-| 字段 | 类型 | 说明 |
-| --- | --- | --- |
-| `data` | array | 提醒对象数组；无数据时是 `[]`（不是 `null`） |
-| `pagination` | object | 通用分页元信息，`has_next = page * page_size < total`（见《S02》§2.3） |
-
-**错误**：
-
-| 状态码 | `error.code` | 触发条件 |
-| --- | --- | --- |
-| `400` | `invalid_request` | 出现白名单之外的查询参数（`fields.query` 列出未知参数与允许的参数）；`page` / `page_size` 越界；`sort` 含未知或重复字段（`fields.sort`） |
-| `401` | `authentication_required` | 未登录或会话失效 |
-
-**备注**：
-
-- **未知查询参数一律拒绝**，不静默忽略：把 `kind` 拼成 `kinds` 会被返回 `400`，而不是"筛选没生效但看起来成功了"。允许的参数集合就是上表 5 个。
-- **没有 `status` 筛选参数**（虽然服务端内部的数据筛选条件支持状态）：要按状态过滤，请在客户端对 `data` 过滤，或分别用 `kind` 收窄。传 `status=...` 会得到 `400 invalid_request`。
-- `kind` 传一个**格式合法但不在枚举内**的值（如 `foo`）**不会**返回 `400`，而是返回空列表——服务端对 `kind` 只做等值匹配、不校验取值集合。契约未把"非法 kind"列为错误，前端应只用 5 个枚举值。
-- **列表里能看到什么**：`status` / `last_error` / `attempts` / `sent_at` 就是发送结果的完整对外表示。后台派发产生的 `sent` / `failed` / `skipped` **不会**写进操作记录（见下面的"发送结果与操作记录"）。
-- **总条数与作用域同源**：非管理员看不到的提醒既不出现在 `data` 里，也不计入 `pagination.total`。
-
-## 2. `GET /api/v1/reminders/{reminder_id}`
-
-**用途**：读取单条提醒的完整状态（排查"这条到底发出去了没有、为什么没发出去"）。
-**权限**：收件人本人或系统管理员；其他人按不存在处理。
-
-**路径参数**：
-
-| 参数 | 类型 | 说明 |
-| --- | --- | --- |
-| `reminder_id` | string(UUID) | 提醒 id |
-
-**查询参数**：无。
-
-**请求体**：无请求体。
-
-**响应 `200`**：提醒对象（结构与端点 1 的元素**完全同源**——同一构造函数，不存在"详情比列表多字段"的情况）。
-
-```json
-{
-  "data": {
-    "id": "01a12d87-0b3c-7c4d-8e5f-6a7b8c9d0e1f",
-    "task_id": "01a12d87-0b3c-7c4d-8e5f-6a7b8c9d0e20",
-    "recipient_id": "01a12d87-0b3c-7c4d-8e5f-6a7b8c9d0e30",
-    "recipient_email": "alice@example.com",
+    "recipient_email": "alice@example.test",
     "kind": "task_overdue",
     "kind_label": "任务已延期",
-    "scheduled_for": "2026-10-11T00:00:00Z",
-    "status": "failed",
+    "cycle": 2,
+    "plan_version": 3,
+    "event_id": null,
+    "covered_by": null,
+    "can_retry": false,
+    "delivery_attempts": null,
+    "scheduled_for": "2026-10-29T01:00:00Z",
+    "status": "unknown",
     "attempts": 1,
-    "last_error": "SMTP 连接超时",
+    "last_error": "发送结果待核实",
     "sent_at": null,
-    "created_at": "2026-10-11T00:00:00Z",
-    "updated_at": "2026-10-11T01:00:05.417293Z"
+    "created_at": "2026-10-28T03:00:00Z",
+    "updated_at": "2026-10-29T01:00:05Z"
   }
 }
 ```
 
-**错误**：
-
-| 状态码 | `error.code` | 触发条件 |
+| 字段 | 类型 | 含义 |
 | --- | --- | --- |
-| `401` | `authentication_required` | 未登录或会话失效 |
-| `404` | `reminder_not_found` | 提醒不存在；**或提醒不属于当前用户且当前用户不是系统管理员**（两者同码，不泄漏存在性） |
+| `id / task_id / recipient_id` | string(UUID) | 计划记录、任务、用户身份 |
+| `recipient_email` | string | 当前计划地址；同步可更新未发送计划，授权时捕获实际地址。历史尝试中的地址在 snapshot 中保留 |
+| `kind / kind_label` | string | 类型及服务端中文文案，见下表 |
+| `cycle` | number | 节点日期周期；开始和截止各自独立。事件身份以 event_id 为准，不能仅靠 cycle 判断事件是否相同 |
+| `plan_version` | number | 计划同步版本，与业务对象的 CAS updated_at 区分 |
+| `event_id` | string(UUID) 或 null | 事件型提醒身份；真实新事件使用新 ID |
+| `covered_by` | string(UUID) 或 null | 同日抑制引用的成功尝试；不是另一条提醒的 ID，也不提供公共尝试维护端点 |
+| `can_retry` | boolean | 服务端给出的重试候选资格。前端依此展示按钮；POST 仍会复核时效与去重，true 不保证随后请求必成功 |
+| `delivery_attempts` | array 或 null | 仅详情按作用域加载发送尝试；列表/重试恒为 null，无历史也为 null |
+| `scheduled_for` | string(UTC timestamp) | 应发时刻，可能在未来或已经过去；不是实际发送时刻 |
+| `status` | string | 生命周期状态，见下表 |
+| `attempts` | number | 已获得发送授权的次数；授权后崩溃也计一次，取消/替代/抑制不增加，retry 本身不增加 |
+| `last_error` | string | 最近发送诊断或失效/替代/抑制/人工核实原因。普通发送成功时为空串；人工核实成功可以保留核实说明，不保证所有 sent 都为空串 |
+| `sent_at` | string 或 null | SMTP 已确认接受时刻，或管理员有证据确认的实际接受时刻；未明确成功为 null |
+| `created_at / updated_at` | string(UTC timestamp) | 记录建立/最后变更时间，保留亚秒精度 |
 
-**备注**：只读端点，没有 `409` 语义；`ETag` / `If-None-Match` 不支持，请用 `updated_at` 判断是否变化。
+`dedupe_key`、内部 legacy 标志、guard 和运维处置参数不属于公开 DTO。
 
-## 3. `POST /api/v1/reminders/{reminder_id}/retry`
+### 类型
 
-**用途**：把一条失败或被跳过的提醒**重新排入待发送**（`status` 回到 `pending`、`scheduled_for` 改为当前时刻），实际发送由后台派发循环完成。
-**权限**：收件人本人或系统管理员；其他人按不存在处理。
-
-**路径参数**：
-
-| 参数 | 类型 | 说明 |
+| kind | kind_label | 规则 |
 | --- | --- | --- |
-| `reminder_id` | string(UUID) | 提醒 id |
+| task_assigned | 新任务分配 | 成员关系从无到有；不是重复保存或恢复开关 |
+| task_start_soon | 任务即将开始 | 未开始且开始日期仍在未来；提前一个工作日当地 09:00 |
+| task_due_soon | 任务即将到期 | 所有有效未完成/未取消任务，包含未开始任务；提前一个工作日当地 09:00 |
+| task_overdue | 任务已延期 | 自然逾期为截止次日当地 09:00；新建/改期/恢复时已逾期可立即入队 |
+| task_owner_changed | 任务持有者变更 | 实际转移给该用户，普通角色保存或改期不产生事件 |
 
-**查询参数**：无。
+### 生命周期
 
-**请求体**：无请求体（服务端不读取请求体，发 `{}` 或不发都可以）。
-
-**响应 `200`**：更新后的提醒对象。**重试不立即发信**，因此响应里 `status` 为 `pending`、`sent_at` 仍为 `null`、`last_error` 被清空为空串、`attempts` 保持重试前的值、`scheduled_for` 变为重试时刻。
-
-```json
-{
-  "data": {
-    "id": "01a12d87-0b3c-7c4d-8e5f-6a7b8c9d0e1f",
-    "task_id": "01a12d87-0b3c-7c4d-8e5f-6a7b8c9d0e20",
-    "recipient_id": "01a12d87-0b3c-7c4d-8e5f-6a7b8c9d0e30",
-    "recipient_email": "alice@example.com",
-    "kind": "task_overdue",
-    "kind_label": "任务已延期",
-    "scheduled_for": "2026-10-12T02:30:00Z",
-    "status": "pending",
-    "attempts": 1,
-    "last_error": "",
-    "sent_at": null,
-    "created_at": "2026-10-11T00:00:00Z",
-    "updated_at": "2026-10-12T02:30:00.881402Z"
-  }
-}
-```
-
-| 字段 | 重试后的取值 | 说明 |
+| status | 对外含义 | 普通 API 可否重试 |
 | --- | --- | --- |
-| `status` | `"pending"` | 已重新排队 |
-| `scheduled_for` | 重试请求时刻 | 取当前时刻（不是原计划时间），因此下一轮派发会立刻取走它 |
-| `last_error` | `""` | 上一次的失败/跳过原因被清空 |
-| `attempts` | 不变 | 重试本身不计次数；真正的下一次发送结果才会 `+1` |
-| `sent_at` | `null` | 尚未发送 |
+| pending | 已有有效待发计划，未来或已到时；全局发送关闭时保持此状态 | 否 |
+| sending | 发送授权已持久化，等待该尝试结算 | 否 |
+| sent | 已确认 SMTP 接受，保留历史；不保证收件箱必达 | 否 |
+| failed | 有明确未接受证据的发送失败 | 仅 can_retry=true 且 POST 复核通过 |
+| unknown | 可能已被接受、授权超时或成功后落账失败，阻挡同范围后续发送 | 否，需管理员运维核实 |
+| skipped | 迁移保留的旧跳过记录，当前全局关闭不再生成该状态 | 否，当前实现不赋予历史 skipped 重试资格 |
+| cancelled | 任务/收件资格失效等导致取消 | 否 |
+| superseded | 日期/有效状态变化或更新事件使旧计划被替代 | 否 |
+| suppressed | 本周期/事件已被实际发送日的同类成功覆盖，之后不再补发 | 否 |
 
-**错误**：
+恢复资格会按规则重算节点计划，但不会擦除成功/抑制事实；历史事件不因开启开关自动复活。日期实际变化才能产生新的相应节点周期，且仍受同日去重和 unknown 隔离约束。
 
-| 状态码 | `error.code` | 触发条件 |
+### 发送尝试证据
+
+详情 `delivery_attempts[]` 的字段：
+
+| 字段 | 类型 | 含义 |
 | --- | --- | --- |
-| `401` | `authentication_required` | 未登录或会话失效 |
-| `404` | `reminder_not_found` | 提醒不存在；或不属于当前用户且不是系统管理员 |
-| `409` | `conflict` | **`status = pending`**：`fields.reminder_id = "该提醒仍在待发送队列中，无需重试"` |
-| `409` | `conflict` | **`status = sent`**：`fields.reminder_id = "该提醒已发送成功，重试会导致重复发送"` |
+| id | string(UUID) | 本次发送授权的唯一尝试身份 |
+| status | string | sending、sent、failed、unknown |
+| authorized_at / expires_at | string(timestamp) | 授权及超时检测截止时间；超时不表示可换进程重发 |
+| sent_at | string 或 null | 明确成功的实际接受时刻 |
+| timezone | string | 原发送时区；迁移记录可能是当前时区投影，snapshot 标记来源 |
+| snapshot | object | 不透明证据 JSON。正常记录含 `To / ToName / Subject / Body`、`task_version / project_version`；迁移记录可能只含 legacy、email、original_status、original_error、timezone_source 等，不能假设历史邮件全文可还原 |
+| error | string | 该尝试诊断；人工核实后仍可能保留原始错误，最终结果以 status/sent_at 为准 |
 
-**允许/拒绝条件速查**：
+快照原始邮件键保留大小写，不转换为可写请求对象。正常同步不改写已授权的内容/地址；管理员 resolution 及其操作者/依据保存在运维证据中，通过 B03 的维护工具导出，不新增公共修改入口。尝试按 authorized_at、id 排序。
 
-| 当前 `status` | 结果 |
-| --- | --- |
-| `failed` | `200`，重新排入待发送 |
-| `skipped` | `200`，重新排入待发送（原因可能已消失，例如 SMTP 刚配好） |
-| `pending` | `409 conflict` |
-| `sent` | `409 conflict` |
+## 1. GET /reminders
 
-**备注**：
+允许的查询参数仅以下五个，未知参数返回 `400 invalid_request`：
 
-- **状态判定与写入是一步的**：写语句带 `status IN ('failed','skipped')` 条件，0 行更新时再查一次以区分"不存在"（`404`）与"状态不允许"（`409`）。因此并发重试只有一次会成功，另一次得到 `409`。
-- **副作用（唯一会写操作记录的提醒动作）**：重试成功会写一条操作记录 —— `object_type = reminder`、`action = updated`、`object_id` = 提醒 id，`changes = {"status":"pending","reason":"manual_retry"}`、`actor_id` = 执行重试的人。被拒的重试（`409`）**不留记录**。
-- **重试后的发送结果仍是后台行为**：派发循环下次运行时若发送成功，状态变 `sent` 且 `attempts + 1`；若再次失败，回到 `failed` 并更新 `last_error`。前端应轮询/刷新详情，而不是期望重试响应就是最终结果。
-
-## 发送结果与操作记录（对外可见的差异）
-
-这一点直接影响前端怎么做"异常排查"页面：
-
-| 事件 | 是否写操作记录（`GET /api/v1/audit`） | 在哪里可见 |
+| 参数 | 默认/约束 | 说明 |
 | --- | --- | --- |
-| 后台派发：发送成功（`sent`） | **不写** | `GET /api/v1/reminders` 的 `status` / `sent_at` / `attempts` |
-| 后台派发：发送失败（`failed`） | **不写** | 同上，另有 `last_error` |
-| 后台派发：按规则跳过（`skipped`） | **不写** | 同上，`last_error` 即跳过原因 |
-| 人工重试（本身） | **写**（`action = updated`） | 两个地方都能看到 |
+| kind | 可省略 | 类型等值筛选；格式合法但不在枚举中的值返回空列表，不返回 400 |
+| task_id | 可省略，调用方应传合法 UUID | 限定任务，仍受收件人/管理员作用域约束 |
+| page | 1，至少 1 | 页码 |
+| page_size | 20，1..100 | 每页条数 |
+| sort | -scheduled_for | 逗号分隔，允许 scheduled_for、created_at、updated_at、kind、status、attempts，前缀 - 降序 |
 
-**为什么发送结果不写操作记录**：后台派发循环是周期任务，**没有操作人**，而操作记录的 `actor_id` 是必填外键（审计必须有主体）。把收件人或任务持有者当成操作人会记下"一个人没做过的事"。发送结果本来就完整地记在提醒行上，通过 `GET /api/v1/reminders` 可查；而**人工重试有操作人**，因此照常入账。
+服务端始终追加 id 排序键。默认是计划时间倒序，未来较远的计划也会排在前面，不应解释为“最近要发的优先”。页码/大小越界、未知或重复排序字段返回 400。成功为 `200`，信封是 `data: []` 和通用 pagination；无数据返回空数组。total 与列表使用同一权限过滤。
 
-推论：想回答"这封提醒为什么没发出去"，要查的是 **reminders 列表的 `status` / `last_error` / `attempts`**，不是 `GET /api/v1/audit`；audit 只能回答"谁在什么时候点了重试"。
+**没有 status 查询参数**，传入会 400。前端“状态（当前页）”只过滤本页，不改变服务端 total；需要跨页归拢可使用允许的 status 排序。
 
-## 生成规则（客户端的预期边界）
+## 2. GET /reminders/{reminder_id}
 
-| 规则 | 对外表现 |
-| --- | --- |
-| 时间型提醒"提前 1 个工作日" | 周一到期 → 上周五生成/发送；周末不产生提醒日 |
-| 计时按**收件人所在时区**计算"今天" | 同一任务对不同时区的成员可能落在不同的提醒日；`scheduled_for` 是收件人本地上午 9 点（`ReminderSendHour = 9`）换算成的 UTC 时刻 |
-| 延期提醒每个任务只提醒一次 | 同一任务不会出现第二条 `task_overdue` |
-| 收件人范围 | 任务成员（含任务持有者）与**项目持有者** |
-| 不合格的收件人 | 生成阶段**不落库**（不会有 `skipped` 行）；但派发时若收件人已停用/关闭提醒，该行会如实记为 `skipped` 并带原因 |
-| 事件型提醒（新分配、持有者变更） | 在任务写入路径**事务提交后**插入一行，发送仍由后台循环完成 |
-| 幂等 | 重复扫描、重复运行不会重复生成或重复发送（唯一约束保证） |
-| 邮件内容 | 至少含项目名、任务名、负责人、计划周期、状态、进度、任务链接与提醒原因（链接模板来自 mail.task_url_template / MAIL_TASK_URL_TEMPLATE，支持 {project_id}、{task_id}，默认定位项目详情中的任务抽屉） |
+无请求体；返回 `200` 提醒对象并加载该记录的发送尝试。不存在或他人的记录返回 404，未登录返回 401。无 ETag/条件 GET；updated_at 仅表示记录变化，尝试信息可通过刷新详情获取。
 
-## 不确定或契约未写清的点
+## 3. POST /reminders/{reminder_id}/retry
 
-| 点 | 说明 |
-| --- | --- |
-| 非法 `kind` 查询值的行为 | 服务端只做等值匹配、不校验枚举，因此返回空列表而不是 `400`；《A08》 未规定该情形。 |
-| `status` 查询参数 | 服务端数据层支持按状态筛选，但端点的**查询参数白名单不含 `status`**，传它会 `400`。这是实现与数据层能力的差异，契约未提及；若前端需要"只看失败"的视图，需要先在契约里新增该参数。 |
-| `task_id` 传非 UUID | 端点的查询参数未做 UUID 格式校验，非 UUID 会走到数据库并可能以 `500 internal_error` 结束。契约未规定；建议恒传 UUID。 |
-| `reminder_id` 路径参数非 UUID | 与 `task_id` 同理：无前置格式校验，《S02》未规定错误码。 |
-| `scheduled_for` 与 `created_at` 的关系 | 时间型提醒的 `scheduled_for` 是"计划时刻"（收件人本地 9 点），事件型提醒取写入时刻。契约未逐一规定每种 `kind` 的构造公式，本文只写可观测结论。 |
+请求体可省略或为 `{}`；当前处理器不读取请求体，不将其用于计划维护。先执行既有作用域检查，再在事务内重新同步、校验状态、日期周期、当前资格、guard 及实际发送日成功事实。
+
+- 仅当前、非旧迁移证据、明确未接受的 failed 计划可能成功。其他状态、失效或过时计划、同日已有成功、存在 sending/unknown 尝试均返回 `409 conflict`（fields.reminder_id 给出原因）。即使 GET 的 can_retry=true，也须处理 409。
+- 成功返回 `200`：status=pending，scheduled_for 为当前时刻，last_error 清为空串，sent_at 仍为 null，can_retry=false，delivery_attempts=null，attempts 不变。实际发送由后续派发完成，客户端刷新详情查看历史与结果。
+- 重试成功与审计同事务提交：object_type=reminder、action=updated、object_id 为提醒 ID，changes 包含 status=pending、reason=manual_retry，actor_id 为操作人。拒绝重试不写审计、不增加尝试次数。
+
+## 发送与查询边界
+
+业务事务中创建/同步计划，后台仅派发已到时计划；普通名称/描述编辑不改变既定时间。改期后的旧未授权计划不可继续发送，已授权尝试按原快照完成；实际接受与数据库提交不具备跨系统原子性。
+
+按“任务 + 用户 + 类型 + 当前时区实际发送日”判重，同时约束同节点周期成功次数。已到时的新周期同日命中时保存 suppressed；未来另一天计划保留。旧邮件不撤回，未知结果不占成功事实但会保持独占阻挡，不能靠改期或新事件绕过。
+
+后台结果不伪造 actor 写入普通操作记录，查询结果与快照看提醒接口；人工 retry 有操作人，因此写入 audit。管理员未知核实的依据保存在尝试 resolution，见 [B03](../../backend/docs/B03-配置与运行.md)；密码重置邮件链路独立。
+
+## 现有输入边界
+
+`task_id` 查询值和 `reminder_id` 路径值尚无前置 UUID 校验；非 UUID 可能在数据库层以 500 结束，不承诺 400。调用方应只传合法 UUID。此行为不因本轮生命周期更新而改变。
