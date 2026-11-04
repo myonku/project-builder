@@ -32,6 +32,9 @@ import PageContainer from '@/components/common/PageContainer';
 import StatusTag from '@/components/common/StatusTag';
 import UserAvatar from '@/components/common/UserAvatar';
 import PlanSummaryTiles from '@/components/plan/PlanSummaryTiles';
+import { ChartCard, TaskOverview } from '@/components/statistics/StatisticsCharts';
+import { leafTasks } from '@/components/statistics/statisticsModel';
+import { useStatisticsDay } from '@/hooks/useStatisticsSnapshot';
 import { taskPriorityMeta, taskStatusMeta } from '@/components/task/taskMeta';
 import TaskDetailDrawer from '@/components/task/TaskDetailDrawer';
 import { describeApiError } from '@/hooks/useApiError';
@@ -143,6 +146,7 @@ export default function DashboardView() {
     query: DASHBOARD_QUERY,
   });
 
+  const today = useStatisticsDay(user?.timezone, reload);
   const taskId = searchParams.get('taskId');
   const openTask = React.useCallback(
     (nextTaskId: string) => {
@@ -196,6 +200,12 @@ export default function DashboardView() {
         ) : null}
 
         <PlanSummaryTiles summary={payload?.summary} />
+        <Button component={RouterLink} to="/statistics" sx={{ alignSelf: 'flex-end' }}>查看数据统计</Button>
+        {loading ? <LinearProgress aria-label="正在读取概览" /> : payload && !error ? (
+          <ChartCard title="参与项目的叶子任务状态">
+            <TaskOverview tasks={leafTasks(payload.tasks)} today={today} onOpen={openTask} />
+          </ChartCard>
+        ) : null}
 
         <Grid container spacing={2}>
           <Grid size={{ xs: 12, md: 7 }}>
@@ -300,6 +310,7 @@ export default function DashboardView() {
         </Grid>
 
         {/* 次要区块：账号信息与使用提示 */}
+        <Box component="details"><Box component="summary" sx={{ cursor: 'pointer', mb: 2 }}>账号信息与使用提示</Box>
         <Grid container spacing={2}>
           <Grid size={{ xs: 12, md: 6 }}>
             <SectionCard
@@ -363,6 +374,7 @@ export default function DashboardView() {
             </SectionCard>
           </Grid>
         </Grid>
+        </Box>
       </Stack>
 
       <TaskDetailDrawer

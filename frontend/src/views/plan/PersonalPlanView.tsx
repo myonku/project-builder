@@ -17,7 +17,7 @@ import Button from '@mui/material/Button';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import Divider from '@mui/material/Divider';
 import Stack from '@mui/material/Stack';
-import { useNavigate, useSearchParams } from 'react-router';
+import { Link as RouterLink, useNavigate, useSearchParams } from 'react-router';
 import PageContainer from '@/components/common/PageContainer';
 import PlanFilters, {
   DEFAULT_PLAN_FILTERS,
@@ -112,6 +112,7 @@ export default function PersonalPlanView() {
           </Alert>
         ) : null}
 
+        <Button component={RouterLink} to="/statistics" sx={{ alignSelf: 'flex-end' }}>查看数据统计</Button>
         <PlanSummaryTiles summary={payload?.summary} />
 
         <Divider />

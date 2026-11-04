@@ -15,6 +15,7 @@ import FolderIcon from '@mui/icons-material/Folder';
 import AttachFileIcon from '@mui/icons-material/AttachFile';
 import EventNoteIcon from '@mui/icons-material/EventNote';
 import TimelineIcon from '@mui/icons-material/Timeline';
+import BarChartIcon from '@mui/icons-material/BarChart';
 import AssignmentIndIcon from '@mui/icons-material/AssignmentInd';
 import GroupsIcon from '@mui/icons-material/Groups';
 import GroupIcon from '@mui/icons-material/Group';
@@ -251,10 +252,17 @@ export default function DashboardSidebar({
             />
             <DashboardSidebarPageItem
               id="gantt"
-              title="视图"
+              title="进度视图"
               icon={<TimelineIcon />}
               href="/gantt"
               selected={pathname === '/gantt'}
+            />
+            <DashboardSidebarPageItem
+              id="statistics"
+              title="数据统计"
+              icon={<BarChartIcon />}
+              href="/statistics"
+              selected={pathname === '/statistics'}
             />
             <DashboardSidebarPageItem
               id="attachments"

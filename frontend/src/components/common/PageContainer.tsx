@@ -16,6 +16,7 @@ import { Link } from 'react-router';
 const PageContentHeader = styled('div')(({ theme }) => ({
   display: 'flex',
   flexDirection: 'row',
+  flexWrap: 'wrap',
   justifyContent: 'space-between',
   gap: theme.spacing(2),
 }));

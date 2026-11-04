@@ -306,8 +306,8 @@ export default function GanttView() {
 
   return (
     <PageContainer
-      title="视图"
-      breadcrumbs={[{ title: '工作台', path: '/projects' }, { title: '视图' }]}
+      title="进度视图"
+      breadcrumbs={[{ title: '工作台', path: '/projects' }, { title: '进度视图' }]}
       actions={
         <Button
           variant="outlined"

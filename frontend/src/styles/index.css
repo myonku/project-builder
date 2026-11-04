@@ -18,4 +18,50 @@ body {
   body {
     background: #fff;
   }
+
+  body:has(.statistics-page),
+  body:has(.statistics-page) #root,
+  body:has(.statistics-page) .dashboard-layout,
+  body:has(.statistics-page) .dashboard-content,
+  body:has(.statistics-page) main {
+    height: auto !important;
+    overflow: visible !important;
+    display: block !important;
+    width: auto !important;
+  }
+  .statistics-no-print {
+    display: none !important;
+  }
+  body:has(.statistics-page) .MuiDrawer-root,
+  body:has(.statistics-page) .MuiAppBar-root {
+    display: none !important;
+  }
+  body:has(.statistics-page) main .MuiContainer-root {
+    max-width: none;
+    margin: 0;
+    padding: 0 12px;
+  }
+  .statistics-page {
+    color: #111 !important;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+  .statistics-page .MuiCard-root {
+    break-inside: avoid;
+    background: #fff !important;
+    color: #111 !important;
+    box-shadow: none;
+  }
+  .statistics-page .MuiTypography-root {
+    color: #111 !important;
+  }
+  .statistics-page h2 {
+    break-after: avoid;
+  }
+  .statistics-metrics {
+    grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
+  }
+  .statistics-metrics .MuiCardContent-root {
+    padding: 10px !important;
+  }
 }

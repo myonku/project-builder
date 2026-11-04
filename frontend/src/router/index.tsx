@@ -89,6 +89,10 @@ export const router = createBrowserRouter([
             element: page(() => import('@/views/plan/GroupPlanView')),
           },
           {
+            path: 'statistics',
+            element: page(() => import('@/views/statistics/StatisticsView')),
+          },
+          {
             path: 'gantt',
             element: page(() => import('@/views/gantt/GanttView')),
           },

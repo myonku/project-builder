@@ -18,7 +18,7 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 import MenuItem from '@mui/material/MenuItem';
 import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
-import { useNavigate, useSearchParams } from 'react-router';
+import { Link as RouterLink, useNavigate, useSearchParams } from 'react-router';
 import PageContainer from '@/components/common/PageContainer';
 import PlanFilters, {
   DEFAULT_PLAN_FILTERS,
@@ -170,6 +170,7 @@ export default function GroupPlanView() {
           </Alert>
         ) : null}
 
+        <Button component={RouterLink} to={currentGroupId ? `/statistics?groupId=${currentGroupId}` : '/statistics'} sx={{ alignSelf: 'flex-end' }}>查看数据统计</Button>
         <PlanSummaryTiles summary={payload?.summary} />
 
         <Divider />

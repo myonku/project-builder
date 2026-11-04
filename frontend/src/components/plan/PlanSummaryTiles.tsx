@@ -64,7 +64,7 @@ export default function PlanSummaryTiles({ summary }: PlanSummaryTilesProps) {
         <Tile label="项目" value={summary?.project_count ?? 0} />
       </Grid>
       <Grid size={{ xs: 6, sm: 4, md: 2 }}>
-        <Tile label="任务" value={summary?.task_count ?? 0} />
+        <Tile label="任务" value={summary?.task_count ?? 0} hint="可见任务条目，含父任务" />
       </Grid>
       <Grid size={{ xs: 6, sm: 4, md: 2 }}>
         <Tile label="进行中" value={summary?.in_progress_task_count ?? 0} tone="primary" />
@@ -92,7 +92,7 @@ export default function PlanSummaryTiles({ summary }: PlanSummaryTilesProps) {
               <LinearProgress variant="determinate" value={overall} sx={{ height: 8, borderRadius: 4 }} />
             </Box>
             <Typography variant="caption" color="text.secondary">
-              任务平均进度，不含已取消任务
+              项目有效进度等权平均，不含取消项目
             </Typography>
           </CardContent>
         </Card>

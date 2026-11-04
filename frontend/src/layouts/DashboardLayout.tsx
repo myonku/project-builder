@@ -53,6 +53,7 @@ export default function DashboardLayout() {
 
   return (
     <Box
+      className="dashboard-layout"
       ref={layoutRef}
       sx={{
         position: 'relative',
@@ -74,6 +75,7 @@ export default function DashboardLayout() {
         container={layoutRef?.current ?? undefined}
       />
       <Box
+        className="dashboard-content"
         sx={{
           display: 'flex',
           flexDirection: 'column',

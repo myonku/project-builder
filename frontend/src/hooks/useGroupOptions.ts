@@ -2,8 +2,7 @@
  * 工作组下拉选项（项目列表的"工作组"筛选、以及后续项目表单都要用）。
  *
  * 数据源是 `POST /groups/query`（《A03》）。两个已知边界：
- * - `page_size` 上限 100（《S02》§2.5），因此这里**最多**拿 100 个工作组；
- *   内部小组数量远小于这个量级，超过时再改成"搜索式下拉 + 分页"；
+ * - 按服务端 has_next 读取全部分页，避免统计页把选项前 100 条误当作全部；
  * - 普通成员只会看到自己所在的工作组，系统管理员会看到全部——
  *   因此选项列表**不能**当作权限判断依据，能不能建项目由后端在 `POST /projects` 上判定。
  */
@@ -50,20 +49,20 @@ export function useGroupOptions(enabled = true): UseGroupOptionsResult {
 
     void (async () => {
       try {
-        const page = await queryGroups(
-          { page: 1, page_size: PAGE_SIZE, sort: 'name' },
-          controller.signal,
-        );
+        const items: GroupOption[] = [];
+        let pageNumber = 1;
+        while (!cancelled) {
+          const page = await queryGroups({ page: pageNumber, page_size: PAGE_SIZE, sort: 'name' }, controller.signal);
+          items.push(...page.data.map(group => ({ id: group.id, name: group.name,
+            membershipRole: group.membership_role, membershipStatus: group.membership_status })));
+          if (!page.pagination.has_next) break;
+          pageNumber++;
+        }
         if (cancelled) {
           return;
         }
         setOptions(
-          (page.data ?? []).map((group) => ({
-            id: group.id,
-            name: group.name,
-            membershipRole: group.membership_role,
-            membershipStatus: group.membership_status,
-          })),
+          [...new Map(items.map(group => [group.id, group])).values()],
         );
       } catch (caught) {
         if (cancelled) {

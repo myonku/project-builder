@@ -59,6 +59,7 @@ import {
 } from '@/components/project/projectMeta';
 import ProjectMembersPanel from '@/components/project/ProjectMembersPanel';
 import TaskDetailDrawer from '@/components/task/TaskDetailDrawer';
+import ProjectStatistics from '@/components/statistics/ProjectStatistics';
 import TaskFormDialog, {
   type TaskFormValues,
 } from '@/components/task/TaskFormDialog';
@@ -146,6 +147,7 @@ export default function ProjectDetailView() {
   const userTimeZone = useAuthStore((state) => state.user?.timezone);
   const { options: groupOptions, nameById: groupNameById } = useGroupOptions();
 
+  const [statisticsRevision, setStatisticsRevision] = React.useState(0);
   const [editOpen, setEditOpen] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
   const [saveError, setSaveError] = React.useState<ApiError | null>(null);
@@ -192,7 +194,7 @@ export default function ProjectDetailView() {
     sortModel,
     onSortModelChange,
     setFilters: applyTaskFilters,
-    reload: reloadTasks,
+    reload: reloadTaskList,
   } = useListQuery<Task, TaskFilters>({
     query: ({ filters, page, pageSize, sort }) => {
       const body: TaskQueryBody = { page, page_size: pageSize };
@@ -212,6 +214,8 @@ export default function ProjectDetailView() {
     enabled: Boolean(projectId),
     deps: [projectId],
   });
+  const reloadTasks = React.useCallback(() => { reloadTaskList(); setStatisticsRevision(value => value + 1); }, [reloadTaskList]);
+
 
   React.useEffect(() => {
     if (tasksError) {
@@ -614,7 +618,7 @@ export default function ProjectDetailView() {
           projectId={project.id}
           groupId={project.group_id}
           canManage={canManage && !readOnly}
-          onChanged={() => void reloadProject()}
+          onChanged={() => { void reloadProject(); setStatisticsRevision(value => value + 1); }}
         />
 
         <Divider />
@@ -626,6 +630,9 @@ export default function ProjectDetailView() {
         />
 
         <Divider />
+
+        <ProjectStatistics key={`${project.id}:${project.updated_at}:${statisticsRevision}`} projectId={project.id}
+          revision={String(statisticsRevision)} timeZone={userTimeZone} onOpen={openTask} />
 
         <Stack direction="row" spacing={2} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
           <Typography variant="h6" component="h2">
