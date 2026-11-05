@@ -28,6 +28,8 @@ body {
 .report-footer { margin-top: auto !important; }
 .report-print-root { display: none; }
 .report-presentation {
+  display: flex;
+  flex-direction: column;
   position: fixed;
   inset: 0;
   z-index: 1500;
@@ -36,12 +38,27 @@ body {
   overflow: hidden;
 }
 .report-presentation .report-sheet {
-  height: calc(100dvh - 70px);
+  flex: 1;
+  min-height: 0;
+  height: auto;
   padding: 16px 2vw;
   margin: 0;
   gap: 14px;
   box-sizing: border-box;
 }
+.report-presentation .report-controls,
+.report-presentation .report-title,
+.report-presentation .report-footer { flex-shrink: 0; }
+.report-presentation .report-content { min-height: 0; }
+.report-presentation .count-chart-body { height: clamp(140px, 30dvh, 320px); min-height: 0; }
+.report-presentation .count-chart-axis,
+.report-presentation .count-chart-columns { height: 100%; min-height: 0; }
+.report-presentation .count-chart-category {
+  display: grid;
+  grid-template-rows: max-content minmax(0, 1fr) 2.8em;
+  min-height: 0;
+}
+.report-presentation .count-chart-plot { height: 100%; min-height: 0; }
 .report-presentation .report-inactive { display: none; }
 .report-presentation .MuiTypography-root { font-size: clamp(22px, 1.7vw, 28px); line-height: 1.35; }
 .report-presentation .report-title { font-size: clamp(30px, 2.5vw, 44px); }

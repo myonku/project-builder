@@ -49,15 +49,21 @@ try {
   await go(reportPath); await wait('document.querySelectorAll(".report-sheet").length===4');
   check((await body()).includes('周期汇报'),'report workspace');
   check(!(await evaluate('[...document.querySelectorAll("input")].some(e=>e.type==="date")')),'MUI date controls');
+  const layoutFits = '(()=>{const e=[...document.querySelectorAll(".report-sheet")].find(e=>getComputedStyle(e).display!=="none");const title=e.querySelector(".report-title");const content=e.querySelector(".report-content");const footer=e.querySelector(".report-footer");const tr=title.getBoundingClientRect();const children=[...content.children].map(x=>x.getBoundingClientRect());return e.scrollHeight<=e.clientHeight+2 && tr.height>=parseFloat(getComputedStyle(title).lineHeight)-1 && children[0].top>=tr.bottom-1 && children.every((r,i)=>!i || r.top>=children[i-1].bottom-1) && children.at(-1).bottom<=footer.getBoundingClientRect().top+1})()';
   await click('开始演示'); await wait('!!document.querySelector(".report-presentation")');
   for(let i=0;i<4;i++) {
    if(i) await click('下一屏');
-   check(await evaluate('(()=>{let e=[...document.querySelectorAll(".report-sheet")].find(e=>getComputedStyle(e).display!=="none");return e.scrollHeight<=e.clientHeight+2})()'),'presentation screen fits '+i);
+   check(await evaluate(layoutFits),'presentation screen fits '+i);
    await screenshot('presentation-'+i);
   }
   await send('Emulation.setDeviceMetricsOverride',{width:1366,height:768,deviceScaleFactor:1,mobile:false});
   for(let i=0;i<3;i++)await click('上一屏');
-  for(let i=0;i<4;i++){if(i)await click('下一屏');check(await evaluate('(()=>{let e=[...document.querySelectorAll(".report-sheet")].find(e=>getComputedStyle(e).display!=="none");return e.scrollHeight<=e.clientHeight+2})()'),'1366 presentation fits '+i);}
+  for(let i=0;i<4;i++){if(i)await click('下一屏');check(await evaluate(layoutFits),'1366 presentation fits '+i);}
+  for (const [width,height] of [[1710,920],[1366,650]]) {
+   await send('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:false});
+   for(let i=0;i<3;i++)await click('上一屏');
+   for(let i=0;i<4;i++){if(i)await click('下一屏');check(await evaluate(layoutFits),`${width}x${height} title/content/footer do not overlap, screen ${i}`);}
+  }
   await send('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',windowsVirtualKeyCode:27});
   await wait('!document.querySelector(".report-presentation")');checks++;
   await send('Emulation.setEmulatedMedia',{media:'print'});

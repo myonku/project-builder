@@ -7,18 +7,18 @@ export function ColumnChart({data, label = '任务数', secondLabel, onSelect, h
 }) {
  const max = Math.max(1, ...data.flatMap(v => [v.value ?? 0, v.second ?? 0]));
  const ticks = [...new Set([0, Math.ceil(max / 2), max])];
- return <Stack spacing={1}>
+ return <Stack className="count-chart" spacing={1}>
   <Typography variant="caption" color="text.secondary">单位：个 · 蓝色：{label}{secondLabel ? ` · 绿色：${secondLabel}` : ''}</Typography>
-  {!data.length ? <Typography color="text.secondary">当前范围没有数据。</Typography> : <Box sx={{display: 'flex', gap: 1, minWidth: 0}}>
-   <Stack sx={{height, width: 24, flexShrink: 0, justifyContent: 'space-between', pb: '46px', boxSizing: 'border-box'}}>
+  {!data.length ? <Typography color="text.secondary">当前范围没有数据。</Typography> : <Box className="count-chart-body" sx={{display: 'flex', gap: 1, minWidth: 0}}>
+   <Stack className="count-chart-axis" sx={{height, width: 24, flexShrink: 0, justifyContent: 'space-between', pb: '46px', boxSizing: 'border-box'}}>
     {[...ticks].reverse().map(tick => <Typography key={tick} variant="caption">{tick}</Typography>)}
    </Stack>
-   <Box sx={{display: 'grid', gridTemplateColumns: `repeat(${data.length}, minmax(0, 1fr))`, width: '100%', height, borderBottom: 1, borderColor: 'divider'}}>
-    {data.map((item, i) => <Box key={item.key ?? `${item.label}:${i}`} component={onSelect ? Button : 'div'}
+   <Box className="count-chart-columns" sx={{display: 'grid', gridTemplateColumns: `repeat(${data.length}, minmax(0, 1fr))`, width: '100%', height, borderBottom: 1, borderColor: 'divider'}}>
+    {data.map((item, i) => <Box className="count-chart-category" key={item.key ?? `${item.label}:${i}`} component={onSelect ? Button : 'div'}
      {...(onSelect ? {onClick: () => onSelect(i), 'aria-label': `${item.label}，${label} ${item.value ?? '未知'}${secondLabel ? `，${secondLabel} ${item.second ?? 0}` : ''}，查看明细`} : {})}
      sx={{minWidth: 0, p: 0.5, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', color: 'text.primary', textTransform: 'none', borderRadius: 0}}>
      <Typography variant="caption" sx={{whiteSpace: 'nowrap'}}>{item.value === null ? '—' : item.value}{secondLabel && item.value !== null ? ` / ${item.second ?? 0}` : ''}</Typography>
-     <Box sx={{display: 'flex', alignItems: 'flex-end', justifyContent: 'center', height: height - 84, width: '100%', gap: 0.4}}>
+     <Box className="count-chart-plot" sx={{display: 'flex', alignItems: 'flex-end', justifyContent: 'center', height: height - 84, width: '100%', gap: 0.4}}>
       <Box sx={{width: secondLabel ? '36%' : '65%', height: `${(item.value ?? 0) / max * 100}%`, minHeight: item.value ? 2 : 0, bgcolor: 'primary.main', borderRadius: '3px 3px 0 0'}} />
       {secondLabel && <Box sx={{width: '36%', height: `${(item.second ?? 0) / max * 100}%`, minHeight: item.second ? 2 : 0, bgcolor: 'success.main', borderRadius: '3px 3px 0 0'}} />}
      </Box>
