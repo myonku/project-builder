@@ -13,8 +13,10 @@ import TaskDetailDrawer from '@/components/task/TaskDetailDrawer';
 
 const labels: Record<string, string> = {created: '创建', completed: '完成', reopened: '重新打开', cancelled: '取消', rescheduled: '调整日期', members: '调整成员', sharing: '调整共享', structure: '调整层级', restored: '恢复', updated: '更新', status: '调整状态'};
 export function ActivityFeed({query, revision = 0}: {query: InsightQuery; revision?: number}) {
+ return <ActivityFeedContent key={JSON.stringify([query, revision])} query={query} revision={revision} />;
+}
+function ActivityFeedContent({query, revision}: {query: InsightQuery; revision: number}) {
  const [cursor, setCursor] = React.useState('');
- React.useEffect(() => setCursor(''), [JSON.stringify(query), revision]);
  const result = useInsights({...query, cursor, revision}, signal => getActivity(query, cursor, signal), query.timezone);
  return <Stack spacing={1}>
   {result.error && <Alert severity="warning">近期动态暂不可用：{describeApiError(result.error)}</Alert>}

@@ -12,8 +12,16 @@ export function useInsights<T>(query: object | null, load: (signal: AbortSignal)
  React.useEffect(() => {
   if (!query) return;
   const controller = new AbortController();
-  void loader.current(controller.signal).then(data => { if (!controller.signal.aborted) setState({key, data, error: null}); })
-   .catch(error => {if (!controller.signal.aborted) setState({key, data: null, error: toApiError(error)});});
+  const read = loader.current;
+  // Strict Mode 会立即清理并重新运行 effect；在微任务中启动可避免发出注定取消的请求。
+  void (async () => {
+   await Promise.resolve();
+   if (controller.signal.aborted) return;
+   try {
+    const data = await read(controller.signal);
+    if (!controller.signal.aborted) setState({key, data, error: null});
+   } catch (error) {if (!controller.signal.aborted) setState({key, data: null, error: toApiError(error)});}
+  })();
   return () => controller.abort();
  // Content rather than callback identity determines the request.
  // eslint-disable-next-line react-hooks/exhaustive-deps

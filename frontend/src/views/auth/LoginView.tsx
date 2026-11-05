@@ -114,8 +114,9 @@ export default function LoginView() {
       sx={{
         flex: 1,
         display: 'flex',
-        alignItems: 'center',
+        alignItems: 'flex-start',
         justifyContent: 'center',
+        py: 4,
       }}
     >
       <Card

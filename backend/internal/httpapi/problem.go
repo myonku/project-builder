@@ -7,6 +7,7 @@
 package httpapi
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -192,6 +193,15 @@ func ErrorHandler(logger *slog.Logger) gin.HandlerFunc {
 // 保证两条路径输出的信封形状完全一致。
 func writeErrorEnvelope(c *gin.Context, logger *slog.Logger) {
 	if len(c.Errors) == 0 {
+		return
+	}
+
+	// 客户端断开连接或主动取消时，依赖层会返回被包装的 context.Canceled。
+	// 仅在请求本身也已取消时分类，避免掩盖服务内部意外取消的错误。
+	if errors.Is(c.Request.Context().Err(), context.Canceled) && errors.Is(c.Errors[0], context.Canceled) && len(c.Errors) == 1 {
+		logger.Debug("客户端已取消请求", slog.String("request_id", RequestID(c)), slog.String("method", c.Request.Method), slog.String("path", c.Request.URL.Path))
+		// 499 是访问日志使用的惯例状态，连接通常已经关闭，无需写入错误信封。
+		c.AbortWithStatus(499)
 		return
 	}
 

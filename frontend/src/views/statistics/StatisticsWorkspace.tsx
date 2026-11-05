@@ -74,7 +74,7 @@ export default function StatisticsWorkspace({page}: {page: 'overview' | 'report'
     </Stack> : <Stack spacing={1}><FormControlLabel control={<Checkbox checked={archived} onChange={(_, value) => update({includeArchived: String(value)})} />} label="当前概览纳入归档" /><StatisticsDateRange from={dueFrom} to={dueTo} onApply={(a, b) => update({dueFrom: a, dueTo: b})} /></Stack>}
    </Box>
    {groups.error && <Alert severity="warning">工作组选项暂不可用。</Alert>}{invalid && <Alert severity="warning">查询条件无效，请检查范围、日期或报告时区。</Alert>}{!ready && !invalid && <Alert severity="info">请选择有权限的工作组和成员范围。</Alert>}
-   {ready && (page === 'report' ? <ReportBuilder key={JSON.stringify(query)} query={reportQuery} title={scopeName} /> : <InsightOverview query={query} dueFrom={dueFrom} dueTo={dueTo} />)}
+   {ready && (page === 'report' ? <ReportBuilder key={JSON.stringify(reportQuery)} query={reportQuery} title={scopeName} /> : <InsightOverview query={query} dueFrom={dueFrom} dueTo={dueTo} />)}
   </Stack>
  </PageContainer>;
 }
