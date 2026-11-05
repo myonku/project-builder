@@ -21,6 +21,7 @@ import (
 	"github.com/myonku/project-builder/internal/app/audit"
 	"github.com/myonku/project-builder/internal/app/auth"
 	"github.com/myonku/project-builder/internal/app/groups"
+	"github.com/myonku/project-builder/internal/app/insights"
 	"github.com/myonku/project-builder/internal/app/planviews"
 	"github.com/myonku/project-builder/internal/app/projects"
 	"github.com/myonku/project-builder/internal/app/reminders"
@@ -314,6 +315,7 @@ func run() error {
 			projects.NewHandler(projectsService, authHandler, logger),
 			tasks.NewHandler(tasksService, authHandler, logger),
 			planviews.NewHandler(planViewsService, authHandler, logger),
+			insights.NewHandler(postgres.Pool, authHandler),
 			attachments.NewHandler(attachmentsService, authHandler),
 			reminders.NewHandler(remindersService, authHandler),
 			audit.NewHandler(auditService, authHandler),

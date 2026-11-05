@@ -24,6 +24,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/myonku/project-builder/internal/app/apperr"
@@ -234,7 +235,10 @@ type TaskFilter struct {
 
 // Repository 是计划视图的只读 SQL 访问层。
 type Repository struct {
-	pool *pgxpool.Pool
+	pool interface {
+		Query(context.Context, string, ...any) (pgx.Rows, error)
+		QueryRow(context.Context, string, ...any) pgx.Row
+	}
 }
 
 // NewRepository 构造仓储。
@@ -590,3 +594,6 @@ func appendTaskFilters(query string, args []any, filter TaskFilter) (string, []a
 	}
 	return query, args
 }
+
+// NewSnapshotRepository binds all plan reads to the report transaction.
+func NewSnapshotRepository(tx pgx.Tx) *Repository { return &Repository{pool: tx} }

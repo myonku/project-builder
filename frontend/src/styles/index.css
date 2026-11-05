@@ -13,6 +13,54 @@ body {
   margin: 0;
 }
 
+.report-sheet {
+  border: 1px solid var(--mui-palette-divider);
+  border-radius: 8px;
+  padding: 24px;
+  margin-bottom: 24px;
+  background: var(--mui-palette-background-paper);
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  break-inside: avoid;
+}
+.report-content { flex: 1; min-width: 0; }
+.report-footer { margin-top: auto !important; }
+.report-print-root { display: none; }
+.report-presentation {
+  position: fixed;
+  inset: 0;
+  z-index: 1500;
+  background: var(--mui-palette-background-default);
+  padding: 8px 24px;
+  overflow: hidden;
+}
+.report-presentation .report-sheet {
+  height: calc(100dvh - 70px);
+  padding: 16px 2vw;
+  margin: 0;
+  gap: 14px;
+  box-sizing: border-box;
+}
+.report-presentation .report-inactive { display: none; }
+.report-presentation .MuiTypography-root { font-size: clamp(22px, 1.7vw, 28px); line-height: 1.35; }
+.report-presentation .report-title { font-size: clamp(30px, 2.5vw, 44px); }
+.report-presentation h2 { font-size: clamp(28px, 2.2vw, 38px); }
+.report-presentation .report-number { font-size: clamp(48px, 4vw, 64px); }
+.report-presentation .report-footer { font-size: 14px; }
+.report-presentation .report-title,
+.report-presentation .report-content > .MuiTypography-root {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+@media (max-width: 600px) {
+  .report-sheet { padding: 12px; }
+  .report-numbers { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+}
+@page worklane-report { size: A4 landscape; margin: 10mm; }
+
 /* 打印时不要出现侧边栏与头部（模板已有 displayPrint: 'none'，这里兜底） */
 @media print {
   body {
@@ -64,4 +112,38 @@ body {
   .statistics-metrics .MuiCardContent-root {
     padding: 10px !important;
   }
+  body:has(.report-deck), body:has(.report-deck) #root,
+  body:has(.report-deck) .dashboard-layout, body:has(.report-deck) .dashboard-content,
+  body:has(.report-deck) main {
+    height: auto !important; overflow: visible !important; display: block !important;
+  }
+  body:has(.report-deck) .MuiDrawer-root, body:has(.report-deck) .MuiAppBar-root,
+  body:has(.report-deck) nav, body:has(.report-deck) main > .MuiContainer-root > .MuiStack-root > .MuiStack-root,
+  .report-workspace-controls, .report-editor, .report-controls { display: none !important; }
+  .report-deck { position: static !important; overflow: visible !important; padding: 0 !important; background: #fff !important; }
+  .report-sheet, .report-presentation .report-sheet {
+    page: worklane-report;
+    display: flex !important; break-after: page; break-inside: avoid;
+    height: 184mm !important; box-sizing: border-box; margin: 0 !important; padding: 4mm !important;
+    background: white !important; color: #111 !important; border: none; border-radius: 0;
+    print-color-adjust: exact; -webkit-print-color-adjust: exact;
+  }
+  .report-sheet:last-child { break-after: auto; }
+  .report-sheet .MuiTypography-root { color: #111 !important; }
+  .report-sheet .report-title { font-size: 24px; }
+  .report-sheet h2 { font-size: 26px; }
+  .report-sheet .report-footer { font-size: 12px; }
 }
+
+@media print {
+ body:has(.report-deck) { page: worklane-report; }
+ body:has(.report-print-root) #root { display:none !important; }
+ .report-print-root { display:block; page:worklane-report; }
+ body:has(.report-deck) .MuiStack-root:has(.report-deck),
+ body:has(.report-deck) .MuiContainer-root { display:block !important; margin:0 !important; padding:0 !important; gap:0 !important; }
+}
+@media print {
+ .report-sheet, .report-presentation .report-sheet { display:block !important; height:auto !important; min-height:170mm; }
+ .report-sheet .report-footer { display:block; margin-top:16mm !important; }
+}
+@media print { .report-sheet, .report-presentation .report-sheet { padding-top:18mm !important; } }

@@ -113,6 +113,7 @@ export default function PersonalPlanView() {
         ) : null}
 
         <Button component={RouterLink} to="/statistics" sx={{ alignSelf: 'flex-end' }}>查看数据统计</Button>
+        <Button component={RouterLink} to="/statistics?scope=self&page=report" sx={{ alignSelf: 'flex-end' }}>生成本周汇报</Button>
         <PlanSummaryTiles summary={payload?.summary} />
 
         <Divider />

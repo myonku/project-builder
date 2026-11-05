@@ -1,0 +1,11 @@
+import assert from 'node:assert/strict';
+import {periodRange,topCategories,offsetDate} from '../src/components/statistics/insightModel.ts';
+assert.deepEqual(periodRange('week','2026-11-05'),{from:'2026-11-02',to:'2026-11-08'});
+assert.deepEqual(periodRange('lastWeek','2026-11-02'),{from:'2026-10-26',to:'2026-11-01'});
+assert.deepEqual(periodRange('lastMonth','2028-03-01'),{from:'2028-02-01',to:'2028-02-29'});
+assert.deepEqual(periodRange('month','2026-12-31'),{from:'2026-12-01',to:'2026-12-31'});
+assert.equal(offsetDate('2028-02-28',2),'2028-03-01');
+const rows=Array.from({length:10},(_,i)=>({label:String(i),value:i,second:1}));
+const condensed=topCategories(rows,6);
+assert.equal(condensed.length,6);assert.equal(condensed.reduce((n,v)=>n+v.value,0),45);assert.equal(condensed.reduce((n,v)=>n+(v.second??0),0),10);
+console.log('P04 v2 model: 8 checks passed');

@@ -29,6 +29,7 @@ import (
 	"github.com/myonku/project-builder/internal/app/audit"
 	"github.com/myonku/project-builder/internal/app/auth"
 	"github.com/myonku/project-builder/internal/app/groups"
+	"github.com/myonku/project-builder/internal/app/insights"
 	"github.com/myonku/project-builder/internal/app/planviews"
 	"github.com/myonku/project-builder/internal/app/projects"
 	"github.com/myonku/project-builder/internal/app/reminders"
@@ -253,7 +254,7 @@ func TruncateAll(t *testing.T, pool *pgxpool.Pool) {
 	// activity_logs 也显式列出：它虽然会被 users 的 CASCADE 一起清掉，
 	// 但"审计表从空开始"是每个用例的硬前提，不该依赖级联的传递性。
 	const query = `TRUNCATE TABLE
-		activity_logs, idempotency_keys, task_members, tasks, project_members, projects,
+		insight_events, insight_states, activity_logs, idempotency_keys, task_members, tasks, project_members, projects,
 		group_join_requests, group_members, groups, users
 		RESTART IDENTITY CASCADE`
 
@@ -587,6 +588,7 @@ func NewHarnessWithOptions(t *testing.T, opts HarnessOptions) *Harness {
 			projects.NewHandler(projectsService, authHandler, logger),
 			tasks.NewHandler(tasksService, authHandler, logger),
 			planviews.NewHandler(planViewsService, authHandler, logger),
+			insights.NewHandler(pool, authHandler),
 			attachments.NewHandler(attachmentsService, authHandler),
 			reminders.NewHandler(remindersService, authHandler),
 			audit.NewHandler(auditService, authHandler),

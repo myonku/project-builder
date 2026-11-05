@@ -491,7 +491,7 @@ func TestP02LegacyUpgradeAndRollback(t *testing.T) {
 	}
 	defer func() { _ = migrator.Up(); migrator.Close() }()
 	// Exercise the real previous schema with historical evidence, not a mock migration.
-	if err = migrator.Steps(-1); err != nil {
+	if err = migrator.Steps(-2); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = h.Pool.Exec(ctx, `DELETE FROM reminders WHERE task_id=$1`, task); err != nil {
@@ -533,14 +533,14 @@ func TestP02LegacyUpgradeAndRollback(t *testing.T) {
 	if err = h.Pool.QueryRow(ctx, `SELECT jsonb_agg(to_jsonb(a)) FROM reminder_delivery_attempts a WHERE task_id=$1`, task).Scan(&exported); err != nil || len(exported) == 0 {
 		t.Fatal("no rollback evidence", err)
 	}
-	if err = migrator.Steps(-1); err != nil {
+	if err = migrator.Steps(-2); err != nil {
 		t.Fatal(err)
 	}
 	if err = migrator.Up(); err != nil {
 		t.Fatal(err)
 	}
 	version, dirty, err := migrator.Version()
-	if err != nil || version != 11 || dirty {
+	if err != nil || version != 12 || dirty {
 		t.Fatal(version, dirty, err)
 	}
 }

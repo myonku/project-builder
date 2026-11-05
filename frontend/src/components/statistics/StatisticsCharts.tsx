@@ -1,5 +1,6 @@
 import * as React from 'react';
-import { Box, Button, Card, CardContent, LinearProgress, Pagination, Stack, Typography } from '@mui/material';
+import { useTheme } from '@mui/material/styles';
+import { Box, Button, Card, CardContent, Pagination, Stack, Typography } from '@mui/material';
 import { taskStatusMeta } from '@/components/task/taskMeta';
 import type { PlanTask } from '@/types/plan';
 import type { TaskStatus } from '@/types/task';
@@ -13,12 +14,27 @@ export function ChartCard({ title, children }: { title: string; children: React.
 const colors: Record<TaskStatus, string> = { not_started: 'text.disabled', in_progress: 'primary.main', completed: 'success.main', cancelled: 'action.disabled' };
 
 export function StatusChart({ tasks, onSelect, compact = false }: { tasks: readonly PlanTask[]; onSelect?: (selection: Selection) => void; compact?: boolean }) {
+  const theme = useTheme();
+  const palette = (theme.vars || theme).palette;
+  const ringColors = [palette.text.disabled, palette.primary.main, palette.success.main, palette.action.disabled];
   const m = taskMetrics(tasks);
   if (!tasks.length) return <Typography color="text.secondary">无可见叶子任务，或当前筛选无结果。</Typography>;
   return <Stack spacing={1.5}>
-    <Box role="img" aria-label={STATUSES.map(status => `${taskStatusMeta(status).label} ${m.status[status]}`).join('，')} title={STATUSES.map(status => `${taskStatusMeta(status).label} ${m.status[status]}`).join('，')} sx={{ display: 'flex', height: 22, borderRadius: 1, overflow: 'hidden' }}>
+    {compact ? <Box role="img" aria-label={STATUSES.map(status => `${taskStatusMeta(status).label} ${m.status[status]}`).join('，')} sx={{ display: 'flex', height: 22, borderRadius: 1, overflow: 'hidden' }}>
       {STATUSES.map(status => <Box key={status} sx={{ width: `${m.status[status] / m.total * 100}%`, bgcolor: colors[status] }} />)}
-    </Box>
+    </Box> : <Box sx={{ width: '100%', maxWidth: 250, mx: 'auto', position: 'relative' }}>
+      <Box component="svg" viewBox="0 0 200 200" role="img" aria-label={STATUSES.map(status => `${taskStatusMeta(status).label} ${m.status[status]}`).join('，')} sx={{ width: '100%', display: 'block' }}>
+        {STATUSES.map((status, index) => {
+          const offset = STATUSES.slice(0, index).reduce((sum, s) => sum + m.status[s], 0) / m.total * 100;
+          return <Box component="circle" key={status} cx="100" cy="100" r="76" fill="none" pathLength="100" strokeWidth="27"
+            strokeDasharray={`${m.status[status] / m.total * 100} ${100 - m.status[status] / m.total * 100}`}
+            strokeDashoffset={-offset} transform="rotate(-90 100 100)" stroke={ringColors[index]} />;
+        })}
+      </Box>
+      <Stack sx={{ position: 'absolute', inset: '30%', justifyContent: 'center', alignItems: 'center', pointerEvents: 'none' }}>
+        <Typography variant="h4">{m.total}</Typography><Typography variant="caption" color="text.secondary">叶子任务</Typography>
+      </Stack>
+    </Box>}
     {!compact && <Stack direction="row" useFlexGap sx={{ flexWrap: 'wrap', gap: 0.5 }}>
       {STATUSES.map(status => <Button key={status} size="small" color="inherit" disabled={!onSelect || !m.status[status]}
         onClick={() => onSelect?.({ kind: 'status', value: status })} sx={{ justifyContent: 'flex-start', color: 'text.primary', '&.Mui-disabled': { color: 'text.secondary' } }}>
@@ -34,14 +50,15 @@ export function DueChart({ tasks, today, onSelect }: { tasks: readonly PlanTask[
   const counts = DUE_LABELS.map((_, i) => tasks.filter(task => dueBucket(task, today) === i).length);
   const max = Math.max(1, ...counts);
   if (!taskMetrics(tasks).open) return <Typography color="text.secondary">当前没有未完成的叶子任务。</Typography>;
-  return <Stack spacing={1}>
+  return <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(5, minmax(0, 1fr))', gap: 1, height: 280, pt: 2 }}>
     {DUE_LABELS.map((label, i) => <Button key={label} color="inherit" onClick={() => onSelect({ kind: 'due', value: i })}
-      disabled={!counts[i]} sx={{ display: 'grid', gridTemplateColumns: '100px minmax(20px, 1fr) 28px', gap: 1, textAlign: 'left', '&.Mui-disabled': { color: 'text.secondary' } }}>
-      <Typography variant="body2">{label}</Typography>
-      <LinearProgress variant="determinate" value={counts[i] / max * 100} color={i === 0 ? 'error' : 'primary'} sx={{ height: 12, borderRadius: 1 }} />
-      <Typography variant="body2" sx={{ textAlign: 'right' }}>{counts[i]}</Typography>
+      disabled={!counts[i]} aria-label={`${label} ${counts[i]} 个任务，查看明细`}
+      sx={{ minWidth: 0, px: 0.5, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', gap: 1, '&.Mui-disabled': { color: 'text.secondary' } }}>
+      <Typography variant="body2">{counts[i]}</Typography>
+      <Box sx={{ width: '65%', height: `${counts[i] / max * 170}px`, minHeight: counts[i] ? 3 : 0, bgcolor: i === 0 ? 'error.main' : 'primary.main', borderRadius: '4px 4px 0 0' }} />
+      <Typography variant="caption" sx={{ minHeight: 42, textAlign: 'center' }}>{label}</Typography>
     </Button>)}
-  </Stack>;
+  </Box>;
 }
 
 export function MetricTiles({ tasks, projectCount }: { tasks: readonly PlanTask[]; projectCount: number }) {

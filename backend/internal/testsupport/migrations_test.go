@@ -34,11 +34,11 @@ func TestMigrationsApplyFromEmptyDatabase(t *testing.T) {
 	if dirty {
 		t.Fatal("schema 处于脏状态")
 	}
-	if version != 11 {
-		t.Fatalf("迁移版本 = %d，期望 11（000001 初始 schema + 000002 tasks.updated_by "+
+	if version != 12 {
+		t.Fatalf("迁移版本 = %d，期望 12（000001 初始 schema + 000002 tasks.updated_by "+
 			"+ 000003 attachments + 000004 reminders + 000005 activity_logs "+
 			"+ 000006 registration_requests + 000007 attachments.storage_backend "+
-			"+ 000008 users avatar columns + 000009 password reset + 000010 hierarchical rollup + 000011 reminder plans）", version)
+			"+ 000008 users avatar columns + 000009 password reset + 000010 hierarchical rollup + 000011 reminder plans + 000012 insights）", version)
 	}
 
 	// 全部 17 张业务表必须存在。
@@ -47,7 +47,7 @@ func TestMigrationsApplyFromEmptyDatabase(t *testing.T) {
 		"projects", "project_members", "tasks", "task_members",
 		"attachments", "reminders", "idempotency_keys", "activity_logs",
 		"registration_requests", "password_reset_states", "password_reset_tokens",
-		"reminder_delivery_guards", "reminder_delivery_attempts",
+		"reminder_delivery_guards", "reminder_delivery_attempts", "insight_states", "insight_events", "insights_coverage",
 	}
 	for _, table := range expected {
 		var exists bool

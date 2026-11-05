@@ -171,6 +171,7 @@ export default function GroupPlanView() {
         ) : null}
 
         <Button component={RouterLink} to={currentGroupId ? `/statistics?groupId=${currentGroupId}` : '/statistics'} sx={{ alignSelf: 'flex-end' }}>查看数据统计</Button>
+        <Button component={RouterLink} to={currentGroupId ? `/statistics?groupId=${currentGroupId}&page=report` : '/statistics?page=report'} sx={{ alignSelf: 'flex-end' }}>生成本周汇报</Button>
         <PlanSummaryTiles summary={payload?.summary} />
 
         <Divider />

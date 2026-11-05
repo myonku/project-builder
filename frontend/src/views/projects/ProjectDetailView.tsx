@@ -614,6 +614,9 @@ export default function ProjectDetailView() {
 
         <Divider />
 
+        <ProjectStatistics key={`${project.id}:${project.updated_at}:${statisticsRevision}`} projectId={project.id}
+          revision={String(statisticsRevision)} timeZone={userTimeZone} onOpen={openTask} />
+
         <ProjectMembersPanel
           projectId={project.id}
           groupId={project.group_id}
@@ -631,8 +634,6 @@ export default function ProjectDetailView() {
 
         <Divider />
 
-        <ProjectStatistics key={`${project.id}:${project.updated_at}:${statisticsRevision}`} projectId={project.id}
-          revision={String(statisticsRevision)} timeZone={userTimeZone} onOpen={openTask} />
 
         <Stack direction="row" spacing={2} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
           <Typography variant="h6" component="h2">
