@@ -128,7 +128,11 @@ export default function GroupPlanView() {
   return (
     <PageContainer
       title="组内计划"
-      breadcrumbs={[{ title: '计划', path: '/plans/personal' }, { title: '组内计划' }]}
+      breadcrumbs={[
+        { title: '工作台', path: '/' },
+        { title: '计划', path: '/plans/personal' },
+        { title: '组内计划' },
+      ]}
       actions={
         <Button
           variant="outlined"
@@ -170,8 +174,8 @@ export default function GroupPlanView() {
           </Alert>
         ) : null}
 
-        <Button component={RouterLink} to={currentGroupId ? `/statistics?groupId=${currentGroupId}` : '/statistics'} sx={{ alignSelf: 'flex-end' }}>查看数据统计</Button>
-        <Button component={RouterLink} to={currentGroupId ? `/statistics?groupId=${currentGroupId}&page=report` : '/statistics?page=report'} sx={{ alignSelf: 'flex-end' }}>生成本周汇报</Button>
+        <Button component={RouterLink} to={currentGroupId ? `/statistics/overview?groupId=${currentGroupId}` : '/statistics/overview'} sx={{ alignSelf: 'flex-end' }}>查看数据概览</Button>
+        <Button component={RouterLink} to={currentGroupId ? `/statistics/reports?groupId=${currentGroupId}` : '/statistics/reports'} sx={{ alignSelf: 'flex-end' }}>生成本周汇报</Button>
         <PlanSummaryTiles summary={payload?.summary} />
 
         <Divider />

@@ -18,6 +18,8 @@ import TimelineIcon from '@mui/icons-material/Timeline';
 import BarChartIcon from '@mui/icons-material/BarChart';
 import AssignmentIndIcon from '@mui/icons-material/AssignmentInd';
 import GroupsIcon from '@mui/icons-material/Groups';
+import PieChartIcon from '@mui/icons-material/PieChart';
+import AnalyticsIcon from '@mui/icons-material/Analytics';
 import GroupIcon from '@mui/icons-material/Group';
 import NotificationsIcon from '@mui/icons-material/Notifications';
 import HistoryIcon from '@mui/icons-material/History';
@@ -48,20 +50,24 @@ export default function DashboardSidebar({
 }: DashboardSidebarProps) {
   const theme = useTheme();
 
-  const { pathname } = useLocation();
+  const { pathname, search } = useLocation();
+  const isStatisticsRoute = pathname === '/statistics' || pathname.startsWith('/statistics/');
+  const statisticsParams = new URLSearchParams(isStatisticsRoute ? search : '');
+  statisticsParams.delete('page'); statisticsParams.delete('tab');
+  const statisticsSearch = statisticsParams.size ? `?${statisticsParams}` : '';
 
   // 操作记录与管理入口只对系统管理员显示；真正的守卫在 router/guards.tsx 的 RequireAdmin
   const isAdmin = useAuthStore((state) => state.user?.system_role === 'admin');
 
   /**
-   * 三级菜单里"计划"这一组的展开状态。
+   * 计划/统计菜单组的展开状态。
    *
    * **默认全部展开**（用户要求：进来就能看到所有入口，不用先点一下）：
-   * 初值直接给 `['plan']`，并且当路由落在计划页时也保持展开——
+   * 初值包含 plan 和 statistics，并且当路由落在计划页时也保持展开——
    * 这样即使手点收起，切到 `/plans/*` 仍然能看到子项高亮。
    */
   const isPlanRoute = pathname === '/plans/personal' || pathname === '/plans/group';
-  const [expandedItemIds, setExpandedItemIds] = React.useState<string[]>(['plan']);
+  const [expandedItemIds, setExpandedItemIds] = React.useState<string[]>(['plan', 'statistics']);
 
   React.useEffect(() => {
     if (isPlanRoute) {
@@ -70,6 +76,10 @@ export default function DashboardSidebar({
       );
     }
   }, [isPlanRoute]);
+
+  React.useEffect(() => {
+    if (isStatisticsRoute) setExpandedItemIds(previous => previous.includes('statistics') ? previous : [...previous, 'statistics']);
+  }, [isStatisticsRoute, pathname]);
 
   const isOverSmViewport = useMediaQuery(theme.breakpoints.up('sm'));
   const isOverMdViewport = useMediaQuery(theme.breakpoints.up('md'));
@@ -259,10 +269,20 @@ export default function DashboardSidebar({
             />
             <DashboardSidebarPageItem
               id="statistics"
-              title="数据统计"
+              title="统计"
               icon={<BarChartIcon />}
               href="/statistics"
-              selected={pathname === '/statistics'}
+              selected={isStatisticsRoute}
+              defaultExpanded
+              expanded={expandedItemIds.includes('statistics')}
+              nestedNavigation={
+                <List dense sx={{ padding: 0, my: 0.5, pl: mini ? 0 : 2, minWidth: 220 }}>
+                  <DashboardSidebarPageItem id="statistics-overview" title="数据概览" icon={<PieChartIcon />}
+                    href={`/statistics/overview${statisticsSearch}`} selected={pathname === '/statistics/overview'} />
+                  <DashboardSidebarPageItem id="statistics-reports" title="周期汇报" icon={<AnalyticsIcon />}
+                    href={`/statistics/reports${statisticsSearch}`} selected={pathname === '/statistics/reports'} />
+                </List>
+              }
             />
             <DashboardSidebarPageItem
               id="attachments"
@@ -317,7 +337,7 @@ export default function DashboardSidebar({
         </Box>
       </React.Fragment>
     ),
-    [mini, hasDrawerTransitions, isFullyExpanded, expandedItemIds, pathname, isAdmin],
+    [mini, hasDrawerTransitions, isFullyExpanded, expandedItemIds, pathname, search, isAdmin],
   );
 
   const getDrawerSharedSx = React.useCallback(

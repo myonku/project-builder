@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Alert, Box, Button, Checkbox, FormControlLabel, MenuItem, Stack, Tab, Tabs, TextField, Typography } from '@mui/material';
+import { Alert, Box, Button, Checkbox, FormControlLabel, MenuItem, Stack, TextField, Typography } from '@mui/material';
 import { useSearchParams } from 'react-router';
 import PageContainer from '@/components/common/PageContainer';
 import { getOverview, type InsightQuery } from '@/api/insights';
@@ -14,12 +14,11 @@ import ReportBuilder from '@/components/statistics/ReportBuilder';
 import { isUUID, validDate } from '@/components/statistics/statisticsModel';
 import { periodRange, type PeriodPreset } from '@/components/statistics/insightModel';
 
-export default function StatisticsWorkspace() {
+export default function StatisticsWorkspace({page}: {page: 'overview' | 'report'}) {
  const [params, setParams] = useSearchParams();
  const user = useAuthStore(state => state.user);
  const currentGroupId = useUiStore(state => state.currentGroupId);
  const groups = useGroupOptions();
- const page = params.get('page') ?? 'overview';
  const scope = params.get('scope') ?? (params.get('tab') === 'members' ? 'member' : 'group');
  const groupId = params.get('groupId') ?? ''; const memberId = params.get('memberId') ?? ''; const projectId = params.get('projectId') ?? '';
  const timezone = params.get('timezone') ?? user?.timezone ?? 'UTC';
@@ -29,14 +28,16 @@ export default function StatisticsWorkspace() {
  const from = params.get('from') ?? defaults.from; const to = params.get('to') ?? defaults.to;
  const dueFrom = params.get('dueFrom') ?? ''; const dueTo = params.get('dueTo') ?? '';
  const update = React.useCallback((values: Record<string, string>, replace = false) => {
-  const next = new URLSearchParams(params); next.delete('tab');
+  const next = new URLSearchParams(params);
+  if (!next.has('scope') && next.get('tab') === 'members') next.set('scope', 'member');
+  next.delete('tab'); next.delete('page');
   Object.entries(values).forEach(([key, value]) => value ? next.set(key, value) : next.delete(key));
   setParams(next, {replace});
  }, [params, setParams]);
  React.useEffect(() => {
   if (scope !== 'self' && !params.has('groupId') && groups.options.length) update({groupId: groups.options.find(group => group.id === currentGroupId)?.id ?? groups.options[0].id}, true);
  }, [scope, groups.options, params, currentGroupId, update]);
- const invalid = !['overview', 'report'].includes(page) || !['self', 'group', 'member'].includes(scope)
+ const invalid = !['self', 'group', 'member'].includes(scope)
   || !zoneValid || (!!groupId && !isUUID(groupId)) || (!!memberId && !isUUID(memberId)) || (!!projectId && !isUUID(projectId))
   || (page === 'report' && (!validDate(from) || !validDate(to) || from > to))
   || (!!dueFrom && !validDate(dueFrom)) || (!!dueTo && !validDate(dueTo)) || (!!dueFrom && !!dueTo && dueFrom > dueTo);
@@ -50,9 +51,9 @@ export default function StatisticsWorkspace() {
   ? `${groups.nameById.get(groupId) ?? '指定组'} · ${options.data?.member_options.find(member => member.user_id === memberId)?.display_name ?? '指定成员'}`
   : `${groups.nameById.get(groupId) ?? '指定工作组'} · 共享计划`;
  const reportQuery: InsightQuery = {...query, from, to, bucket: params.get('bucket') === 'week' ? 'week' : 'day'};
- return <PageContainer title="数据统计" breadcrumbs={[{title: '工作台', path: '/'}, {title: '数据统计'}]}>
+ const title = page === 'report' ? '周期汇报' : '数据概览';
+ return <PageContainer title={title} breadcrumbs={[{title: '工作台', path: '/'}, {title: '统计', path: `/statistics/overview?${params}`}, {title}]}>
   <Stack className="insights-workspace" spacing={2}>
-   <Tabs className="report-workspace-controls" value={page === 'report' ? 'report' : 'overview'} onChange={(_, value) => update({page: value})}><Tab value="overview" label="数据概览" /><Tab value="report" label="周期汇报" /></Tabs>
    <Box className="report-workspace-controls" sx={{display: 'grid', gridTemplateColumns: {xs: 'minmax(0,1fr)', sm: 'repeat(2,minmax(0,1fr))', lg: 'repeat(4,minmax(0,1fr))'}, gap: 1.5}}>
     <TextField select label="查看范围" size="small" value={scope} onChange={e => update({scope: e.target.value, memberId: '', projectId: ''})}><MenuItem value="self">本人承担</MenuItem><MenuItem value="group">组内共享</MenuItem><MenuItem value="member">组内成员</MenuItem></TextField>
     {scope !== 'self' && <TextField select label="工作组" size="small" value={groupId} onChange={e => update({groupId: e.target.value, memberId: '', projectId: ''})} slotProps={{inputLabel: {shrink: true}, select: {displayEmpty: true}}}>

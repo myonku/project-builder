@@ -90,7 +90,11 @@ export const router = createBrowserRouter([
           },
           {
             path: 'statistics',
-            element: page(() => import('@/views/statistics/StatisticsView')),
+            children: [
+              { index: true, element: page(() => import('@/views/statistics/StatisticsView')) },
+              { path: 'overview', element: page(() => import('@/views/statistics/StatisticsOverviewView')) },
+              { path: 'reports', element: page(() => import('@/views/statistics/PeriodReportView')) },
+            ],
           },
           {
             path: 'gantt',

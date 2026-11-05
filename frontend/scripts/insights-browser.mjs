@@ -48,6 +48,10 @@ try {
   const reportPath='/statistics?page=report&groupId='+process.env.INSIGHTS_GROUP;
   await go(reportPath); await wait('document.querySelectorAll(".report-sheet").length===4');
   check((await body()).includes('周期汇报'),'report workspace');
+  check(await evaluate('location.pathname === "/statistics/reports" && new URLSearchParams(location.search).get("groupId") === '+JSON.stringify(process.env.INSIGHTS_GROUP)+' && !new URLSearchParams(location.search).has("page")'),'legacy report redirects with scope preserved');
+  check(await evaluate('!document.querySelector(".insights-workspace [role=tablist]")'),'statistics tabs replaced by route pages');
+  check(await evaluate('[...document.querySelectorAll("a[href]")].some(e=>e.getAttribute("href").startsWith("/statistics/reports") && e.classList.contains("Mui-selected"))'),'report child navigation selected');
+
   check(!(await evaluate('[...document.querySelectorAll("input")].some(e=>e.type==="date")')),'MUI date controls');
   const layoutFits = '(()=>{const e=[...document.querySelectorAll(".report-sheet")].find(e=>getComputedStyle(e).display!=="none");const title=e.querySelector(".report-title");const content=e.querySelector(".report-content");const footer=e.querySelector(".report-footer");const tr=title.getBoundingClientRect();const children=[...content.children].map(x=>x.getBoundingClientRect());return e.scrollHeight<=e.clientHeight+2 && tr.height>=parseFloat(getComputedStyle(title).lineHeight)-1 && children[0].top>=tr.bottom-1 && children.every((r,i)=>!i || r.top>=children[i-1].bottom-1) && children.at(-1).bottom<=footer.getBoundingClientRect().top+1})()';
   await click('开始演示'); await wait('!!document.querySelector(".report-presentation")');
@@ -73,6 +77,15 @@ try {
   await send('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
   await go('/statistics?scope=self');await wait('document.body.innerText.includes("未来14天到期安排")');
   check(await evaluate('document.documentElement.scrollWidth<=innerWidth'),'mobile width');await screenshot('overview-mobile-v2');
+
+  check(await evaluate('location.pathname === "/statistics/overview"'),'legacy overview redirects to child route');
+  await go('/statistics/reports?scope=self&bucket=week');await wait('document.querySelectorAll(".report-sheet").length===4');
+  await send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});await pause(200);
+  check(await evaluate('(()=>{const a=[...document.querySelectorAll("a[href]")].find(e=>e.getAttribute("href").startsWith("/statistics/overview") && e.getClientRects().length && e.textContent.includes("数据概览"));if(!a)return false;a.click();return true})()'),'overview sidebar link');
+  await wait('location.pathname === "/statistics/overview"');
+  check(await evaluate('new URLSearchParams(location.search).get("scope")==="self" && new URLSearchParams(location.search).get("bucket")==="week"'),'sibling navigation preserves filters');
+  await evaluate('history.back()');await wait('location.pathname === "/statistics/reports"');checks++;
+  await send('Page.reload');await wait('document.querySelectorAll(".report-sheet").length===4');checks++;
   check(errors.length===0,'no runtime errors: '+errors.join(','));
   writeFileSync(join(out,'browser-v2.json'),JSON.stringify({checks,errors},null,2));console.log(JSON.stringify({checks,errors}));
 } finally {ws?.close();chrome.kill();await pause(500);if(!relative(tmpdir(),profile).startsWith('..')){try{rmSync(profile,{recursive:true,force:true})}catch{}}}

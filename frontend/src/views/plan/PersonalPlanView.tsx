@@ -82,7 +82,11 @@ export default function PersonalPlanView() {
   return (
     <PageContainer
       title="个人计划"
-      breadcrumbs={[{ title: '计划', path: '/plans/personal' }, { title: '个人计划' }]}
+      breadcrumbs={[
+        { title: '工作台', path: '/' },
+        { title: '计划', path: '/plans/personal' },
+        { title: '个人计划' },
+      ]}
       actions={
         <Button variant="outlined" startIcon={<RefreshIcon />} onClick={reload} disabled={loading}>
           刷新
@@ -112,8 +116,8 @@ export default function PersonalPlanView() {
           </Alert>
         ) : null}
 
-        <Button component={RouterLink} to="/statistics" sx={{ alignSelf: 'flex-end' }}>查看数据统计</Button>
-        <Button component={RouterLink} to="/statistics?scope=self&page=report" sx={{ alignSelf: 'flex-end' }}>生成本周汇报</Button>
+        <Button component={RouterLink} to="/statistics/overview?scope=self" sx={{ alignSelf: 'flex-end' }}>查看数据概览</Button>
+        <Button component={RouterLink} to="/statistics/reports?scope=self" sx={{ alignSelf: 'flex-end' }}>生成本周汇报</Button>
         <PlanSummaryTiles summary={payload?.summary} />
 
         <Divider />
