@@ -342,7 +342,7 @@
 | `data.projects` | **只含已共享的项目**：`visibility` 必须是 `group_readonly` 或 `group_editable`；`private` 项目即使属于该组也不出现 |
 | `data.projects[].my_role` | 我在该项目中的角色；**查看者不是项目成员（组内访客）时为 `null`** |
 | `data.projects[].task_count` | 基于**组内视图可见**的任务（可能小于 `GET /api/v1/projects/{project_id}` 的口径） |
-| `data.projects[].progress` / `overdue_task_count` | 同上，**基于组内视图可见任务**计算——这是刻意的：若按项目全部任务算，就会用进度数值泄漏未共享任务的存在与进展（《A06》） |
+| `data.projects[].progress` / `overdue_task_count` | progress读取完整树持久化有效值，与项目详情一致；overdue_task_count仅统计本视图可见任务。不得由当前子集重算项目进度或反推隐藏任务。 |
 | `data.tasks` | **只含已共享任务**（`is_shared = true`）。"项目已共享但任务未共享时任务不得出现"，**该限制与查看者是不是项目成员无关** |
 | `data.tasks[].can_edit` | 按逐任务权限：组内只读（`group_readonly`）→ `false`；组内可编辑（`group_editable`）且任务已共享 → `true`；**项目成员在组内页面同样只能编辑已共享任务** |
 | `data.summary` | `project_count` / `task_count` 恒等于对应数组长度；`task_count` 也只统计已共享任务 |
@@ -473,7 +473,7 @@
 **备注**：
 
 - **层级由客户端组装**：服务端不返回嵌套结构，只给 `parent_id`（最多 3 层，见《A05》）。里程碑由 `is_milestone` 标识，进度由 `progress` 标识。
-- **可见任务的范围随权限收敛**：项目持有者/成员看到全部任务；组内访客（非项目成员）只看到已共享任务，且组内只读共享的任务 `can_edit` 为 `false`。因此**同一项目对不同人返回的 `tasks` 长度、`project.task_count` / `progress` / `overdue_task_count` 与 `summary` 可能不同**——它们都基于"本次请求者可见的任务"。
+- **可见任务的范围随权限收敛**：项目持有者/成员看到全部任务；组内访客（非项目成员）只看到已共享任务，且组内只读共享的任务 `can_edit` 为 `false`。因此**同一项目对不同人返回的 `tasks` 长度、`project.task_count` / `overdue_task_count` 与 `summary` 可能不同**——计数基于本次请求者可见任务；项目progress仍取完整树的持久化有效结果。
 - **归档项目**：`project.is_archived` 与 `project.is_read_only` 为 `true`，`can_edit_tasks` 与每个任务的 `can_edit` 均为 `false`；本项目**默认不进入** §1 / §2 的视图（除非 `include_archived=true`），但本端点直接按 id 访问时**归档项目仍可读**（"归档 = 只读"，不是删除）。
 - `can_manage_project` 与 `can_edit_tasks` 相互独立：项目普通成员通常是 `can_manage_project=false` 且 `can_edit_tasks=true`。
 - **已知差异（供复核）**：`can_manage_project` 的判定只使用"当前用户 + 项目成员关系"，未携带系统角色，因此**系统管理员若不是该项目的持有者，本字段为 `false`**；而 `can_edit_tasks` 与逐任务 `can_edit` 对系统管理员照常放行（《A03》–§4.6 的管理员放行、§6 的相应条目）。**前端不要用 `can_manage_project=false` 推断"此人对该项目没有管理权"**，服务端写入口仍会独立判定。

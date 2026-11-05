@@ -16,7 +16,7 @@ Worklane（Work Items & Layered Timelines）的服务端，使用 **Go 1.26 + Gi
 **四个阶段已全部完成并经真实依赖验证**：地基 + Auth、Groups / Projects / Tasks、Users、Plan Views、Attachments、Reminders、Audit，以及交付收口（端到端验收、备份恢复演练、部署核对）。
 
 > **2026-10 状态**：W1 品牌、W2 `/me`、W3 Mongo/GridFS、W4 头像已落地；W5 邮箱重置密码已落地。
-> 当前迁移 head **11**、HTTP 端点 **69**（业务 65 + 健康检查 4）；详见文档总览与 B05 文末。
+> 当前迁移 head **12**、HTTP端点 **73**（业务69+健康检查 4）；详见文档总览与 B05 文末。
 
 | 能力 | 状态 |
 | --- | --- |
@@ -24,7 +24,7 @@ Worklane（Work Items & Layered Timelines）的服务端，使用 **Go 1.26 + Gi
 | `platform`：PostgreSQL(pgxpool)、Redis、可注入时钟、UUIDv7/安全令牌、Argon2id、对象存储、SMTP、request id 传递 | ✅ 已实现 |
 | `domain`：错误类型体系、用户规则、时间与逾期规则、权限基线、审计枚举与脱敏 | ✅ 已实现 |
 | `httpapi`：requestID、访问日志、panic 恢复、CORS、会话网关、全局限流、统一信封、错误映射、健康检查 | ✅ 已实现 |
-| 迁移 `000001_init`（9 张表、CHECK、部分唯一索引、外键删除行为）+ `000002`–`000011`（回退数据边界见 B02） | ✅ 已实现（head `11`） |
+| 迁移 `000001_init`（9 张表、CHECK、部分唯一索引、外键删除行为）+ `000002`–`000012`（回退数据边界见 B02） | ✅ 已实现（head `12`） |
 | Auth：注册、登录、登出、当前用户（Argon2id + Redis 会话 + HttpOnly Cookie） | ✅ 已实现 |
 | Groups / Projects / Tasks | ✅ 已实现；含工作组自助申请、层级任务/项目汇总、无任务项目手工进度与归档恢复 |
 | Users：资料查询/更新、管理员停用、管理员创建/列表/重置密码、按用户时区计算"今天" | ✅ 已实现（第三阶段） |
@@ -33,7 +33,7 @@ Worklane（Work Items & Layered Timelines）的服务端，使用 **Go 1.26 + Gi
 | Reminders：五种提醒、周期派发、幂等去重、失败原因与重试（3 个端点） | ✅ 已实现（第三阶段） |
 | Audit：操作记录（**与业务同事务写入**，仅系统管理员可查，`GET /api/v1/audit`） | ✅ 已实现（第三阶段，2026-10-12） |
 
-已注册端点共 **69 个**（Health 4 / Auth 6 / Users 9 / Groups 13 / Projects 9 / Tasks 11 / Plan Views 3 / Attachments 8 / Reminders 3 / Audit 1 / Registration Requests 2）。
+已注册端点共 **73个**（Health 4 / Auth 6 / Users 9 / Groups 13 / Projects 9 / Tasks 11 / Plan Views 3 / Attachments 8 / Reminders 3 / Audit 1 / Registration Requests 2 / Insights 4）。
 
 真实依赖验证结果（PostgreSQL 16 + Redis 7 + **MongoDB 9.0.4**，2026-10-27 验收记录）：
 
@@ -223,3 +223,5 @@ project-builder/                 # 仓库根
 内部项目，未声明开源许可。
 
 工作组自助加入：工作台“工作组”提供“我的组”只读详情与成员分页，“我的申请”内按名称/完整 ID 搜索、提交及本人最新申请状态；接口见 A03 §12–13。发布时先部署支持 A03 §12–13 及 groups/query.membership_status 的后端，再更新完整前端 dist；无需数据库迁移。
+
+P04事件/升级与本地演示入口见[B03 §11](docs/B03-配置与运行.md#11-insights-升级与本地演示p04)，接口见[A11](../docs/api/A11-insights.md)。

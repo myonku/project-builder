@@ -410,3 +410,12 @@ API 层只负责请求解析、响应序列化与错误映射，不直接查询�
 | 2026-10-13 | **结构调整**：契约只保留约定性叙述；逐接口的请求/响应结构移入 [api/](api/README.md)，公共资源表示移入 [api/README.md](api/README.md)；章号随之重排（原 §4 移出，原 §5–§8 变为 §4–§7） | 契约要能被前端长期依赖而不随接口数量膨胀；共用文档不记录任何一端的推进过程（推进与证据在服务端 `backend/docs/B05`、将来在前端 `frontend/docs/`） |
 | 2026-10-21 | 状态口径对齐：W3 Mongo/GridFS 已落地、HTTP 契约未变；W4/W5 端点仍待写入本文后再实现 | 避免把已落地的 W3 继续写成“规划”，同时守住“契约先于实现”的边界 |
 | 2026-10-21 | **W4 头像契约生效**：新增 `GET /users/{id}/avatar`、`POST/DELETE /me/avatar`；错误码补 `avatar_not_found`；业务端点 57 → 60（总数 64）；补头像缓存/版本/可见性加强项 | 头像实现与集成测试已完成；契约必须与实现同步，避免前端按旧文档拼 URL 或误用 `updated_at` |
+
+
+## 8. Insights 只读投影（P04，现行）
+
+新增 `GET /api/v1/insights/overview|reports|activity|report-items`，精确路由与字段以 [A11](api/A11-insights.md) 为准；当前73端点（69业务+4健康）。统一data信封、登录与错误规则继续适用；无写入版本或幂等键。
+
+四个端点共用查询白名单，未知/重复参数拒绝。报告以观察时区自然日形成半开UTC区间，as_of不能在未来，当前权限始终重新收敛。报告/概览整体返回不分页；动态/指标明细使用data内的items/next_cursor，cursor是偏移字符串，不是通用pagination或签名快照。日期范围校验实际返回400 invalid_request，fields指出字段。
+
+覆盖元数据和未知点属于契约：coverage_start/complete/gaps区分完整与部分历史；series.open允许null。成员参与与组级去重不同。报告原始事件不整批输出；A09仍仅管理员。当前TaskState.can_edit为当前投影资格，历史快照默认false，不授予写权。逐字段与错误见A11。
