@@ -9,11 +9,11 @@
 > 前端要读的是本文档 + 《S01 需求文档》+ [api/](api/README.md)（逐接口的请求/响应结构）。
 
 - 业务需求以 [S01-需求文档.md](./S01-需求文档.md) 为准。
-- **逐接口的字段与响应结构在 [api/](api/README.md)**（`A01`–`A10`），本文档不重复。
+- **逐接口的字段与响应结构在 [api/](api/README.md)**（`A01`–`A11`），本文档不重复。
   两者冲突时：**约定**以本文档为准，**字段与结构**以 api/ 的实测为准，冲突即缺陷、应修文档。
 - 容易做错的契约加强项在 §5 汇总（"项"列写 `A0x` 表示该条对应 api/ 里的域文档）。
 
-> 当前契约覆盖头像、邮箱验证重置密码和本人附件管理、工作组目录和本人加入申请；共 65 业务 / 69 总端点。当前能力与文档入口见 [文档总览](README.md)，字段与错误码以本文和 A01–A10 为准。
+> 当前基线（2026-11-06）：74 业务 / 78 总端点、迁移 head 13。包含 P05 工作组创建申请与管理员审核；普通用户直接建组权限已收紧。当前能力与文档入口见 [文档总览](README.md)，字段与错误码以本文和 A01–A11 为准。
 
 ## 2. 公共约定
 
@@ -204,9 +204,9 @@ RETURNING id, updated_at;
 - `RowsAffected() == 0` 时再补一次**纯存在性查询**，区分"不存在"（404）与"版本冲突"（409）。
   该查询不得复用带身份参数的查询——传入空 UUID 会触发 `22P02` 并退化为 500。
 
-#### 2.6.1 `Idempotency-Key` 语义（`POST /tasks/{task_id}/copy`）
+#### 2.6.1 `Idempotency-Key` 语义
 
-请求头 `Idempotency-Key` 可选；提供时按下述语义处理：
+任务复制 `POST /tasks/{task_id}/copy` 的 `Idempotency-Key` 可选；提供时按下述语义处理：
 
 | 情况 | 状态码 | 说明 |
 | --- | --- | --- |
@@ -218,6 +218,10 @@ RETURNING id, updated_at;
 幂等键作用域为 `tasks.copy:<task_id>` 且包含用户，因此同一 key 用在**不同任务**上互不影响、
 不同用户的相同 key 也互不影响。记录持久化在 `idempotency_keys` 表，
 唯一约束 `(user_id, scope, idempotency_key)` 是并发下的最终保证。
+
+工作组创建申请 `POST /group-creation-requests` **必须**提供非空白、最多 200 Unicode 码点的 `Idempotency-Key`，否则 422 validation_error。作用域为 `(user_id, group_creation_requests.create, key)`，与任务复制分离；首次 201、重放 200，返回同一申请的当前状态。申请、幂等映射和审计原子写入；同 key 终态后也不能新增申请。复用 key 不修改原内容，重新申请须换 key；不同 key 的同名 pending 申请返回 409。字段校验仍先于幂等回读，错误细节见 A03 §14。
+
+工作组创建审核必须携带 `expected_updated_at`，缺失/非法为 422；待审状态和版本在同一事务中比较，版本冲突 409 version_conflict、已终态 409 conflict。审批响应丢失后按申请 id 核对，不用直接创建补偿。
 
 #### 2.6.2 派生字段与时间精度
 
@@ -280,7 +284,7 @@ RETURNING id, updated_at;
 
 ## 3. 端点总览
 
-> **逐接口的请求/响应数据结构不在本文档**：它们在同目录的 `api/`（`A01`–`A10`），
+> **逐接口的请求/响应数据结构不在本文档**：它们在同目录的 `api/`（`A01`–`A11`），
 > 每个端点的方法、权限、路径/查询参数、请求体、响应字段、错误码与边界都在那里。
 > 本文档只保留**约定性叙述**（信封、认证、分页、并发与幂等、限流、字段严格性、处理顺序、契约加强项）。
 > 公共资源表示（用户 / 项目 / 任务的规范化字段）见 [api/README.md](api/README.md)。
@@ -290,7 +294,7 @@ RETURNING id, updated_at;
 | Health | 4 | [api/README.md](api/README.md) 的"健康检查"一节 |
 | Auth | 6 | [api/A01-auth.md](api/A01-auth.md) |
 | Users | 9 | [api/A02-users.md](api/A02-users.md) |
-| Groups | 13 | [api/A03-groups.md](api/A03-groups.md) |
+| Groups | 18 | [api/A03-groups.md](api/A03-groups.md) |
 | Projects | 9 | [api/A04-projects.md](api/A04-projects.md) |
 | Tasks | 11 | [api/A05-tasks.md](api/A05-tasks.md) |
 | Plan Views | 3 | [api/A06-plan-views.md](api/A06-plan-views.md) |
@@ -298,8 +302,9 @@ RETURNING id, updated_at;
 | Reminders | 3 | [api/A08-reminders.md](api/A08-reminders.md) |
 | Audit | 1 | [api/A09-audit.md](api/A09-audit.md) |
 | Registration Requests | 2 | [api/A10-registration-requests.md](api/A10-registration-requests.md) |
+| Insights | 4 | [api/A11-insights.md](api/A11-insights.md) |
 
-合计 **65 个业务端点** + 4 个健康检查端点（共 69）。业务端点一律以 `/api/v1` 为前缀；
+合计 **74 个业务端点** + 4 个健康检查端点（共 78）。业务端点一律以 `/api/v1` 为前缀；
 根级 `/healthz` 供容器/反向代理使用（无版本前缀）。
 
 ## 4. 写接口处理顺序
@@ -375,9 +380,15 @@ API 层只负责请求解析、响应序列化与错误映射，不直接查询�
 
 新增 `POST /api/v1/me/attachments/query`，登录用户查询本人上传且所属项目/任务当前可读的附件。管理员也仅查本人，不接受 `uploader_id`。使用标准列表信封、分页和附件排序白名单；权限筛选先于计数及 SQL LIMIT/OFFSET。响应在原附件对象上增加 `source`（所属项目/任务名称及只读状态）和 `permissions.can_delete/can_purge`；所有写操作继续调用原附件端点并实时重新校验权限。完整请求/响应见 A07 §8。
 
-### 5.3 工作组目录与本人申请
+### 5.3 工作组目录与本人加入申请
 
-登录用户可通过 A03 §12 搜索启用工作组的基本资料，及通过 §13 查询本人申请最新状态；两个接口使用标准列表信封、分页和排序白名单。目录中的组名/ID/说明可供非成员查看，但不改变组详情、成员、项目和组内计划的原有可见性。本人查询的申请人固定取会话，系统管理员也不得扩展为全局申请列表。字段与错误码以 A03 为准。
+登录用户可通过 A03 §12 搜索启用工作组的基本资料，及通过 §13 查询本人申请最新状态；两个接口使用标准列表信封、分页和排序白名单。目录中的组名/ID/说明可供非成员查看，但不改变组详情、成员、项目和组内计划的原有可见性。本人加入申请查询的申请人固定取会话，系统管理员也不得把此端点扩展为全局加入申请列表。字段与错误码以 A03 为准。
+
+### 5.3.1 工作组创建申请与系统级审批
+
+A03 §14–§18 新增五个端点。所有有效登录用户可提交、查询本人记录；只有系统管理员可全局查询或审核，原 `POST /groups` 同样只允许系统管理员。组所有者/组管理员不能审批新组；他们对已有组加入申请的原权限保留。
+
+创建申请与加入申请分开：创建申请逐轮留痕，pending 不产生真实组，通过与申请人所有者/manager 成员行同事务落库；加入申请仍是每组每人一条最新状态。本人创建记录不暴露其他申请人或审核者身份，管理员投影的适用端点以 A03 为准；历史获批不形成永久组访问资格。直接创建及全局查询/审核越权为 403，他人申请详情与不存在统一 404 resource_not_found。审核者当前有效管理员身份与申请人账号事实在事务裁决点验证，停用申请人只能拒绝，不能批准。
 
 ### 5.4 提醒计划与生命周期
 
@@ -414,7 +425,7 @@ API 层只负责请求解析、响应序列化与错误映射，不直接查询�
 
 ## 8. Insights 只读投影（P04，现行）
 
-新增 `GET /api/v1/insights/overview|reports|activity|report-items`，精确路由与字段以 [A11](api/A11-insights.md) 为准；当前73端点（69业务+4健康）。统一data信封、登录与错误规则继续适用；无写入版本或幂等键。
+新增 `GET /api/v1/insights/overview|reports|activity|report-items`，精确路由与字段以 [A11](api/A11-insights.md) 为准；当前78端点（74业务+4健康）。统一data信封、登录与错误规则继续适用；无写入版本或幂等键。
 
 四个端点共用查询白名单，未知/重复参数拒绝。报告以观察时区自然日形成半开UTC区间，as_of不能在未来，当前权限始终重新收敛。报告/概览整体返回不分页；动态/指标明细使用data内的items/next_cursor，cursor是偏移字符串，不是通用pagination或签名快照。日期范围校验实际返回400 invalid_request，fields指出字段。
 

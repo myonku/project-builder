@@ -58,7 +58,7 @@
 - **两端都含**：`from` 命中同一时刻的记录，`to` 同样命中同一时刻的记录。因此"取某一天"要写 `from=<当天 00:00:00Z>&to=<次日 00:00:00Z>` 会多带一条次日零点整的记录；正确写法是按业务需要的**半开区间在客户端裁剪**，或接受这个边界包含。
 - `to < from` 返回 `400 invalid_date_range`（`fields.to`）——这是《S02》§2.4 单独登记的错误码，便于前端区分"区间写反了"与"参数格式错"。
 
-**`object_type` 完整枚举（6 个）**：
+**`object_type` 完整枚举（7 个）**：
 
 | `object_type` | 含义 |
 | --- | --- |
@@ -68,8 +68,9 @@
 | `task` | 任务 |
 | `attachment` | 附件 |
 | `reminder` | 提醒 |
+| `group_creation_request` | 工作组创建申请（申请 id，不是真实组 id） |
 
-**`action` 完整枚举（13 个）**：
+**`action` 完整枚举（14 个）**：
 
 | `action` | 含义 |
 | --- | --- |
@@ -83,6 +84,7 @@
 | `member_removed` | 成员移除 |
 | `owner_transferred` | 持有者**转移**（`object_id` 是容器，`changes` 里带新任与前任） |
 | `join_request_reviewed` | 工作组加入申请的审核结果 |
+| `group_creation_reviewed` | 系统管理员对新建工作组申请的审核结果 |
 | `shared` | 项目共享级别（可见性）变更 |
 | `password_reset` | 管理员重置密码 |
 | `disabled` | 停用账号 |
@@ -193,3 +195,10 @@ Cookie: <会话 Cookie>
 ## W5 补充（2026-10-22）
 
 自助重置记录 user/password_reset，actor 为本人，changes 仅 source=self_service；与密码更新同事务，不记录令牌或摘要。
+
+
+## 工作组创建申请审计（P05，2026-11-06）
+
+提交在 `object_type=group_creation_request, object_id=申请id` 记录 `created`，changes 含 name/applicant_id。审核在同一对象记录 `group_creation_reviewed`，changes 含 applicant_id/decision/group_id（拒绝时 group_id 为空字符串）。通过时另外在真实 group 对象写 `created`，actor_id 为审核管理员，changes 含 name/applicant_id/request_id；不把申请人或审核者错误登记为同一个主体。申请理由、完整拒绝原因保存在申请表，不写入审计摘要。所有相关审计与申请/组/成员写入同事务，失败均回滚；查询仍只向系统管理员开放。
+
+迁移 000013 将 object_type 列扩为 VARCHAR(32)，并将数据库 CHECK、领域白名单及客户端标签同步扩展为 7 个对象 / 14 个动作。接口数量保持 1，具体申请接口见 [A03 §14–§18](A03-groups.md#14-post-apiv1group-creation-requests)。

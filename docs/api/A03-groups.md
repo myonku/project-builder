@@ -12,7 +12,7 @@
 
 | # | 方法 | 路径 | 权限 | 说明 |
 | --- | --- | --- | --- | --- |
-| 1 | `POST` | `/api/v1/groups` | 登录用户 | 创建工作组；创建者自动成为所有者与组管理员 |
+| 1 | `POST` | `/api/v1/groups` | 系统管理员 | 直接创建工作组；管理员本人自动成为所有者与组管理员 |
 | 2 | `POST` | `/api/v1/groups/query` | 登录用户 | 查询我可见的工作组（分页） |
 | 3 | `GET` | `/api/v1/groups/{group_id}` | 所有者 / 活跃成员 / 系统管理员 | 工作组详情 |
 | 4 | `PATCH` | `/api/v1/groups/{group_id}` | 所有者 / 组管理员 / 系统管理员（**转移所有权仅所有者或系统管理员**） | 修改工作组；携带 `owner_id` 表示转移所有权 |
@@ -25,16 +25,22 @@
 | 11 | `POST` | `/api/v1/groups/{group_id}/join-requests/{user_id}/review` | 所有者 / 组管理员 / 系统管理员 | 审核加入申请 |
 | 12 | `POST` | `/api/v1/groups/discover/query` | 登录用户 | 搜索启用组的基本资料及本人状态 |
 | 13 | `POST` | `/api/v1/me/group-join-requests/query` | 登录用户 | 本人加入申请最新记录 |
+| 14 | `POST` | `/api/v1/group-creation-requests` | 登录用户 | 提交新建申请，必填幂等键 |
+| 15 | `POST` | `/api/v1/me/group-creation-requests/query` | 登录用户，仅本人 | 本人新建申请逐轮记录 |
+| 16 | `POST` | `/api/v1/group-creation-requests/query` | 系统管理员 | 全局新建申请列表 |
+| 17 | `GET` | `/api/v1/group-creation-requests/{request_id}` | 本人 / 系统管理员 | 新建申请详情 |
+| 18 | `POST` | `/api/v1/group-creation-requests/{request_id}/review` | 系统管理员 | 原子审核并建组 |
 
-**本域特有的两条口径（先读这两条，否则会误判状态码）**：
+**本域权限口径（先读，否则会误判状态码）**：
 
-- 全部 13 个端点都要求登录（会话 Cookie），未登录一律 `401 authentication_required`。
+- 全部 18 个端点都要求登录（会话 Cookie），未登录一律 `401 authentication_required`。
 - **"无权"不总是 404**：
   - 详情、成员列表、成员增/改/删、加入申请查询与审核：非成员或权限不足一律 `404 group_not_found`。§12 目录仅开放启用组的基本资料，§13 仅返回本人申请，两者不扩大上述接口的读取权限。
+  - 直接创建（§1）、全局创建申请查询/审核（§16/§18）对非系统管理员返回 403；创建申请详情（§17）对非本人且非管理员返回 404 resource_not_found。
   - `PATCH /api/v1/groups/{group_id}` 是**例外**：对象存在但无权限返回 `403 permission_denied`，包括普通成员、组管理员与非成员尝试转移所有权。
 - 各接口的"错误"表只列本域特有情形；`429 rate_limited`（限流，带 `Retry-After`）与 `500 internal_error` 适用于所有端点，见《S02》§2.4、§2.8。
 
-**本域的三个响应对象（下文各接口引用同名结构）**：
+直接创建、成员与加入申请的响应对象如下；新建申请对象另见 §14。：
 
 工作组对象：
 
@@ -77,7 +83,7 @@
 ## 1. `POST /api/v1/groups`
 
 **用途**：创建一个工作组，创建者在**同一个事务**内成为所有者（`owner_id`）与组管理员（`role=manager`）。
-**权限**：登录用户（无需额外权限；系统管理员与普通成员行为一致）。
+**权限**：仅系统管理员。普通用户（含组所有者/组管理员）返回 `403 permission_denied`，应走 §14 提交创建申请。创建者和所有者均为当前管理员，不接受客户端指定 owner_id。
 
 **路径参数**（无则写“无”）：无。
 
@@ -116,6 +122,7 @@
 | 状态码 | `error.code` | 触发条件 |
 | --- | --- | --- |
 | `401` | `authentication_required` | 未登录或会话失效 |
+| `403` | `permission_denied` | 当前请求者不是有效系统管理员 |
 | `400` | `invalid_request` | 请求体为空、不是合法 JSON，或含多个 JSON 值（`fields.body`） |
 | `422` | `validation_error` | `name` 缺失 / 为空 / 超过 160 字符（`fields.name`）；`description` 超过 2000 字符（`fields.description`）；请求体含契约未定义的字段 |
 
@@ -759,3 +766,126 @@
 登录用户查询自己的工作组申请，管理员同样仅本人。请求：`{status?, page?, page_size?, sort?}`；status 为 pending/approved/rejected，省略返回全部。排序白名单 created_at、updated_at、status（默认 -updated_at），追加申请 id；标准分页/错误规则同 §12。不接受 user_id 或其它指定申请人的字段。
 
 每行：`id,group_id,group_name,group_status,membership_status,status,reviewed_at,created_at,updated_at`。包含已停用的组、已被移除的成员关系，便于追踪历史；不暴露审核人及其他申请人。现有 `(group_id,user_id)` 唯一约束保持不变，每个组只有一条最新申请状态；拒绝或成员被移除后重新申请会更新原记录，不宣称保存逐次申请历史。组停用、待审核或当前已加入时不能再次申请，前端提示/禁用，§9 仍为最终校验。
+
+## 14. `POST /api/v1/group-creation-requests`
+
+**用途与权限**：有效登录用户申请创建新组。仅写创建申请，待审时没有真实组、成员或组内数据访问权；管理员也可以提交申请。未登录/停用账号的会话按认证规则返回 401。
+
+**路径/查询参数**：无；请求体为 JSON，未知字段拒绝。
+
+| 字段/请求头 | 类型 | 必填 | 约束 |
+| --- | --- | --- | --- |
+| `name` | string | 是 | Unicode 去首尾空白后 1–160 码点 |
+| `description` | string 或 null | 否 | 去首尾空白后最多 2000 码点；空串/空白/省略/null 存为 null |
+| `reason` | string | 是 | Unicode 去首尾空白后 1–2000 码点，申请用途 |
+| `Idempotency-Key`（请求头） | string | 是 | 非空白、最多 200 码点；不自动 trim 成另一个 key |
+
+申请人、状态、审核人、时间、group_id、owner_id 和成员角色由服务端决定；提供这些未定义字段返回 422。创建不接受 expected_updated_at。
+
+**成功**：首次 201，重复 key 返回 200；均用单对象 data 信封，返回下表的基础投影，即使提交者是系统管理员也不增加管理员字段。
+
+### 创建申请响应对象
+
+| 字段 | 类型 | 语义 |
+| --- | --- | --- |
+| `id` | UUID | 本轮申请 id |
+| `name` / `description` / `reason` | string / string 或 null / string | 提交时的不可变内容快照 |
+| `status` | string | pending / approved / rejected |
+| `created_at` / `updated_at` | string | UTC ISO 8601，updated_at 保留亚秒精度供审核版本校验 |
+| `reviewed_at` | string 或 null | UTC 审核时刻，待审为 null |
+| `rejection_reason` | string 或 null | 拒绝理由；仅 rejected 非空 |
+| `group_id` | UUID 或 null | 通过时创建的组；即使后来失去组访问权，历史关联 id 仍保留 |
+| `group_name` / `group_status` | string 或 null | 当前有权查看详情时返回当前组名与 active/disabled，否则 null |
+| `can_access_group` | boolean | 可否读取关联组详情；停用组仍可能为 true，不表示可读组内计划或可创建项目 |
+
+管理员投影额外包含：`applicant_id`（UUID）、`username`、`display_name`（string）、`applicant_status`（active/disabled）和 `reviewed_by`（UUID 或 null）。只有 §16 全局列表、§18 审核响应、以及系统管理员调用 §17 详情时包含这些字段；§14 提交和 §15 本人列表始终使用基础投影，不返回审核者邮箱或其他申请人资料。
+
+首次响应示例（UUID 仅作示意）：
+
+```json
+{
+  "data": {
+    "id": "0199f0c2-8b1e-7a3c-9d2f-5e6a7b8c9d12",
+    "name": "研发工作组",
+    "description": null,
+    "reason": "组织项目协作",
+    "status": "pending",
+    "created_at": "2026-11-06T01:00:00.123456Z",
+    "updated_at": "2026-11-06T01:00:00.123456Z",
+    "reviewed_at": null,
+    "rejection_reason": null,
+    "group_id": null,
+    "group_name": null,
+    "group_status": null,
+    "can_access_group": false
+  }
+}
+```
+
+**幂等与重申**：key 按用户及操作作用域隔离，复用时返回原申请当前状态，不修改内容，即使原申请已经 approved/rejected 也不再新增；重申须使用新 key 并产生新申请 id。正常字段校验先于幂等回读，错误输入不会因为使用旧 key 而跳过校验。同用户、不同 key、大小写不敏感同名的 pending 申请冲突；不同用户同名或既有组同名不冲突。每轮历史保留，不能套用加入申请“覆盖原行”的规则。
+
+| 状态码 | code | 条件 |
+| --- | --- | --- |
+| 400 | invalid_request | 空请求体、非法 JSON 或多个 JSON 值 |
+| 422 | validation_error | 必填/长度/空白/字段类型/未知字段或幂等头不合法；错误字段含 name、description、reason 或 Idempotency-Key |
+| 409 | conflict | 同申请人同名 pending 已存在（fields.name）；提交的事务裁决点发现申请人已停用（fields.applicant_id） |
+
+认证、429 限流和 500 错误沿用 S02。申请、幂等映射、created 审计原子写入；响应丢失应用原 key 核对。首期无修改、撤回或删除申请接口。
+
+## 15. `POST /api/v1/me/group-creation-requests/query`
+
+**权限**：有效登录用户，仅本人；系统管理员调用此端点也只能查询本人。
+
+请求字段为 `{status?, page?, page_size?, sort?}`。status 为 pending/approved/rejected，省略或 null 表示全部；不接受 applicant_id、q 或其他指定申请人的字段，出现返回 422。
+
+分页默认 1/20，page ≥1，page_size 为 1–100。排序白名单 created_at、updated_at、status，默认 **-created_at**，追加申请 id 升序稳定排序。status、分页或排序不合法为 400 invalid_request；非法 JSON 为 400，未知字段为 422。
+
+**200**：标准列表信封，data 为 §14 基础投影数组（空结果为 []），pagination.total 与筛选同一快照。返回逐轮历史，包括已通过后组停用/改名/申请人失去访问权的记录，组当前资料与进入能力仍按当前组权限投影；历史结果不构成永久组访问资格。无审计写入。
+
+## 16. `POST /api/v1/group-creation-requests/query`
+
+**权限**：仅系统管理员，非管理员直接 403 permission_denied，包含已有组所有者/组管理员。
+
+| 请求字段 | 类型 | 约束 |
+| --- | --- | --- |
+| `status` | string 或 null | pending/approved/rejected；省略/null 为全部 |
+| `applicant_id` | UUID 或 null | 按申请人筛选；省略/null 为全部 |
+| `q` | string | 去首尾空白后最多 160 Unicode 码点；空串/省略为全部 |
+| `page` / `page_size` / `sort` | integer / integer / string | 同 §15；接口默认 -created_at，管理页面待审列表显式使用 created_at 升序 |
+
+q 对申请名称、申请人当前 username/display_name 做不区分大小写的字面子串匹配，`%`、`_`、反斜杠均不作通配符；不搜索完整理由或邮箱。条件组合为 AND。
+
+**200**：标准列表信封，data 使用 §14 的管理员投影，无逐行额外用户查询；total 与结果集在同一一致快照读取。非法 applicant_id、过长 q、非法状态/分页/排序为 400；未知字段为 422。无审计写入。
+
+## 17. `GET /api/v1/group-creation-requests/{request_id}`
+
+**权限**：申请人本人或系统管理员。非本人且非管理员与申请不存在均为 404 resource_not_found；组内管理身份不扩权。
+
+request_id 必须是合法 UUID，否则 400 invalid_request（fields.request_id）。无请求体；查询字符串不参与校验/筛选。**200** 返回 §14 的单对象，管理员包含管理员投影字段，普通申请人使用基础投影；无审计写入。可用本接口核对提交、审核或响应丢失的结果。
+
+## 18. `POST /api/v1/group-creation-requests/{request_id}/review`
+
+**权限**：仅系统管理员，非管理员 403；request_id 约束同 §17。管理员可审核本人申请，不要求双人审批。
+
+| 请求字段 | 类型 | 必填 | 约束 |
+| --- | --- | --- | --- |
+| `status` | string | 是 | approved / rejected；不接受 pending |
+| `expected_updated_at` | string | 是 | §14 原样返回的申请版本，ISO 8601，保留亚秒精度 |
+| `rejection_reason` | string 或 null | 拒绝时必填 | 去首尾空白后 1–2000 码点；通过时不能提供非空白内容，省略/null/空白归一为 null |
+
+不接受修改申请内容、owner_id、group_id、reviewed_by 等字段。**200** 返回 §14 的管理员投影。只允许 pending → approved/rejected，不重新开启终态：
+
+- approved：确认申请人当前账号启用，创建 active 组，owner_id 为申请人，同时创建申请人的 active manager 成员关系、更新申请及审计；审核者不自动加入。任一步失败全部回滚，不出现已批准但未建组。
+- rejected：记录审核者、时间与拒绝理由，不产生组/成员。申请人账号停用时仍可拒绝；批准会返回 409，申请保持 pending。
+- 同一申请并发审核仅一次成功。事务先验证审核者当前有效系统管理员身份和账号事实，再锁定待审行校验版本。结果已终态优先返回 409 conflict；仍 pending 且版本不匹配为 409 version_conflict。
+
+| 状态码 | code | 条件 |
+| --- | --- | --- |
+| 400 | invalid_request | 路径 UUID 不合法、请求体为空/非法 JSON |
+| 403 | permission_denied | 非系统管理员；或事务授权点发现审核者已被停用/降权 |
+| 404 | resource_not_found | 申请不存在 |
+| 409 | conflict | 已终态（fields.status），或批准时申请人已停用（fields.applicant_id） |
+| 409 | version_conflict | 待审申请版本不匹配 |
+| 422 | validation_error | 状态、拒绝理由、必填/非法时间格式或未知字段不合法；时间解析字段为 timestamp，缺版本字段为 expected_updated_at |
+
+通过/拒绝审计为 group_creation_request/group_creation_reviewed，通过时另外写 group/created，均与业务同事务，详见 [A09](A09-audit.md)。审核响应丢失须按 §17 查回；重复审核不会重复建组，不能用管理员直接创建作为自动补偿。
