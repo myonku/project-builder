@@ -255,7 +255,7 @@ func TruncateAll(t *testing.T, pool *pgxpool.Pool) {
 	// 但"审计表从空开始"是每个用例的硬前提，不该依赖级联的传递性。
 	const query = `TRUNCATE TABLE
 		insight_events, insight_states, activity_logs, idempotency_keys, task_members, tasks, project_members, projects,
-		group_join_requests, group_members, groups, users
+		group_creation_requests, group_join_requests, group_members, groups, users
 		RESTART IDENTITY CASCADE`
 
 	if _, err := pool.Exec(context.Background(), query); err != nil {

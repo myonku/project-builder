@@ -34,19 +34,19 @@ func TestMigrationsApplyFromEmptyDatabase(t *testing.T) {
 	if dirty {
 		t.Fatal("schema 处于脏状态")
 	}
-	if version != 12 {
-		t.Fatalf("迁移版本 = %d，期望 12（000001 初始 schema + 000002 tasks.updated_by "+
+	if version != 13 {
+		t.Fatalf("迁移版本 = %d，期望 13（000001 初始 schema + 000002 tasks.updated_by "+
 			"+ 000003 attachments + 000004 reminders + 000005 activity_logs "+
 			"+ 000006 registration_requests + 000007 attachments.storage_backend "+
-			"+ 000008 users avatar columns + 000009 password reset + 000010 hierarchical rollup + 000011 reminder plans + 000012 insights）", version)
+			"+ 000008 users avatar columns + 000009 password reset + 000010 hierarchical rollup + 000011 reminder plans + 000012 insights + 000013 group creation requests）", version)
 	}
 
-	// 全部 17 张业务表必须存在。
+	// 全部业务表必须存在（包括后续增量迁移）。
 	expected := []string{
 		"users", "groups", "group_members", "group_join_requests",
 		"projects", "project_members", "tasks", "task_members",
 		"attachments", "reminders", "idempotency_keys", "activity_logs",
-		"registration_requests", "password_reset_states", "password_reset_tokens",
+		"group_creation_requests", "registration_requests", "password_reset_states", "password_reset_tokens",
 		"reminder_delivery_guards", "reminder_delivery_attempts", "insight_states", "insight_events", "insights_coverage",
 	}
 	for _, table := range expected {
@@ -190,7 +190,7 @@ func TestEveryBusinessTableHasAuditColumns(t *testing.T) {
 		"users", "groups", "group_members", "group_join_requests",
 		"projects", "project_members", "tasks", "task_members",
 		"attachments", "reminders", "idempotency_keys", "activity_logs",
-		"registration_requests", "password_reset_states", "password_reset_tokens",
+		"group_creation_requests", "registration_requests", "password_reset_states", "password_reset_tokens",
 		"reminder_delivery_guards", "reminder_delivery_attempts",
 	}
 	required := []string{"id", "created_at", "updated_at"}
@@ -645,4 +645,16 @@ func insertTask(t *testing.T, pool *pgxpool.Pool, projectID, createdBy string) s
 		t.Fatalf("插入任务失败: %v", err)
 	}
 	return id
+}
+
+// migrateToVersion targets a historical schema independently of how many later migrations exist.
+func migrateToVersion(m *database.Migrator, target uint) error {
+	current, _, err := m.Version()
+	if err != nil {
+		return err
+	}
+	if current == target {
+		return nil
+	}
+	return m.Steps(int(target) - int(current))
 }

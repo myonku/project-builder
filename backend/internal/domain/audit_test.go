@@ -17,7 +17,7 @@ func TestAuditWhitelistsMatchContract(t *testing.T) {
 		objectTypes = append(objectTypes, string(item))
 	}
 	assertSameSet(t, "AuditObjectTypes", objectTypes,
-		"user", "group", "project", "task", "attachment", "reminder")
+		"user", "group", "project", "task", "attachment", "reminder", "group_creation_request")
 
 	actions := make([]string, 0, len(auditActions))
 	for _, item := range AuditActions() {
@@ -27,7 +27,7 @@ func TestAuditWhitelistsMatchContract(t *testing.T) {
 		"created", "updated", "archived", "deleted", "purged",
 		"member_added", "member_role_changed", "member_removed",
 		"owner_transferred", "join_request_reviewed", "shared",
-		"password_reset", "disabled")
+		"password_reset", "disabled", "group_creation_reviewed")
 }
 
 // TestAuditWhitelistAccessorsReturnCopy 保证调用方改不动白名单。

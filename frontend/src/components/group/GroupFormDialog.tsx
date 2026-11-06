@@ -26,8 +26,8 @@ import { GROUP_STATUS_OPTIONS } from '@/components/group/groupMeta';
 import type { Group, GroupStatus } from '@/types/group';
 
 const schema = z.object({
-  name: z.string().trim().min(1, '请输入工作组名称').max(160, '名称不超过 160 字符'),
-  description: z.string().max(2000, '说明不超过 2000 字符'),
+  name: z.string().trim().min(1, '请输入工作组名称').refine(v => Array.from(v).length <= 160, '名称不超过 160 字符'),
+  description: z.string().refine(v => Array.from(v).length <= 2000, '说明不超过 2000 字符'),
   status: z.enum(['active', 'disabled']),
 });
 

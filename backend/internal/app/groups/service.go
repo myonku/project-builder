@@ -17,6 +17,10 @@ import (
 // 命名为 Store 而不是 Repository：本包内已有 Repository 结构体（SQL 实现），
 // 两者同名会让所有引用处产生歧义。
 type Store interface {
+	SubmitCreationRequest(context.Context, SubmitCreationParams) (CreationRequestRecord, bool, error)
+	QueryCreationRequests(context.Context, CreationFilter, string, int, int) ([]CreationRequestRecord, int, error)
+	FindCreationRequest(context.Context, string, string) (CreationRequestRecord, error)
+	ReviewCreationRequest(context.Context, ReviewCreationParams) (CreationRequestRecord, error)
 	CountDiscoverGroups(context.Context, string, string) (int, error)
 	ListDiscoverGroups(context.Context, string, string, string, int, int) ([]DiscoverGroup, error)
 	CountMyJoinRequests(context.Context, string, *string) (int, error)
@@ -165,7 +169,6 @@ func (s *Service) memberChangeAudit(
 type CreateInput struct {
 	Name        string
 	Description *string
-	OwnerID     string
 }
 
 // Create 创建工作组的全部初始状态。
@@ -173,7 +176,10 @@ type CreateInput struct {
 // 单一写路径（backend/docs/B02 §3.2.1）：groups.owner_id 与所有者的 group_members 行
 // 在同一个事务内写入，返回后的组必然"有所有者且所有者是活跃 manager"。
 // 客户端不得分别调用两个接口来达成这一点。
-func (s *Service) Create(ctx context.Context, in CreateInput) (GroupRecord, error) {
+func (s *Service) Create(ctx context.Context, actor domain.User, in CreateInput) (GroupRecord, error) {
+	if !actor.IsActive() || !actor.IsAdmin() {
+		return GroupRecord{}, domain.ErrPermissionDenied
+	}
 	normalized, fields := domain.NormalizeGroupCreate(domain.GroupMembershipInput{
 		Name:        in.Name,
 		Description: in.Description,
@@ -196,8 +202,9 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (GroupRecord, erro
 		Name:        normalized.Name,
 		Description: normalized.Description,
 		MemberID:    memberID,
-		OwnerID:     in.OwnerID,
-		Audit: s.auditWith(in.OwnerID, domain.AuditActionCreated, groupID,
+		OwnerID:     actor.ID,
+		ActorID:     actor.ID,
+		Audit: s.auditWith(actor.ID, domain.AuditActionCreated, groupID,
 			map[string]string{"name": normalized.Name}),
 	})
 	if err != nil {
@@ -206,7 +213,7 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (GroupRecord, erro
 
 	s.logger.Info("工作组已创建",
 		slog.String("group_id", created.ID),
-		slog.String("owner_id", in.OwnerID),
+		slog.String("owner_id", actor.ID),
 	)
 	return created, nil
 }

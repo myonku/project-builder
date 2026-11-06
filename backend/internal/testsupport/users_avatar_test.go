@@ -180,9 +180,7 @@ func TestAvatarVisibilityFollowsProfile(t *testing.T) {
 		RequireStatus(t, 404).RequireCode(t, "user_not_found")
 
 	// 同组后可见。
-	group := alice.Client.Post(URL("/groups"), map[string]any{"name": "Avatar 可见性"}).
-		RequireStatus(t, 201).Data(t)
-	groupID := Str(group, "id")
+	groupID := harness.CreateGroup(t, alice, "Avatar 可见性")
 	alice.Client.Post(URL("/groups/"+groupID+"/members"), map[string]any{"user_id": bob.UserID}).
 		RequireStatus(t, 201)
 	bob.Client.Get(URL("/users/"+alice.UserID+"/avatar")).RequireStatus(t, 200)

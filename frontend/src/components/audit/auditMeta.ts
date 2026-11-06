@@ -18,6 +18,7 @@ export interface AuditActionMeta {
 
 /** 13 个动作（《A09》§`action` 完整枚举） */
 const ACTION_META: Record<AuditAction, AuditActionMeta> = {
+  group_creation_reviewed: { label: '新建工作组审核', tone: 'info' },
   created: { label: '创建', tone: 'success' },
   updated: { label: '修改', tone: 'info' },
   archived: { label: '归档', tone: 'warning' },
@@ -41,6 +42,7 @@ const OBJECT_TYPE_LABELS: Record<AuditObjectType, string> = {
   task: '任务',
   attachment: '附件',
   reminder: '提醒',
+  group_creation_request: '工作组新建申请',
 };
 
 export function auditActionMeta(action: AuditAction): AuditActionMeta {

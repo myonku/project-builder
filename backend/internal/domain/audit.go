@@ -20,12 +20,13 @@ type AuditObjectType string
 type AuditAction string
 
 const (
-	AuditObjectUser       AuditObjectType = "user"
-	AuditObjectGroup      AuditObjectType = "group"
-	AuditObjectProject    AuditObjectType = "project"
-	AuditObjectTask       AuditObjectType = "task"
-	AuditObjectAttachment AuditObjectType = "attachment"
-	AuditObjectReminder   AuditObjectType = "reminder"
+	AuditObjectUser                 AuditObjectType = "user"
+	AuditObjectGroup                AuditObjectType = "group"
+	AuditObjectProject              AuditObjectType = "project"
+	AuditObjectTask                 AuditObjectType = "task"
+	AuditObjectAttachment           AuditObjectType = "attachment"
+	AuditObjectReminder             AuditObjectType = "reminder"
+	AuditObjectGroupCreationRequest AuditObjectType = "group_creation_request"
 )
 
 const (
@@ -43,9 +44,10 @@ const (
 	AuditActionJoinRequestReviewed AuditAction = "join_request_reviewed"
 	// AuditActionShared 专指项目的可见性（共享级别）变化：需求文档 §4.3 把它
 	// 单列为一条业务规则，排查"为什么这个项目突然对全组可见"时需要一眼看到。
-	AuditActionShared        AuditAction = "shared"
-	AuditActionPasswordReset AuditAction = "password_reset"
-	AuditActionDisabled      AuditAction = "disabled"
+	AuditActionShared                AuditAction = "shared"
+	AuditActionPasswordReset         AuditAction = "password_reset"
+	AuditActionDisabled              AuditAction = "disabled"
+	AuditActionGroupCreationReviewed AuditAction = "group_creation_reviewed"
 )
 
 // auditObjectTypes / auditActions 是白名单的唯一事实来源。
@@ -54,6 +56,7 @@ const (
 var auditObjectTypes = []AuditObjectType{
 	AuditObjectUser, AuditObjectGroup, AuditObjectProject,
 	AuditObjectTask, AuditObjectAttachment, AuditObjectReminder,
+	AuditObjectGroupCreationRequest,
 }
 
 var auditActions = []AuditAction{
@@ -62,6 +65,7 @@ var auditActions = []AuditAction{
 	AuditActionMemberAdded, AuditActionMemberRoleChanged, AuditActionMemberRemoved,
 	AuditActionOwnerTransferred, AuditActionJoinRequestReviewed, AuditActionShared,
 	AuditActionPasswordReset, AuditActionDisabled,
+	AuditActionGroupCreationReviewed,
 }
 
 // AuditObjectTypes 返回对象类型白名单（供校验、文档断言与测试使用）。
