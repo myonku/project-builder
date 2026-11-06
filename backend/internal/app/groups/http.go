@@ -39,6 +39,7 @@ func NewHandler(service *Service, actors ActorLoader, logger *slog.Logger) *Hand
 
 // Register 把本模块端点挂载到版本化路由组之下。
 func (h *Handler) Register(api *gin.RouterGroup) {
+	h.registerCreationRequests(api)
 	group := api.Group("/groups")
 
 	group.POST("", h.create)
@@ -232,6 +233,10 @@ func (h *Handler) create(c *gin.Context) {
 		httpapi.Abort(c, err)
 		return
 	}
+	if !actor.IsAdmin() {
+		httpapi.Abort(c, domain.ErrPermissionDenied)
+		return
+	}
 
 	var request createRequest
 	if err := httpapi.BindJSON(c, &request); err != nil {
@@ -239,10 +244,9 @@ func (h *Handler) create(c *gin.Context) {
 		return
 	}
 
-	created, err := h.service.Create(c.Request.Context(), CreateInput{
+	created, err := h.service.Create(c.Request.Context(), actor, CreateInput{
 		Name:        request.Name,
 		Description: request.Description,
-		OwnerID:     actor.ID,
 	})
 	if err != nil {
 		httpapi.Abort(c, err)

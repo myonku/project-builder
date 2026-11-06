@@ -13,6 +13,9 @@ import Tab from '@mui/material/Tab';
 import Tabs from '@mui/material/Tabs';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
+import GroupCreationFormDialog from '@/components/group/GroupCreationFormDialog';
+import GroupCreationRequestsPanel from '@/components/group/GroupCreationRequestsPanel';
+import type { GroupCreationRequest } from '@/types/groupCreation';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import SearchIcon from '@mui/icons-material/Search';
 import RestartAltIcon from '@mui/icons-material/RestartAlt';
@@ -54,7 +57,10 @@ function applicationLabel(membership: GroupMembershipStatus | null, status: Join
 }
 
 export default function GroupJoinView() {
-  const [tab, setTab] = React.useState<'groups' | 'requests'>('groups');
+  const [tab, setTab] = React.useState<'groups' | 'requests' | 'creations'>('groups');
+  const [createOpen, setCreateOpen] = React.useState(false);
+  const [createSeed, setCreateSeed] = React.useState<GroupCreationRequest | null>(null);
+  const [creationToken, setCreationToken] = React.useState(0);
   const [detailGroupId, setDetailGroupId] = React.useState<string | null>(null);
   const [query, setQuery] = React.useState('');
   const [busyGroup, setBusyGroup] = React.useState<string | null>(null);
@@ -76,14 +82,14 @@ export default function GroupJoinView() {
     query: ({ filters, page, pageSize, sort }) => queryMyGroupJoinRequests({ ...(filters.status ? { status: filters.status } : {}), page, page_size: pageSize, sort }),
     initialFilters: { status: '' }, sortWhitelist: REQUEST_SORT, initialSort: [{ field: 'updated_at', sort: 'desc' }], enabled: tab === 'requests',
   });
-  const refresh = React.useCallback(() => { joined.reload(); discover.reload(); requests.reload(); }, [joined.reload, discover.reload, requests.reload]);
+  const refresh = React.useCallback(() => { setCreationToken(t => t + 1); joined.reload(); discover.reload(); requests.reload(); }, [joined.reload, discover.reload, requests.reload]);
   async function apply(groupID: string, name: string) {
     if (busyGroup) return;
     if (!await dialogs.confirm(`申请加入「${name}」？审核通过后即可访问组内计划。`, { title: '申请加入工作组', okText: '提交申请', cancelText: '取消' })) return;
     setBusyGroup(groupID); setSubmitError(null);
     try {
       await createJoinRequest(groupID);
-      show('加入申请已提交，可在“我的申请”查看审核结果。', { severity: 'success' });
+      show('加入申请已提交，可在“加入申请”查看审核结果。', { severity: 'success' });
     } catch (error) { setSubmitError(error); }
     finally { setBusyGroup(null); refresh(); }
   }
@@ -119,16 +125,17 @@ export default function GroupJoinView() {
   ];
   const list = tab === 'groups' ? joined : requests;
   return <PageContainer title="工作组" breadcrumbs={[{ title: '工作台', path: '/projects' }, { title: '工作组' }]}
-    actions={<Button variant="outlined" startIcon={<RefreshIcon />} onClick={refresh} disabled={list.loading}>刷新</Button>}>
+    actions={<Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap' }}><Button variant="contained" onClick={() => { setCreateSeed(null); setCreateOpen(true); }}>申请新建工作组</Button><Button variant="outlined" startIcon={<RefreshIcon />} onClick={refresh} disabled={tab !== 'creations' && list.loading}>刷新</Button></Stack>}>
     <Stack spacing={2} sx={{ minWidth: 0 }}>
       <Tabs value={tab} onChange={(_e, next) => { setTab(next); setSubmitError(null); }}>
-        <Tab label="我的组" value="groups" /><Tab label="我的申请" value="requests" />
+        <Tab label="我的组" value="groups" /><Tab label="加入申请" value="requests" /><Tab label="新建申请" value="creations" />
       </Tabs>
       {tab === 'groups' ? <>
         <Typography variant="body2" color="text.secondary">查看你已加入的工作组，点击组名了解组信息和成员。</Typography>
         {joined.error && <Alert severity="error" action={<Button color="inherit" onClick={joined.reload}>重试</Button>}>{describeApiError(joined.error)}</Alert>}
+        {!joined.loading && !joined.error && joined.rowCount === 0 && <Alert severity="info" action={<Button color="inherit" onClick={() => { setCreateSeed(null); setCreateOpen(true); }}>申请新建工作组</Button>}>你还没有加入工作组。可以提交新建申请，或切换到“加入申请”查找已有组。</Alert>}
         <QueryGrid list={joined} columns={joinedColumns} />
-      </> : <>
+      </> : tab === 'requests' ? <>
         <Typography variant="h6" component="h2">申请加入</Typography>
         <Typography variant="body2" color="text.secondary">按组名或完整 ID 查找工作组，提交申请后等待审核。</Typography>
         <Box component="form" onSubmit={event => { event.preventDefault(); discover.setFilters({ q: query.trim() }); }} sx={filterRowSx(false)}>
@@ -147,8 +154,11 @@ export default function GroupJoinView() {
         </TextField>
         {requests.error && <Alert severity="error" action={<Button color="inherit" onClick={requests.reload}>重试</Button>}>{describeApiError(requests.error)}</Alert>}
         <QueryGrid list={requests} columns={requestColumns} />
-      </>}
+      </> : <GroupCreationRequestsPanel key={currentUser?.id} reloadToken={creationToken} onOpenGroup={setDetailGroupId} onResubmit={request => { setCreateSeed(request); setCreateOpen(true); }} />}
     </Stack>
+    {currentUser && <GroupCreationFormDialog key={currentUser.id} open={createOpen} userId={currentUser.id} seed={createSeed} onClose={() => setCreateOpen(false)} onSubmitted={result => {
+      setCreateOpen(false); setTab('creations'); refresh(); show(result.status === 'pending' ? '新建申请已提交，等待系统管理员审核。' : '已核对本次申请，请查看审核结果。', { severity: 'success' });
+    }} />}
     {detailGroupId && <JoinedGroupDrawer key={detailGroupId} groupId={detailGroupId} onClose={() => setDetailGroupId(null)} />}
     <Dialog open={!!reviewGroup} onClose={() => setReviewGroup(null)} fullWidth maxWidth="md" aria-labelledby="group-review-title">
       <DialogTitle id="group-review-title" sx={{ overflowWrap: 'anywhere' }}>{reviewGroup?.name} · 加入申请</DialogTitle>

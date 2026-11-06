@@ -2,8 +2,10 @@ package testsupport
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/myonku/project-builder/internal/domain"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -339,13 +341,30 @@ func (h *Harness) RegisterAndLoginWithTimezone(t *testing.T, username, timezone 
 	}
 }
 
-// CreateGroup 创建一个工作组并返回其 id，创建者成为所有者。
+// CreateGroup installs a historical group fixture without changing any user's system role.
+// Production permissions are exercised separately by the direct-create and approval HTTP tests.
 func (h *Harness) CreateGroup(t *testing.T, actor Authenticated, name string) string {
 	t.Helper()
-
-	response := actor.Client.Post(URL("/groups"), map[string]any{"name": name})
-	response.RequireStatus(t, 201)
-	return Str(response.Data(t), "id")
+	ctx := context.Background()
+	tx, err := h.Pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	var id string
+	if err := tx.QueryRow(ctx, `INSERT INTO groups(id,name,owner_id) VALUES(gen_random_uuid(),$1,$2) RETURNING id`, name, actor.UserID).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO group_members(id,group_id,user_id,role,status) VALUES(gen_random_uuid(),$1,$2,'manager','active')`, id, actor.UserID); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.Audit.WriteAudit(ctx, tx, domain.AuditEntry{ActorID: actor.UserID, Action: domain.AuditActionCreated, ObjectType: domain.AuditObjectGroup, ObjectID: id, RequestID: "historical-group-fixture", Changes: map[string]string{"name": name}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	return id
 }
 
 // AddGroupMember 由所有者把目标用户加入工作组。

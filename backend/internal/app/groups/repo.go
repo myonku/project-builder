@@ -125,6 +125,7 @@ type CreateGroupParams struct {
 	Description *string
 	MemberID    string
 	OwnerID     string
+	ActorID     string
 	// Audit 是要在同一事务里写下的一条操作记录；nil 表示不记。
 	// 由用例层构造（见 apperr.AuditWrite）。
 	Audit *apperr.AuditWrite
@@ -179,48 +180,58 @@ func (r *Repository) Pool() *pgxpool.Pool { return r.pool }
 // 因此这里把两步放在同一个事务里，而不是让服务层各调一次。
 func (r *Repository) CreateGroupInTx(ctx context.Context, params CreateGroupParams) (GroupRecord, error) {
 	var created GroupRecord
-
 	err := apperr.InTx(ctx, r.pool, func(ctx context.Context, tx apperr.Querier) error {
-		const insertGroup = `
-			INSERT INTO groups (id, name, description, owner_id)
-			VALUES ($1, $2, $3, $4)
-			RETURNING ` + groupReturningColumns
-
-		if err := tx.QueryRow(ctx, insertGroup,
-			params.ID, params.Name, params.Description, params.OwnerID,
-		).Scan(&created.ID, &created.Name, &created.Description, &created.Status,
-			&created.OwnerID, &created.CreatedAt, &created.UpdatedAt); err != nil {
-			return apperr.Translate(err, constraintMap)
+		if err := lockCreationUsers(ctx, tx, params.ActorID, params.OwnerID, true, true); err != nil {
+			return err
 		}
-
-		const insertOwnerMember = `
-			INSERT INTO group_members (id, group_id, user_id, role, status)
-			VALUES ($1, $2, $3, 'manager', 'active')`
-
-		if _, err := tx.Exec(ctx, insertOwnerMember,
-			params.MemberID, params.ID, params.OwnerID,
-		); err != nil {
-			return apperr.Translate(err, constraintMap)
-		}
-
-		// 回读刚写入的成员关系，作为"单一写路径成功"的证据。
-		const readMember = `
-			SELECT id, group_id, user_id, role, status, joined_at
-			  FROM group_members
-			 WHERE group_id = $1 AND user_id = $2`
-
-		var member MemberRecord
-		if err := tx.QueryRow(ctx, readMember, params.ID, params.OwnerID).Scan(
-			&member.ID, &member.GroupID, &member.UserID, &member.Role,
-			&member.Status, &member.JoinedAt,
-		); err != nil {
-			return fmt.Errorf("回读所有者成员关系失败: %w", err)
-		}
-		created.Membership = &member
-		// 审计与业务在同一个事务里：业务回滚则记录也不存在。
-		return params.Audit.Flush(ctx, tx)
+		var err error
+		created, err = insertGroupInTx(ctx, tx, params)
+		return err
 	})
-	if err != nil {
+	return created, err
+}
+
+// insertGroupInTx is shared by direct admin creation and approval; it never commits.
+func insertGroupInTx(ctx context.Context, tx apperr.Querier, params CreateGroupParams) (GroupRecord, error) {
+	var created GroupRecord
+	const insertGroup = `
+		INSERT INTO groups (id, name, description, owner_id)
+		VALUES ($1, $2, $3, $4)
+		RETURNING ` + groupReturningColumns
+
+	if err := tx.QueryRow(ctx, insertGroup,
+		params.ID, params.Name, params.Description, params.OwnerID,
+	).Scan(&created.ID, &created.Name, &created.Description, &created.Status,
+		&created.OwnerID, &created.CreatedAt, &created.UpdatedAt); err != nil {
+		return GroupRecord{}, apperr.Translate(err, constraintMap)
+	}
+
+	const insertOwnerMember = `
+		INSERT INTO group_members (id, group_id, user_id, role, status)
+		VALUES ($1, $2, $3, 'manager', 'active')`
+
+	if _, err := tx.Exec(ctx, insertOwnerMember,
+		params.MemberID, params.ID, params.OwnerID,
+	); err != nil {
+		return GroupRecord{}, apperr.Translate(err, constraintMap)
+	}
+
+	// 回读刚写入的成员关系，作为"单一写路径成功"的证据。
+	const readMember = `
+		SELECT id, group_id, user_id, role, status, joined_at
+		  FROM group_members
+		 WHERE group_id = $1 AND user_id = $2`
+
+	var member MemberRecord
+	if err := tx.QueryRow(ctx, readMember, params.ID, params.OwnerID).Scan(
+		&member.ID, &member.GroupID, &member.UserID, &member.Role,
+		&member.Status, &member.JoinedAt,
+	); err != nil {
+		return GroupRecord{}, fmt.Errorf("回读所有者成员关系失败: %w", err)
+	}
+	created.Membership = &member
+	// 审计与业务在同一个事务里：业务回滚则记录也不存在。
+	if err := params.Audit.Flush(ctx, tx); err != nil {
 		return GroupRecord{}, err
 	}
 	return created, nil

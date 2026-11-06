@@ -10,6 +10,9 @@
  */
 
 import * as React from 'react';
+import Tab from '@mui/material/Tab';
+import Tabs from '@mui/material/Tabs';
+import GroupCreationRequestsPanel from '@/components/group/GroupCreationRequestsPanel';
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
@@ -53,6 +56,9 @@ interface GroupFilters {
 const INITIAL_FILTERS: GroupFilters = { status: '' };
 
 export default function GroupListView() {
+  const [tab, setTab] = React.useState<'groups' | 'creations'>('groups');
+  const [creationToken, setCreationToken] = React.useState(0);
+  const userId = useAuthStore(s => s.user?.id);
   const { show } = useNotifications();
   const { handle } = useApiError();
   const userTimeZone = useAuthStore((state) => state.user?.timezone);
@@ -90,6 +96,7 @@ export default function GroupListView() {
     sortWhitelist: SORT_WHITELIST,
     initialSort: [{ field: 'name', sort: 'asc' }],
     deps: [],
+    enabled: tab === 'groups',
   });
 
   React.useEffect(() => {
@@ -232,20 +239,21 @@ export default function GroupListView() {
               setCreateOpen(true);
             }}
           >
-            新建工作组
+            直接新建工作组
           </Button>
           <Button
             variant="outlined"
             startIcon={<RefreshIcon />}
-            onClick={reload}
-            disabled={loading}
+            onClick={() => { reload(); setCreationToken(t => t + 1); }}
+            disabled={tab === 'groups' && loading}
           >
             刷新
           </Button>
         </Stack>
       }
     >
-      <Stack spacing={2}>
+      <Tabs value={tab} onChange={(_e, next) => setTab(next)} sx={{ mb: 2 }}><Tab value="groups" label="工作组" /><Tab value="creations" label="新建申请" /></Tabs>
+      {tab === 'creations' ? <GroupCreationRequestsPanel key={userId} admin reloadToken={creationToken} onOpenGroup={openDetail} /> : <Stack spacing={2}>
         <Typography variant="body2" color="text.secondary">
           系统管理员可见全部工作组；成员、所有者与加入申请的修改都在详情抽屉里完成。
         </Typography>
@@ -322,7 +330,7 @@ export default function GroupListView() {
             }}
           />
         </Box>
-      </Stack>
+      </Stack>}
 
       <GroupFormDialog
         open={createOpen}

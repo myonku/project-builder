@@ -16,6 +16,7 @@ import (
 func TestGroupCreateWritesOwnerMembershipAtomically(t *testing.T) {
 	harness := NewHarness(t)
 	owner := harness.RegisterAndLogin(t, "alice")
+	promoteToAdmin(t, harness, owner.UserID)
 
 	response := owner.Client.Post(URL("/groups"), map[string]any{
 		"name":        "研发组",
@@ -502,6 +503,7 @@ func TestGroupSortIsStableAcrossPages(t *testing.T) {
 func TestGroupDescriptionCanBeCleared(t *testing.T) {
 	harness := NewHarness(t)
 	owner := harness.RegisterAndLogin(t, "alice")
+	promoteToAdmin(t, harness, owner.UserID)
 
 	created := owner.Client.Post(URL("/groups"), map[string]any{
 		"name": "研发组", "description": "初始描述",

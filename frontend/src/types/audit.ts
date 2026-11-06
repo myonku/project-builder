@@ -10,7 +10,8 @@ export type AuditObjectType =
   | 'project'
   | 'task'
   | 'attachment'
-  | 'reminder';
+  | 'reminder'
+  | 'group_creation_request';
 
 /** 白名单 13 个动作（《S02》§7 变更记录：由 16 个收敛而来） */
 export type AuditAction =
@@ -26,7 +27,8 @@ export type AuditAction =
   | 'join_request_reviewed'
   | 'shared'
   | 'password_reset'
-  | 'disabled';
+  | 'disabled'
+  | 'group_creation_reviewed';
 
 export interface AuditRecord {
   readonly id: string;

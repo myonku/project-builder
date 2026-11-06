@@ -326,14 +326,31 @@ $login = Invoke-Api -Method POST -Path '/api/v1/auth/login' -Body @{
 }
 Assert-Equal $login.Status 200 '重新登录'
 
-$groupId = $null
-$group = Invoke-Api -Method POST -Path '/api/v1/groups' -Body @{
-    name        = "冒烟工作组 $Username"
-    description = '由冒烟脚本创建'
+$directDenied = Invoke-Api -Method POST -Path '/api/v1/groups' -Body @{ name = '普通用户不能绕过审核' }
+Assert-Equal $directDenied.Status 403 '普通用户直接创建工作组被拒绝'
+$creationKey = [Guid]::NewGuid().ToString()
+$application = Invoke-Api -Method POST -Path '/api/v1/group-creation-requests' -Headers @{ 'Idempotency-Key' = $creationKey } -Body @{
+    name = "冒烟工作组 $Username"
+    description = '由冒烟脚本申请'
+    reason = '验证申请、审批、所有者及成员的完整链路'
 }
-Assert-Equal $group.Status 201 'POST /api/v1/groups'
-$groupId = $group.Body.data.id
-Assert-Equal $group.Body.data.membership_role 'manager' '创建者应为 manager'
+Assert-Equal $application.Status 201 '提交工作组新建申请'
+Assert-Equal $application.Body.data.status 'pending' '新建申请待审'
+$creationApplicantSession = $session
+$session = New-Object Microsoft.PowerShell.Commands.WebRequestSession
+$creationAdminLogin = Invoke-Api -Method POST -Path '/api/v1/auth/login' -Body @{ identifier = $AdminUsername; password = $AdminPassword }
+Assert-Equal $creationAdminLogin.Status 200 '新建申请审核者登录'
+$approvedGroup = Invoke-Api -Method POST -Path "/api/v1/group-creation-requests/$($application.Body.data.id)/review" -Body @{
+    status = 'approved'
+    expected_updated_at = $application.Body.data.updated_at
+}
+Assert-Equal $approvedGroup.Status 200 '管理员通过新建申请'
+$groupId = $approvedGroup.Body.data.group_id
+$session = $creationApplicantSession
+$group = Invoke-Api -Method GET -Path "/api/v1/groups/$groupId"
+Assert-Equal $group.Status 200 '申请人可读批准后的工作组'
+Assert-Equal $group.Body.data.owner_id $userId '申请人成为所有者'
+Assert-Equal $group.Body.data.membership_role 'manager' '申请人成为 manager'
 
 $groupList = Invoke-Api -Method POST -Path '/api/v1/groups/query' -Body @{ page = 1; page_size = 20 }
 Assert-Equal $groupList.Status 200 'POST /api/v1/groups/query'
